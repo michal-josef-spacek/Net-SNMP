@@ -1,5 +1,16 @@
                            Net::SNMP Changes
 
+RELEASE 4.0.3 SEP-09-2002
+
+- Net::SNMP objects are now destroyed as expected when they are no
+  longer referenced.  An internal reference to the object allocated by  
+  the Net::SNMP::Dispatcher module is now properly cleared.
+- A socket with a file descriptor value of 0 is now accepted by the 
+  Net::SNMP module as a valid and open filehandle. 
+- Removed an "optimization" which was intended to provide a smoother 
+  initialization of the dispatcher but instead could lead to messages 
+  incorrectly timing out. 
+
 RELEASE 4.0.2 MAY-06-2002
 
 - The SNMPv3 request message sent for time synchronization is now sent
@@ -178,4 +189,4 @@ RELEASE 1.00 SEP-09-1998
 
 RCS
 
-    $Id: Changes,v 4.3 2002/05/06 12:30:37 dtown Exp $
+    $Id: Changes,v 4.4 2002/09/09 12:46:09 dtown Exp $

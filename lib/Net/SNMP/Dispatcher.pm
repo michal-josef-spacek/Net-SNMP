@@ -3,7 +3,7 @@
 
 package Net::SNMP::Dispatcher;
 
-# $Id: Dispatcher.pm,v 1.3 2002/05/06 12:30:37 dtown Exp $
+# $Id: Dispatcher.pm,v 1.4 2002/09/09 12:46:09 dtown Exp $
 
 # Object the dispatches SNMP messages and handles the scheduling of events.
 
@@ -22,7 +22,7 @@ use Net::SNMP::Message qw(TRUE FALSE);
 
 ## Version of the Net::SNMP::Dispatcher module
 
-our $VERSION = v1.0.2;
+our $VERSION = v1.0.3;
 
 ## Package variables
 
@@ -113,13 +113,10 @@ sub send_pdu
       return $this->_error('Required PDU missing');
    }
 
-   # If the dispatcher is active, there is no delay, and the head
-   # of the queue is in the active state, just send the message.
+   # If the Dispatcher is active and there is
+   # no delay just send the message.
 
-   if (($this->{_active}) && (!$delay) &&
-       ((!defined($this->{_event_queue_h})) ||
-         ($this->{_event_queue_h}->[_ACTIVE])))
-   {
+   if (($this->{_active}) && (!$delay)) {
       $this->_send_pdu($pdu, $pdu->timeout, $pdu->retries);
    } else {
       $this->_schedule(
@@ -179,7 +176,7 @@ sub _listen
    # Transport Layer and file descriptor must be valid.
    my $fileno;
 
-   if (!defined($transport) || !($fileno = $transport->fileno)) {
+   if ((!defined($transport)) || (!defined($fileno = $transport->fileno))) {
       return $this->_error('Invalid Transport Layer');
    }
 
@@ -219,7 +216,7 @@ sub _unlisten
    # Transport Layer and file descriptor must be valid. 
    my $fileno; 
 
-   if (!defined($transport) || !($fileno = $transport->fileno)) {
+   if ((!defined($transport)) || (!defined($fileno = $transport->fileno))) {
       return $this->_error('Invalid Transport Layer');
    }
 
@@ -462,9 +459,8 @@ sub _event_delete
          DEBUG_INFO('defined new head [%s]', $event->[_NEXT]);
       } else {
          DEBUG_INFO('deleted [%s], list is now empty', $event);
-         $event->[_PREVIOUS] = $event->[_NEXT] = 
-            $this->{_event_queue_t} = undef; 
-         return $event;
+         $this->{_event_queue_t} = undef @{$event}; 
+         return TRUE;
       }
    } else {
       die('FATAL: Attempt to delete invalid Event head');
@@ -480,10 +476,10 @@ sub _event_delete
       die('FATAL: Attempt to delete invalid Event tail');
    }
 
-   $event->[_PREVIOUS] = $event->[_NEXT] = undef;
    DEBUG_INFO('deleted [%s]', $event);
+   undef @{$event};
 
-   $event;
+   TRUE;
 }
 
 sub _event_init
@@ -500,10 +496,8 @@ sub _event_init
       $this->_callback_execute($event->[_CALLBACK]);
       $this->_event_delete($event);
    } else {
+      $this->_event_create($event->[_TIME], $event->[_CALLBACK]);
       $this->_event_delete($event);
-      $event->[_ACTIVE] = $this->{_active};
-      $event->[_TIME]  += time();
-      $this->_event_insert($event);
    }
 }
 
@@ -516,14 +510,14 @@ sub _event_handle
 
    return unless defined(my $event = $this->{_event_queue_h});
 
-   # Calculate a timeout based on the current time and the lowest
+   # Calculate a timeout based on the current time and the lowest 
    # event time (if the event does not need initialized).
 
    my $timeout = ($event->[_ACTIVE]) ? ($event->[_TIME] - time()) : 0;
 
    # If the timeout is less than 0, we are running late.  In an 
    # attempt to recover from this we do not check the status of  
-   # the file descriptors. 
+   # the file descriptors.
 
    if ($timeout >= 0) {
       DEBUG_INFO('poll delay = %f' , $timeout);
@@ -538,11 +532,11 @@ sub _event_handle
                   $this->_callback_execute(@{$this->{_descriptors}->{$_}});
                }
             }
-            return $event;
+            return TRUE;
          }
       }
       if ((!$this->{_blocking}) && ($timeout > 0)) {
-         return $event;
+         return TRUE;
       }
    } else {
       DEBUG_INFO('skew = %f', -$timeout);
