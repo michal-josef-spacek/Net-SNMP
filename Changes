@@ -1,5 +1,11 @@
                            Net::SNMP Changes
 
+RELEASE 4.1.2 SEP-11-2003
+
+- Removed an unintended dependency on the Crypt::Rijndael that would cause 
+  SNMPv3 support to be unavailable and the "usm.t" tests to fail due to
+  a "strict subs" error in Net::SNMP::Security::USM module.
+ 
 RELEASE 4.1.1 SEP-09-2003
 
 - Corrected a misinterpretation of the "The AES Cipher Algorithm in the
@@ -225,4 +231,4 @@ RELEASE 1.00 SEP-09-1998
 
 RCS
 
-    $Id: Changes,v 4.6 2003/09/09 12:44:54 dtown Exp $
+    $Id: Changes,v 4.7 2003/09/11 19:14:42 dtown Exp $

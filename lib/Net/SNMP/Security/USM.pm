@@ -3,7 +3,7 @@
 
 package Net::SNMP::Security::USM;
 
-# $Id: USM.pm,v 2.1 2003/09/09 12:44:54 dtown Exp $
+# $Id: USM.pm,v 2.2 2003/09/11 19:14:42 dtown Exp $
 
 # Object that implements the SNMPv3 User-based Security Model.
 
@@ -33,7 +33,7 @@ use Digest::HMAC();
 
 ## Version of the Net::SNMP::Security::USM module
 
-our $VERSION = v2.0.1;
+our $VERSION = v2.0.2;
 
 ## Package variables
 
@@ -119,6 +119,8 @@ BEGIN
       } else {
          $NO_AES_SUPPORT = sprintf(' (%s)', $@);
       }
+      # Define the MODE_CFB constant to prevent a "strict subs" error.
+      *Crypt::Rijndael::MODE_CFB = sub { 3 }; 
    }
 
    # Initialize our snmpEngineID using the algorithm described

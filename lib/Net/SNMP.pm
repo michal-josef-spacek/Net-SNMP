@@ -3,7 +3,7 @@
 
 package Net::SNMP;
 
-# $Id: SNMP.pm,v 4.7 2003/09/09 12:44:54 dtown Exp $
+# $Id: SNMP.pm,v 4.8 2003/09/11 19:14:42 dtown Exp $
 
 # Copyright (c) 1998-2003 David M. Town <dtown@cpan.org>
 # All rights reserved.
@@ -106,7 +106,7 @@ BEGIN
 
 ## Version of the Net::SNMP module
 
-our $VERSION = v4.1.1;
+our $VERSION = v4.1.2;
 
 ## Load our modules
 
