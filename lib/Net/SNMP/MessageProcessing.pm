@@ -3,11 +3,11 @@
 
 package Net::SNMP::MessageProcessing;
 
-# $Id: MessageProcessing.pm,v 1.4 2003/05/06 11:00:46 dtown Exp $
+# $Id: MessageProcessing.pm,v 2.0 2004/07/20 13:31:04 dtown Exp $
 
 # Object that implements the Message Processing module.
 
-# Copyright (c) 2001-2003 David M. Town <dtown@cpan.org>
+# Copyright (c) 2001-2004 David M. Town <dtown@cpan.org>
 # All rights reserved.
 
 # This program is free software; you may redistribute it and/or modify it
@@ -17,20 +17,21 @@ package Net::SNMP::MessageProcessing;
 
 use strict;
 
-use Net::SNMP::Message qw(:versions :types asn1_itoa TRUE FALSE);
-use Net::SNMP::PDU();
+use Net::SNMP::PDU qw( 
+   :types :msgFlags :securityLevels asn1_itoa SNMP_VERSION_3 TRUE FALSE 
+); 
 
 ## Version of the Net::SNMP::MessageProcessing module
 
-our $VERSION = v1.0.2;
+our $VERSION = v2.0.0;
 
 ## Package variables
 
-our $INSTANCE;         # Reference to the Singleton object
+our $INSTANCE;          # Reference to the Singleton object
 
-our $DEBUG = FALSE;    # Debug flag
+our $DEBUG = FALSE;     # Debug flag
 
-our $MSG_HANDLES = {}; # Cached request messages
+our $MSG_HANDLES = {};  # Cached request messages
 
 # [public methods] -----------------------------------------------------------
 
@@ -59,6 +60,7 @@ sub prepare_outgoing_msg
    my ($msg, $error) = Net::SNMP::Message->new(
       -callback   => $pdu->callback,
       -leadingdot => $pdu->leading_dot,
+      -requestid  => $pdu->request_id,
       -security   => $pdu->security,
       -translate  => $pdu->translate,
       -transport  => $pdu->transport,
@@ -67,24 +69,21 @@ sub prepare_outgoing_msg
    return $this->_error($error) unless defined($msg);
 
    if ($pdu->version == SNMP_VERSION_3) {
-
-      # scopedPDU::=SEQUENCE
-      if (!defined($pdu->prepare_v3_scoped_pdu)) {
-         return $this->_error($pdu->error);
-      }
-
-      # Copy the contextEngineID and contextName to the request
-      # message so that they are available for comparision with
-      # the response message.
+      
+      # ScopedPDU::=SEQUENCE
+      
+      # The ScopedPDU has already been prepared in the PDU object.
+      # We need to copy the contextEngineID and contextName to the 
+      # request message so that they are available for comparision 
+      # with the response message.
   
-      if ($pdu->context_engine_id ne '') { 
-         $msg->context_engine_id($pdu->context_engine_id);   
-      }
+      $msg->context_engine_id($pdu->context_engine_id);   
       $msg->context_name($pdu->context_name);
 
       # msgGlobalData::=SEQUENCE
-      if (!defined($msg->prepare_v3_global_data($pdu))) {
-         return $this->_error($msg->error);
+
+      if (!defined($this->_prepare_global_data($pdu, $msg))) {
+         return $this->_error;
       }
 
    }
@@ -124,10 +123,11 @@ sub prepare_data_elements
 
    if ($msg->version == SNMP_VERSION_3) {
 
-      if (!defined($msg->process_v3_global_data)) {
-         return $this->_error($msg->error); 
+      # msgGlobalData::=SEQUENCE
+      if (!defined($this->_process_global_data($msg))) {
+         return $this->_error; 
       }
-      
+
       if (!exists($MSG_HANDLES->{$msg->msg_id})) {
          return $this->_error('Unknown msgID [%d]', $msg->msg_id);
       }
@@ -136,7 +136,8 @@ sub prepare_data_elements
 
    } else {
 
-      if (!defined($msg->process_v1_v2c_community)) {
+      # community::=OCTET STRING
+      if (!defined($msg->security_name($msg->process(OCTET_STRING)))) {
          return $this->_error($msg->error); 
       }
 
@@ -145,6 +146,7 @@ sub prepare_data_elements
          return $this->_error('Failed to allocate new PDU');
       }
 
+      # PDU::=SEQUENCE
       if (!defined($msg->process_pdu_sequence)) {
          return $this->_error($msg->error);
       }
@@ -175,9 +177,9 @@ sub prepare_data_elements
    # gets propagated back to the user.
 
    # Compare the Security Models
-   if ($msg->msg_security_model != $request->security->security_model) {
+   if ($msg->msg_security_model != $request->msg_security_model) {
       $this->_error(
-         'Unknown incoming securityModel [%d]', $msg->msg_security_model
+         'Unknown incoming msgSecurityModel [%d]', $msg->msg_security_model
       );
       return FALSE;
    }
@@ -199,18 +201,19 @@ sub prepare_data_elements
          }
       }
 
-      # scopedPDU
-      if (!defined($msg->process_v3_scoped_pdu)) {
-         $this->_error($msg->error);
-         return FALSE;
-      }
-
       # Cast the Message to a PDU
       if (!defined($msg = Net::SNMP::PDU->new($msg))) {
          $this->_error('Failed to allocate new PDU');
          return FALSE;
       }
 
+      # ScopedPDU::=SEQUENCE
+      if (!defined($msg->process_pdu_scope)) {
+         $this->_error($msg->error);
+         return FALSE;
+      }
+
+      # PDU::=SEQUENCE
       if (!defined($msg->process_pdu_sequence)) {
          $this->_error($msg->error);
          return FALSE;
@@ -244,7 +247,7 @@ sub prepare_data_elements
          }
 
          # Check the request-id
-         if ($msg->request_id != $request->msg_id) {
+         if ($msg->request_id != $request->request_id) {
             $this->_error('Invalid incoming request-id [%d]', $msg->request_id);
             return FALSE;
          }
@@ -256,10 +259,11 @@ sub prepare_data_elements
    $msg->leading_dot($request->leading_dot);
    $msg->translate($request->translate);
 
-   # VarBindList::=SEQUENCE
+   # VarBindList::=SEQUENCE OF VarBind
+
    if (!defined($msg->process_var_bind_list)) {
-     $this->_error($msg->error);
-     return FALSE;
+      $this->_error($msg->error);
+      return FALSE;
    }
 
    # Return the PDU
@@ -304,12 +308,138 @@ sub _new
    bless [ undef ], $class; 
 }
 
+sub _prepare_global_data
+{
+   my ($this, $pdu, $msg) = @_;
+
+   # msgSecurityModel::=INTEGER
+
+   if (!defined(
+         $msg->prepare(
+            INTEGER, $msg->msg_security_model($pdu->msg_security_model)
+         )
+      )) 
+   {
+      return $this->_error($msg->error);
+   }
+
+   # msgFlags::=OCTET STRING
+
+   my $security_level = $pdu->security_level;
+   my $msg_flags      = MSG_FLAGS_NOAUTHNOPRIV | MSG_FLAGS_REPORTABLE;
+
+   if ($security_level > SECURITY_LEVEL_NOAUTHNOPRIV) {
+      $msg_flags |= MSG_FLAGS_AUTH;
+      if ($security_level > SECURITY_LEVEL_AUTHNOPRIV) {
+         $msg_flags |= MSG_FLAGS_PRIV;
+      }
+   }
+
+   if (!$pdu->expect_response) {
+      $msg_flags &= ~MSG_FLAGS_REPORTABLE;
+   }
+
+   if (!defined($msg->prepare(OCTET_STRING, pack('C', $msg_flags)))) {
+      $this->_error($msg->error);
+   } else {
+      $msg->msg_flags($msg_flags);
+   }
+
+   # msgMaxSize::=INTEGER
+
+   if (!defined(
+         $msg->prepare(INTEGER, $msg->msg_max_size($pdu->max_msg_size))
+      ))
+   {
+      return $this->_error($msg->error);
+   }
+
+   # msgID::=INTEGER
+   if (!defined($msg->prepare(INTEGER, $msg->msg_id($pdu->msg_id)))) {
+      return $this->_error($msg->error);
+   }
+
+   # msgGlobalData::=SEQUENCE
+   if (!defined($msg->prepare(SEQUENCE, $msg->clear))) {
+      return $this->_error($msg->error);
+   }
+
+   TRUE;
+}
+
+sub _process_global_data
+{
+   my ($this, $msg) = @_;
+
+   # msgGlobalData::=SEQUENCE
+   return $this->_error($msg->error) unless defined($msg->process(SEQUENCE));
+
+   # msgID::=INTEGER
+   if (!defined($msg->msg_id($msg->process(INTEGER)))) {
+      return $this->_error($msg->error);
+   }
+
+   # msgMaxSize::=INTEGER
+   if (!defined($msg->msg_max_size($msg->process(INTEGER)))) {
+      return $this->_error($msg->error);
+   }
+
+   # msgFlags::=OCTET STRING
+
+   if (defined(my $msg_flags = $msg->process(OCTET_STRING))) {
+
+      if (CORE::length($msg_flags) != 1) {
+         return $this->_error(
+            'Invalid msgFlags length [%d octets]', CORE::length($msg_flags)
+         );
+      }
+
+      $msg->msg_flags($msg_flags = unpack('C', $msg_flags));
+
+      # Validate the msgFlags and derive the securityLevel. 
+
+      my $security_level = SECURITY_LEVEL_NOAUTHNOPRIV;
+
+      if ($msg_flags & MSG_FLAGS_AUTH) {
+         $security_level = SECURITY_LEVEL_AUTHNOPRIV;
+         if ($msg_flags & MSG_FLAGS_PRIV) {
+            $security_level = SECURITY_LEVEL_AUTHPRIV;
+         }
+      } elsif ($msg_flags & MSG_FLAGS_PRIV) {
+
+         # RFC 3412 - Section 7.2 1d: "If the authFlag is not set
+         # and privFlag is set... ...the message is discarded..."
+     
+         return $this->_error(
+            'Invalid incoming msgFlags [0x%02x]', $msg_flags
+         );
+      }
+
+      # RFC 3412 - Section 7.2 1e: "Any other bits... ...are ignored."
+      if ($msg_flags & ~MSG_FLAGS_MASK) {
+         DEBUG_INFO('questionable msgFlags [0x%02x]', $msg_flags);
+      }
+
+      $msg->security_level($security_level);     
+
+   } else {
+      return $this->_error($msg->error);   
+   }
+
+   # msgSecurityModel::=INTEGER
+   if (!defined($msg->msg_security_model($msg->process(INTEGER)))) {
+      return $this->_error($msg->error);
+   }
+
+   TRUE;
+}
+
 sub _error
 {
    my $this = shift;
 
    if (!defined($this->[0])) {
-      $this->[0] = sprintf(shift(@_), @_);
+      $this->[0] = (@_ > 1) ? sprintf(shift(@_), @_) : $_[0];
       if ($this->debug) {
          printf("error: [%d] %s(): %s\n",
             (caller(0))[2], (caller(1))[3], $this->[0]
@@ -331,7 +461,7 @@ sub DEBUG_INFO
 
    printf(
       sprintf('debug: [%d] %s(): ', (caller(0))[2], (caller(1))[3]) .
-      shift(@_) .
+      ((@_ > 1) ? shift(@_) : '%s') . 
       "\n",
       @_
    );

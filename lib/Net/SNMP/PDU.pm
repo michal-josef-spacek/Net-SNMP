@@ -3,11 +3,11 @@
 
 package Net::SNMP::PDU;
 
-# $Id: PDU.pm,v 1.6 2003/09/09 12:44:54 dtown Exp $
+# $Id: PDU.pm,v 2.0 2004/07/20 13:32:03 dtown Exp $
 
 # Object used to represent a SNMP PDU. 
 
-# Copyright (c) 2001-2003 David M. Town <dtown@cpan.org>
+# Copyright (c) 2001-2004 David M. Town <dtown@cpan.org>
 # All rights reserved.
 
 # This program is free software; you may redistribute it and/or modify it
@@ -17,31 +17,30 @@ package Net::SNMP::PDU;
 
 use strict;
 
-use Net::SNMP::Message qw(:ALL);
+use Net::SNMP::Message qw( 
+   :types asn1_itoa SNMP_VERSION_3 ENTERPRISE_SPECIFIC TRUE FALSE 
+);
+
+use Net::SNMP::Transport qw( DOMAIN_UDP DOMAIN_TCPIPV4 );
 
 ## Version of the Net::SNMP::PDU module
 
-our $VERSION = v1.0.4;
+our $VERSION = v2.0.0;
 
 ## Handle importing/exporting of symbols
 
 use Exporter();
 
-our @ISA = qw(Net::SNMP::Message Exporter);
+our @ISA = qw( Net::SNMP::Message Exporter );
 
 sub import
 {
    Net::SNMP::Message->export_to_level(1, @_);
 }
 
-## Package variables
-
-our $DEBUG = FALSE;  # Debug flag
-
 ## Initialize the global request-id/msgID.  
 
 our $REQUEST_ID = int(rand((2**16) - 1) + (time() & 0xff));
-
 
 # [public methods] -----------------------------------------------------------
 
@@ -55,16 +54,18 @@ sub new
 
    # Override or initialize fields inherited from the base class
  
-   $this->{_error_status} = 0;
-   $this->{_error_index}  = 0;
-   $this->{_scoped_pdu}   = FALSE;
-   $this->{_translate}    = TRANSLATE_ALL;
+   $this->{_error_status}   = 0;
+   $this->{_error_index}    = 0;
+   $this->{_var_bind_list}  = undef;
+   $this->{_var_bind_names} = [];
+   $this->{_var_bind_types} = undef;
 
    my (%argv) = @_;
 
    # Validate the passed arguments
 
    foreach (keys %argv) {
+
       if (/^-?callback$/i) {
          $this->callback($argv{$_});
       } elsif (/^-?contextengineid/i) {
@@ -77,6 +78,8 @@ sub new
          $this->leading_dot($argv{$_});
       } elsif (/^-?maxmsgsize$/i) {
          $this->max_msg_size($argv{$_});
+      } elsif (/^-?requestid$/i) {
+         $this->request_id($argv{$_});
       } elsif (/^-?security$/i) {
          $this->security($argv{$_});
       } elsif (/^-?translate$/i) {
@@ -88,13 +91,15 @@ sub new
       } else {
          $this->_error("Invalid argument '%s'", $_);
       }
+
       if (defined($this->{_error})) {
          return wantarray ? (undef, $this->{_error}) : undef;
       }
+
    }
 
    if (!defined($this->{_transport})) {
-      $this->_error('No Transport Layer defined');
+      $this->_error('No Transport Domain defined');
       return wantarray ? (undef, $this->{_error}) : undef;
    }
 
@@ -107,7 +112,7 @@ sub prepare_get_request
 
    $this->_error_clear;
 
-   $this->_prepare_pdu(GET_REQUEST, $this->_create_oid_null_pairs($oids));
+   $this->prepare_pdu(GET_REQUEST, $this->_create_oid_null_pairs($oids));
 }
 
 sub prepare_get_next_request
@@ -116,7 +121,7 @@ sub prepare_get_next_request
 
    $this->_error_clear;
 
-   $this->_prepare_pdu(GET_NEXT_REQUEST, $this->_create_oid_null_pairs($oids));
+   $this->prepare_pdu(GET_NEXT_REQUEST, $this->_create_oid_null_pairs($oids));
 }
 
 sub prepare_get_response
@@ -125,7 +130,7 @@ sub prepare_get_response
 
    $this->_error_clear;
 
-   $this->_prepare_pdu(GET_RESPONSE, $this->_create_oid_value_pairs($trios));
+   $this->prepare_pdu(GET_RESPONSE, $this->_create_oid_value_pairs($trios));
 }
 
 sub prepare_set_request
@@ -134,7 +139,7 @@ sub prepare_set_request
 
    $this->_error_clear;
 
-   $this->_prepare_pdu(SET_REQUEST, $this->_create_oid_value_pairs($trios));
+   $this->prepare_pdu(SET_REQUEST, $this->_create_oid_value_pairs($trios));
 }
 
 sub prepare_trap
@@ -170,9 +175,16 @@ sub prepare_trap
       # Layer.  If not, we return an error.
 
       if (defined($this->{_transport})) {
-         $this->{_agent_addr} = $this->{_transport}->srchost;
+         if (($this->{_transport}->domain ne DOMAIN_UDP) &&
+             ($this->{_transport}->domain ne DOMAIN_TCPIPV4)) 
+         {
+            $this->{_agent_addr} = '0.0.0.0';
+         } else {   
+            $this->{_agent_addr} = $this->{_transport}->srcname;
+            delete($this->{_agent_addr}) if ($this->{_agent_addr} eq '0.0.0.0');
+         }
       }
-      if (!exists($this->{_agent_addr}) || $this->{_agent_addr} eq '0.0.0.0') { 
+      if (!exists($this->{_agent_addr})) { 
          return $this->_error('Unable to resolve local agent-addr');
       }
  
@@ -218,7 +230,7 @@ sub prepare_trap
       $this->{_time_stamp} = $time;
    }
 
-   $this->_prepare_pdu(TRAP, $this->_create_oid_value_pairs($trios));
+   $this->prepare_pdu(TRAP, $this->_create_oid_value_pairs($trios));
 }
 
 sub prepare_get_bulk_request
@@ -273,7 +285,7 @@ sub prepare_get_bulk_request
       }
    }
 
-   $this->_prepare_pdu(GET_BULK_REQUEST, $this->_create_oid_null_pairs($oids));
+   $this->prepare_pdu(GET_BULK_REQUEST, $this->_create_oid_null_pairs($oids));
 }
 
 sub prepare_inform_request
@@ -282,7 +294,7 @@ sub prepare_inform_request
 
    $this->_error_clear;
 
-   $this->_prepare_pdu(INFORM_REQUEST, $this->_create_oid_value_pairs($trios));
+   $this->prepare_pdu(INFORM_REQUEST, $this->_create_oid_value_pairs($trios));
 }
 
 sub prepare_snmpv2_trap
@@ -291,7 +303,7 @@ sub prepare_snmpv2_trap
 
    $this->_error_clear;
 
-   $this->_prepare_pdu(SNMPV2_TRAP, $this->_create_oid_value_pairs($trios));
+   $this->prepare_pdu(SNMPV2_TRAP, $this->_create_oid_value_pairs($trios));
 }
 
 sub prepare_report
@@ -300,12 +312,67 @@ sub prepare_report
 
    $this->_error_clear;
 
-   $this->_prepare_pdu(REPORT, $this->_create_oid_value_pairs($trios));
+   $this->prepare_pdu(REPORT, $this->_create_oid_value_pairs($trios));
+}
+
+sub prepare_pdu
+{
+   my ($this, $type, $var_bind) = @_;
+
+   # Clear the buffer
+   $this->_buffer_get;
+
+   # VarBindList::=SEQUENCE OF VarBind
+   if (!defined($this->_prepare_var_bind_list($var_bind || []))) {
+      return $this->_error;
+   }
+
+   # PDU::=SEQUENCE 
+   return $this->_error unless defined($this->_prepare_pdu_sequence($type));
+
+   # ScopedPDU::=SEQUENCE
+   $this->_prepare_pdu_scope;
+}
+
+sub prepare_var_bind_list
+{
+   my ($this, $var_bind) = @_;
+
+   $this->_prepare_var_bind_list($var_bind || []);
+}
+
+sub prepare_pdu_sequence
+{
+   my ($this, $type) = @_;
+
+   $this->_prepare_pdu_sequence($type);
+}
+
+sub prepare_pdu_scope
+{
+   $_[0]->_prepare_pdu_scope;
 }
 
 sub process_pdu
 {
-   $_[0]->_process_pdu;
+   my ($this) = @_;
+
+   # Clear any errors 
+   $this->_error_clear;
+
+   # ScopedPDU::=SEQUENCE
+   return $this->_error unless defined($this->_process_pdu_scope);
+
+   # PDU::=SEQUENCE
+   return $this->_error unless defined($this->_process_pdu_sequence);
+
+   # VarBindList::=SEQUENCE OF VarBind
+   $this->_process_var_bind_list;
+}
+
+sub process_pdu_scope
+{
+   $_[0]->_process_pdu_scope;
 }
 
 sub process_pdu_sequence
@@ -320,10 +387,12 @@ sub process_var_bind_list
 
 sub expect_response
 {
-   if (($_[0]->{_pdu_type} == GET_RESPONSE) ||
-       ($_[0]->{_pdu_type} == TRAP)         ||
-       ($_[0]->{_pdu_type} == SNMPV2_TRAP)  ||
-       ($_[0]->{_pdu_type} == REPORT)) 
+   my ($this) = @_;
+
+   if (($this->{_pdu_type} == GET_RESPONSE) ||
+       ($this->{_pdu_type} == TRAP)         ||
+       ($this->{_pdu_type} == SNMPV2_TRAP)  ||
+       ($this->{_pdu_type} == REPORT)) 
    {
       return FALSE;
    }
@@ -334,11 +403,6 @@ sub expect_response
 sub pdu_type
 {
    $_[0]->{_pdu_type};
-}
-
-sub request_id
-{
-   $_[0]->{_request_id};
 }
 
 sub error_status
@@ -378,25 +442,33 @@ sub time_stamp
 
 sub var_bind_list
 {
-   return if defined($_[0]->{_error});
+   my ($this, $vbl, $types) = @_;
 
-   if (@_ == 2) {
+   return if defined($this->{_error});
+
+   if (@_ > 1) {
 
       # The VarBindList HASH is being updated from an external
       # source.  We need to update the VarBind names ARRAY to
       # correspond to the new keys of the HASH.  If the updated
       # information is valid, we will use lexicographical ordering
       # for the ARRAY entries since we do not have a PDU to use
-      # to determine the ordering. 
+      # to determine the ordering.  The ASN.1 types HASH is also
+      # updated here if a cooresponding HASH is passed.  We double
+      # check the mapping by populating the hash with the keys of
+      # the VarBindList HASH. 
 
-      if (!defined($_[1]) || (ref($_[1]) ne 'HASH')) {
+      if (!defined($vbl) || (ref($vbl) ne 'HASH')) {
 
-         $_[0]->{_var_bind_names} = [];
-         $_[0]->{_var_bind_list}  = undef;
+         $this->{_var_bind_list}  = undef;
+         $this->{_var_bind_names} = [];
+         $this->{_var_bind_types} = undef; 
 
       } else {
 
-         @{$_[0]->{_var_bind_names}} =
+         $this->{_var_bind_list} = $vbl;
+
+         @{$this->{_var_bind_names}} =
             map  { $_->[0] }
             sort { $a->[1] cmp $b->[1] }
             map  {
@@ -404,34 +476,69 @@ sub var_bind_list
                $oid =~ s/^\.//o;
                $oid =~ s/ /\.0/og;
                [$_, pack('N*', split('\.', $oid))]
-            } keys(%{$_[1]});
+            } keys(%{$vbl});
 
-         $_[0]->{_var_bind_list} = $_[1];
+         if (!defined($types) || (ref($types) ne 'HASH')) {
+             $types = {};
+         }
+
+         map { 
+            $this->{_var_bind_types}->{$_} = 
+               exists($types->{$_}) ? $types->{$_} : undef; 
+         } keys(%{$vbl});
 
       }
 
    }
 
-   $_[0]->{_var_bind_list};
+   $this->{_var_bind_list};
 }
 
 sub var_bind_names
 {
-   return [] if defined($_[0]->{_error}) || !defined($_[0]->{_var_bind_names});
+   my ($this) = @_;
 
-   $_[0]->{_var_bind_names};
+   return [] if defined($this->{_error}) || !defined($this->{_var_bind_names});
+
+   $this->{_var_bind_names};
 }
 
-sub debug
+sub var_bind_types
 {
-   (@_ == 2) ? $DEBUG = ($_[1]) ? TRUE : FALSE : $DEBUG;
+   my ($this) = @_;
+
+   return if defined($this->{_error});
+
+   $this->{_var_bind_types};
 }
 
 # [private methods] ----------------------------------------------------------
 
-sub _prepare_pdu
+sub _prepare_pdu_scope
 {
-   my ($this, $type, $var_bind) = @_;
+   my ($this) = @_;
+
+   return TRUE if ($this->{_version} < SNMP_VERSION_3);
+
+   # contextName::=OCTET STRING
+   if (!defined($this->prepare(OCTET_STRING, $this->context_name))) {
+      return $this->_error;
+   }
+
+   # contextEngineID::=OCTET STRING
+   if (!defined($this->prepare(OCTET_STRING, $this->context_engine_id))) {
+      return $this->_error;
+   }
+
+   # ScopedPDU::=SEQUENCE
+   $this->prepare(SEQUENCE, $this->_buffer_get);
+
+   TRUE;
+}
+
+sub _prepare_pdu_sequence
+{
+   my ($this, $type) = @_;
 
    # Do not do anything if there has already been an error
    return $this->_error if defined($this->{_error});
@@ -442,9 +549,6 @@ sub _prepare_pdu
    # Set the PDU type
    $this->{_pdu_type} = $type;
 
-   # Clear the buffer
-   $this->_buffer_get;
-
    # Make sure the request-id has been set
    if (!exists($this->{_request_id})) {
       $this->{_request_id} = _create_request_id();
@@ -453,11 +557,6 @@ sub _prepare_pdu
    # We need to encode everything in reverse order so the
    # objects end up in the correct place.
 
-   # Encode the variable-bindings
-   if (!defined($this->_prepare_var_bind_list($var_bind || []))) {
-      return $this->_error;
-   }
-   
    if ($this->{_pdu_type} != TRAP) { # PDU::=SEQUENCE
 
       # error-index/max-repetitions::=INTEGER 
@@ -505,7 +604,11 @@ sub _prepare_pdu
    }
 
    # PDUs::=CHOICE 
-   $this->prepare($this->{_pdu_type}, $this->_buffer_get);
+   if (!defined($this->prepare($this->{_pdu_type}, $this->_buffer_get))) {
+      return $this->_error;
+   }
+
+   TRUE;
 }
 
 sub _prepare_var_bind_list
@@ -516,6 +619,7 @@ sub _prepare_var_bind_list
    # consisting of two sets of ASN.1 types and their values.
 
    if (@{$var_bind} % 4) {
+      $this->var_bind_list(undef);
       return $this->_error(
          'Invalid number of VarBind parameters [%d]', scalar(@{$var_bind})
       );
@@ -525,37 +629,63 @@ sub _prepare_var_bind_list
    # into the packet as expected.  Also, check to make sure that the
    # OBJECT IDENTIFIER is in the correct place.
 
-   my ($type, $value);
+   my ($syntax_type, $syntax_value, $name_type, $name_value);
    my $buffer = $this->_buffer_get;
+
+   $this->{_var_bind_list}  = {};
+   $this->{_var_bind_names} = [];
+   $this->{_var_bind_types} = {}; 
 
    while (@{$var_bind}) {
 
       # value::=ObjectSyntax
-      $value = pop(@{$var_bind});
-      $type  = pop(@{$var_bind});
-      if (!defined($this->prepare($type, $value))) {
+      $syntax_value = pop(@{$var_bind});
+      $syntax_type  = pop(@{$var_bind});
+      if (!defined($this->prepare($syntax_type, $syntax_value))) {
+         $this->var_bind_list(undef);
          return $this->_error;
       }
 
       # name::=ObjectName
-      $value = pop(@{$var_bind});
-      $type  = pop(@{$var_bind});
-      if ($type != OBJECT_IDENTIFIER) {
+      $name_value = pop(@{$var_bind});
+      $name_type  = pop(@{$var_bind});
+      if ($name_type != OBJECT_IDENTIFIER) {
+         $this->var_bind_list(undef);
          return $this->_error('Expected OBJECT IDENTIFIER in VarBindList');
       }
-      if (!defined($this->prepare($type, $value))) {
+      if (!defined($this->prepare($name_type, $name_value))) {
+         $this->var_bind_list(undef);
          return $this->_error;
       }
 
+      # Populate the "var_bind_*" data so we can provide consistent
+      # output for the methods regardless of whether we are a request 
+      # or a response PDU.  Make sure the HASH key is unique if in 
+      # case duplicate OBJECT IDENTIFIERs are provided.
+
+      while (exists($this->{_var_bind_list}->{$name_value})) {
+         $name_value .= ' '; # Pad with spaces
+      }
+ 
+      $this->{_var_bind_list}->{$name_value}  = $syntax_value;
+      $this->{_var_bind_types}->{$name_value} = $syntax_type; 
+      unshift(@{$this->{_var_bind_names}}, $name_value);
+
       # VarBind::=SEQUENCE 
       if (!defined($this->prepare(SEQUENCE, $this->_buffer_get))) {
+         $this->var_bind_list(undef);
          return $this->_error;
       }
       substr($buffer, 0, 0) = $this->_buffer_get;
    }
 
    # VarBindList::=SEQUENCE OF VarBind
-   $this->prepare(SEQUENCE, $buffer);
+   if (!defined($this->prepare(SEQUENCE, $buffer))) {
+      $this->var_bind_list(undef);
+      return $this->_error;
+   }
+
+   TRUE;
 }
 
 sub _create_oid_null_pairs
@@ -610,11 +740,26 @@ sub _create_oid_value_pairs
    $pairs;
 }
 
-sub _process_pdu
+sub _process_pdu_scope
 {
-   return $_[0]->_error unless defined($_[0]->_process_pdu_sequence);
+   my ($this) = @_;
 
-   $_[0]->_process_var_bind_list;
+   return TRUE if ($this->{_version} < SNMP_VERSION_3);
+
+   # ScopedPDU::=SEQUENCE
+   return $this->_error unless defined($this->process(SEQUENCE));
+
+   # contextEngineID::=OCTET STRING
+   if (!defined($this->context_engine_id($this->process(OCTET_STRING)))) {
+      return $this->_error;
+   }
+
+   # contextName::=OCTET STRING
+   if (!defined($this->context_name($this->process(OCTET_STRING)))) {
+      return $this->_error;
+   } 
+
+   TRUE;
 }
 
 sub _process_pdu_sequence
@@ -697,8 +842,9 @@ sub _process_var_bind_list
 
    $this->{_var_bind_list}  = {};
    $this->{_var_bind_names} = [];
+   $this->{_var_bind_types} = {};
 
-   my $oid;
+   my ($oid, $type);
 
    while ($this->index < $end) {
 
@@ -711,7 +857,7 @@ sub _process_var_bind_list
          return $this->_error;
       }
       # value::=ObjectSyntax
-      if (!defined($value = $this->process)) {
+      if (!defined($value = $this->process(undef, $type))) {
          return $this->_error;
       }
 
@@ -725,8 +871,9 @@ sub _process_var_bind_list
          $oid .= ' '; # Pad with spaces
       }
 
-      DEBUG_INFO('{ %s => %s }', $oid, $value);
-      $this->{_var_bind_list}->{$oid} = $value;
+      DEBUG_INFO('{ %s => %s: %s }', $oid, asn1_itoa($type), $value);
+      $this->{_var_bind_list}->{$oid}  = $value;
+      $this->{_var_bind_types}->{$oid} = $type;
 
       # Create an array with the ObjectName OBJECT IDENTIFIERs
       # so that the order in which the VarBinds where encoded
@@ -812,56 +959,43 @@ sub _create_request_id()
       my %var_bind_list;
 
       map {
-
          my $oid = $_;
          $oid =~ s/^\.//;
-
          $count++;
-
          map { $oid =~ s/\Q$_/$report_oids{$_}/; } keys(%report_oids);
-
          $var_bind_list{$oid} = $this->{_var_bind_list}->{$_};
-
-      } keys(%{$this->{_var_bind_list}});
+      } @{$this->{_var_bind_names}};
      
       if ($count == 1) {
- 
          # Return the OBJECT IDENTIFIER and value.
-            
-         my $oid = (keys(%var_bind_list))[0];
-
+         my $oid = (keys(%var_bind_list))[0]; 
          $this->_error(
             'Received %s Report-PDU with value %s', $oid, $var_bind_list{$oid}
          );
- 
       } elsif ($count > 1) {
-
          # Return a list of OBJECT IDENTIFIERs.
-
          $this->_error(
             'Received Report-PDU [%s]', join(', ', keys(%var_bind_list))
          );
-
       } else {
-
          $this->_error('Received empty Report-PDU');
-
       }
+
    }
 }
 
 sub DEBUG_INFO
 {
-   return unless $DEBUG;
+   return unless $Net::SNMP::Message::DEBUG;
 
    printf(
       sprintf('debug: [%d] %s(): ', (caller(0))[2], (caller(1))[3]) .
-      shift(@_) .
+      ((@_ > 1) ? shift(@_) : '%s') .
       "\n",
       @_
    );
 
-   $DEBUG;
+   $Net::SNMP::Message::DEBUG;
 }
 
 # ============================================================================

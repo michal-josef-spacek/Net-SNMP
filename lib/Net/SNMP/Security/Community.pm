@@ -3,11 +3,11 @@
 
 package Net::SNMP::Security::Community;
 
-# $Id: Community.pm,v 1.3 2003/05/06 11:00:46 dtown Exp $
+# $Id: Community.pm,v 1.4 2004/07/20 13:38:01 dtown Exp $
 
 # Object that implements the SNMPv1/v2c Community-based Security Model.
 
-# Copyright (c) 2001-2003 David M. Town <dtown@cpan.org>
+# Copyright (c) 2001-2004 David M. Town <dtown@cpan.org>
 # All rights reserved.
 
 # This program is free software; you may redistribute it and/or modify it
@@ -17,24 +17,30 @@ package Net::SNMP::Security::Community;
 
 use strict;
 
-require Net::SNMP::Security;
+use Net::SNMP::Security qw( SECURITY_MODEL_SNMPV1 SECURITY_MODEL_SNMPV2C );
 
 use Net::SNMP::Message qw(
-   OCTET_STRING SEQUENCE INTEGER SNMP_VERSION_1 SNMP_VERSION_2C TRUE FALSE
-   SECURITY_MODEL_SNMPV1 SECURITY_MODEL_SNMPV2C
+   OCTET_STRING SEQUENCE INTEGER SNMP_VERSION_1 SNMP_VERSION_2C TRUE
 ); 
 
 ## Version of the Net::SNMP::Security::Community module
 
-our $VERSION = v1.0.2;
+our $VERSION = v1.1.0;
 
-## Package variables
+## Handle importing/exporting of symbols
 
-our $DEBUG = FALSE; 
+use Exporter();
 
-## Inherit from Net::SNMP::Security
+our @ISA = qw( Net::SNMP::Security Exporter );
 
-our @ISA = qw(Net::SNMP::Security);
+sub import
+{
+   Net::SNMP::Security->export_to_level(1, @_);
+}
+
+## RFC 3584 - snmpCommunityName::=OCTET STRING 
+
+sub COMMUNITY_DEFAULT() { 'public' }
 
 # [public methods] -----------------------------------------------------------
 
@@ -44,9 +50,10 @@ sub new
 
    # Create a new data structure for the object
    my $this = bless {
-      '_error'     => undef,           # Error message
-      '_version'   => SNMP_VERSION_1,  # SNMP version
-      '_community' => 'public'         # Community
+      '_error'     => undef,             # Error message
+      '_version'   => SNMP_VERSION_1,    # SNMP version
+      '_community' => COMMUNITY_DEFAULT  # Community name
+
    }, $class;
 
    # Now validate the passed arguments
@@ -117,59 +124,70 @@ sub process_incoming_msg
 
    return $this->_error('Required Message missing') unless (@_ == 2);
 
-   if ($msg->community ne $this->{_community}) {
-      return $this->_error('Bad incoming community [%s]', $msg->community);
+   if ($msg->security_name ne $this->{_community}) {
+      return $this->_error('Bad incoming community [%s]', $msg->security_name);
    }
 
    TRUE;
 }
 
+sub community
+{
+   $_[0]->{_community};
+}
+
 sub security_model
 {
+   my ($this) = @_;
+
    # RFC 3411 - SnmpSecurityModel::=TEXTUAL-CONVENTION 
 
-   if ($_[0]->{_version} == SNMP_VERSION_2C) {
+   if ($this->{_version} == SNMP_VERSION_2C) {
       SECURITY_MODEL_SNMPV2C;
    } else {
       SECURITY_MODEL_SNMPV1; 
    }
 }
 
-sub debug
+sub security_name
 {
-   (@_ == 2) ? $DEBUG = ($_[1]) ? TRUE : FALSE : $DEBUG;
+   $_[0]->{_community};
 }
 
 # [private methods] ----------------------------------------------------------
 
 sub _community
 {
-   return $_[0]->_error('Community not defined') unless defined($_[1]);
+   my ($this, $community) = @_;
+
+   return $this->_error('Community not defined') unless defined($community);
    
-   $_[0]->{_community} = $_[1];
+   $this->{_community} = $community;
 }
 
 sub _version
 {
-   if (($_[1] != SNMP_VERSION_1) && ($_[1] != SNMP_VERSION_2C)) {
-      return $_[0]->_error('Invalid SNMP version specified [%s]', $_[1]);
+   my ($this, $version) = @_;
+
+   if (($version != SNMP_VERSION_1) && ($version != SNMP_VERSION_2C)) {
+      return $this->_error('Invalid SNMP version specified [%s]', $version);
    }
 
-   $_[0]->{_version} = $_[1];
+   $this->{_version} = $version;
 }
 
 sub DEBUG_INFO
 {
-   return unless $DEBUG;
+   return unless $Net::SNMP::Security::DEBUG;
 
    printf(
       sprintf('debug: [%d] %s(): ', (caller(0))[2], (caller(1))[3]) .
-      shift(@_) .
+      ((@_ > 1) ? shift(@_) : '%s') .
       "\n",
       @_
    );
 
-   $DEBUG;
+   $Net::SNMP::Security::DEBUG;
 }
 
 # ============================================================================

@@ -3,11 +3,11 @@
 
 package Net::SNMP::Dispatcher;
 
-# $Id: Dispatcher.pm,v 1.5 2003/05/06 11:00:46 dtown Exp $
+# $Id: Dispatcher.pm,v 2.0 2004/07/20 13:29:35 dtown Exp $
 
 # Object the dispatches SNMP messages and handles the scheduling of events.
 
-# Copyright (c) 2001-2003 David M. Town <dtown@cpan.org>
+# Copyright (c) 2001-2004 David M. Town <dtown@cpan.org>
 # All rights reserved.
 
 # This program is free software; you may redistribute it and/or modify it
@@ -18,11 +18,11 @@ package Net::SNMP::Dispatcher;
 use strict;
 
 use Net::SNMP::MessageProcessing();
-use Net::SNMP::Message qw(TRUE FALSE);
+use Net::SNMP::Message qw( TRUE FALSE );
 
 ## Version of the Net::SNMP::Dispatcher module
 
-our $VERSION = v1.0.4;
+our $VERSION = v2.0.0;
 
 ## Package variables
 
@@ -104,6 +104,53 @@ sub one_event
    defined($this->{_event_queue_h}) ? TRUE : FALSE; 
 }
 
+sub listen
+{
+   my ($this) = @_;
+
+   # Return immediately if the Dispatcher is already active.
+   return TRUE if ($this->{_active});
+
+   # Indicate that the Dispatcher is active and block
+   # on select() calls.
+
+   $this->{_active}   = TRUE;
+   $this->{_blocking} = TRUE;
+
+   while (1) {
+
+      # Handle queued events
+      events: while (defined($this->{_event_queue_h})) {
+         $this->_event_handle;
+      }
+
+      DEBUG_INFO('waiting for activity');
+
+      if (my $nfound = select(my $rout = $this->{_rin}, undef, undef, undef)) {
+
+         # Handle select() errors 
+         if ($nfound < 0) { 
+            if ($! =~ /^Interrupted/) {
+               goto events; # Recoverable error
+            } else {
+               die sprintf('FATAL: select() error [%s]', $!);
+            }
+         }
+
+         # Find out which file descriptors have data ready
+         if (defined($rout)) {
+            foreach (keys(%{$this->{_descriptors}})) {
+               if (vec($rout, $_, 1)) {
+                  DEBUG_INFO('descriptor [%d] ready', $_);
+                  $this->_callback_execute(@{$this->{_descriptors}->{$_}});
+               }
+            }
+         }
+
+      }
+   }
+}
+
 sub send_pdu
 {
    my ($this, $pdu, $delay) = @_;
@@ -121,10 +168,102 @@ sub send_pdu
    if (($this->{_active}) && (!$delay)) {
       $this->_send_pdu($pdu, $pdu->timeout, $pdu->retries);
    } else {
-      $this->_schedule(
+      $this->schedule(
          $delay, [\&_send_pdu, $pdu, $pdu->timeout, $pdu->retries]
       );
    }
+}
+
+sub schedule
+{
+   my ($this, $time, $callback) = @_;
+
+   $this->_event_create($time, $_[0]->_callback_create($callback));
+}
+
+sub cancel
+{
+   my ($this, $event) = @_;
+
+   $this->_event_delete($event);
+}
+
+sub register
+{
+   my ($this, $transport, $callback) = @_;
+
+   # Transport Domain and file descriptor must be valid.
+   my $fileno;
+
+   if ((!defined($transport)) || (!defined($fileno = $transport->fileno))) {
+      return $this->_error('Invalid Transport Domain');
+   }
+
+   # NOTE: The callback must read the data associated with the
+   #       file descriptor or the Dispatcher will continuously
+   #       call the callback and get stuck in an infinite loop.
+
+   if (!exists($this->{_descriptors}->{$fileno})) {
+
+      DEBUG_INFO('adding descriptor [%d]', $fileno);
+
+      $this->{_rin} = '' unless defined($this->{_rin});
+
+      # Add the file descriptor to the list
+      $this->{_descriptors}->{$fileno} = [
+         $this->_callback_create($callback), # Callback
+         $transport,                         # Transport Domain object 
+         1                                   # Reference count
+      ];
+
+      # Add the file descriptor to the "readable" vector
+      vec($this->{_rin}, $fileno, 1) = 1;
+
+   } else {
+      # Bump up the reference count
+      $this->{_descriptors}->{$fileno}->[2]++;
+   }
+
+   # Return the Transport Domain object 
+   $transport;
+}
+
+sub deregister
+{
+   my ($this, $transport) = @_;
+
+   # Transport Domain and file descriptor must be valid.
+   my $fileno;
+
+   if ((!defined($transport)) || (!defined($fileno = $transport->fileno))) {
+      return $this->_error('Invalid Transport Domain');
+   }
+
+   if (exists($this->{_descriptors}->{$fileno})) {
+
+      # Check reference count
+      if (--$this->{_descriptors}->{$fileno}->[2] < 1) {
+
+         DEBUG_INFO('removing descriptor [%d]', $fileno);
+
+         # Remove the file descriptor from the list
+         delete($this->{_descriptors}->{$fileno});
+
+         # Remove the file descriptor from the "readable" vector
+         vec($this->{_rin}, $fileno, 1) = 0;
+
+         # Undefine the vector if there are no file descriptors,
+         # some systems expect this to make select() work properly.
+
+         $this->{_rin} = undef unless keys(%{$this->{_descriptors}});
+      }
+
+   } else {
+      return $this->_error('Not registered for this Transport Domain');
+   }
+
+   # Return the Transport Domain object 
+   $transport;
 }
 
 sub error
@@ -157,98 +296,6 @@ sub _new
    }, $class;
 }
 
-sub _schedule
-{
-   my ($this, $time, $callback) = @_;
-
-   $this->_event_create($time, $this->_callback_create($callback));
-}
-
-sub _cancel 
-{
-   my ($this, $event) = @_;
-
-   $this->_event_delete($event);
-}
-
-sub _listen
-{
-   my ($this, $transport, $callback) = @_;
-
-   # Transport Layer and file descriptor must be valid.
-   my $fileno;
-
-   if ((!defined($transport)) || (!defined($fileno = $transport->fileno))) {
-      return $this->_error('Invalid Transport Layer');
-   }
-
-   # NOTE: The callback must read the data associated with the
-   #       file descriptor or the Dispatcher will continuously 
-   #       call the callback and get stuck in an infinite loop.
-
-   if (!exists($this->{_descriptors}->{$fileno})) {
-
-      DEBUG_INFO('adding descriptor [%d]', $fileno);
-     
-      $this->{_rin} = '' unless defined($this->{_rin});
- 
-      # Add the file descriptor to the list
-      $this->{_descriptors}->{$fileno} = [
-         $this->_callback_create($callback), # Callback
-         $transport,                         # Transport Layer 
-         1                                   # Reference count
-      ];
- 
-      # Add the file descriptor to the "readable" vector
-      vec($this->{_rin}, $fileno, 1) = 1;
-   
-   } else {
-      # Bump up the reference count
-      $this->{_descriptors}->{$fileno}->[2]++;
-   }
-
-   # Return the Transport Layer reference
-   $transport;  
-}
-
-sub _unlisten
-{
-   my ($this, $transport) = @_;
-  
-   # Transport Layer and file descriptor must be valid. 
-   my $fileno; 
-
-   if ((!defined($transport)) || (!defined($fileno = $transport->fileno))) {
-      return $this->_error('Invalid Transport Layer');
-   }
-
-   if (exists($this->{_descriptors}->{$fileno})) {
-
-      # Check reference count
-      if (--$this->{_descriptors}->{$fileno}->[2] < 1) {
-
-         DEBUG_INFO('removing descriptor [%d]', $fileno);
-
-         # Remove the file descriptor from the list
-         delete($this->{_descriptors}->{$fileno});
-
-         # Remove the file descriptor from the "readable" vector
-         vec($this->{_rin}, $fileno, 1) = 0;
-
-         # Undefine the vector if there are no file descriptors, 
-         # some systems expect this to make select() work properly.
-
-         $this->{_rin} = undef unless keys(%{$this->{_descriptors}});
-      }
-
-   } else {
-      return $this->_error('Not listening for this Transport Layer');
-   }
-
-   # Return the Transport Layer reference
-   $transport; 
-}
-
 sub _send_pdu
 {
    my ($this, $pdu, $timeout, $retries) = @_;
@@ -261,7 +308,7 @@ sub _send_pdu
    if (!defined($msg)) {
       $pdu->error($MESSAGE_PROCESSING->error);
       $pdu->callback_execute;
-      return $this->_error($pdu->error); 
+      return; 
    }
 
    # Actually send the message
@@ -272,15 +319,15 @@ sub _send_pdu
       }
       $pdu->error($msg->error);
       $pdu->callback_execute;
-      return $this->_error($pdu->error);
+      return;
    }
 
    # Schedule the timeout handler if the message expects a response.
 
    if ($pdu->expect_response) {
-      $this->_listen($msg->transport, [\&_transport_response_received]);
+      $this->register($msg->transport, [\&_transport_response_received]);
       $msg->timeout_id(
-         $this->_schedule(
+         $this->schedule(
             $timeout, 
             [\&_transport_timeout, $pdu, $timeout, $retries] 
          )
@@ -295,8 +342,8 @@ sub _transport_timeout
 {
    my ($this, $pdu, $timeout, $retries) = @_;
 
-   # Stop listening for responses
-   $this->_unlisten($pdu->transport);
+   # Stop waiting for responses
+   $this->deregister($pdu->transport);
 
    if ($retries-- > 0) {
 
@@ -313,7 +360,7 @@ sub _transport_timeout
       $pdu->error("No response from remote host '%s'", $pdu->dstname);
       $pdu->callback_execute;
 
-      $this->_error($pdu->error);
+      return;
 
    } 
 }
@@ -325,18 +372,29 @@ sub _transport_response_received
    # Clear any previous errors
    $this->_error_clear;
 
-   die('FATAL: Invalid Transport Layer') unless ref($transport);
+   die('FATAL: Invalid Transport Domain') unless ref($transport);
 
-   # Create a new message to receive the response
+   # Create a new Message object to receive the response
    my ($msg, $error) = Net::SNMP::Message->new(
       -transport => $transport,
    );
 
-   die("FATAL: $error") unless defined($msg);
+   if (!defined($msg)) {
+      die sprintf('Failed to create Message object [%s]', $error);
+   }
 
-   # Read the message from the Transport Layer
+   # Read the message from the Transport Layer  
    if (!defined($msg->recv)) {
+      $this->deregister($transport) unless ($transport->connectionless);
       return $this->_error($msg->error);
+   }
+
+   # For connection-oriented Transport Domains, it is possible to
+   # "recv" an empty buffer if reassembly is required.
+
+   if (!$msg->length) {
+      DEBUG_INFO('ignoring zero length message');
+      return FALSE;
    }
 
    # Hand the message over to Message Processing
@@ -348,10 +406,10 @@ sub _transport_response_received
    $msg->error($MESSAGE_PROCESSING->error) if ($MESSAGE_PROCESSING->error);
 
    # Cancel the timeout
-   $this->_cancel($msg->timeout_id);
+   $this->cancel($msg->timeout_id);
 
-   # Stop listening for responses
-   $this->_unlisten($msg->transport);
+   # Stop waiting for responses
+   $this->deregister($transport);
 
    # Invoke the callback   
    $msg->callback_execute; 
@@ -523,9 +581,18 @@ sub _event_handle
 
    if ($timeout >= 0) {
       DEBUG_INFO('poll delay = %f' , $timeout);
-      if (select(my $rout = $this->{_rin}, undef, undef,
-                 ($this->{_blocking} ? $timeout : 0)))
+      if (my $nfound = select(my $rout = $this->{_rin}, undef, undef,
+                                 ($this->{_blocking} ? $timeout : 0)))
       {
+         # Handle select() errors
+         if ($nfound < 0) {
+            if ($! =~ /^Interrupted/) {
+               return TRUE; # Recoverable error
+            } else {
+               die sprintf('FATAL: select() error [%s]', $!);
+            }
+         }
+
          # Find out which file descriptors have data ready
          if (defined($rout)) {
             foreach (keys(%{$this->{_descriptors}})) {
@@ -561,6 +628,8 @@ sub _event_handle
 
 sub _callback_create
 {
+   my ($this, $callback) = @_;
+
    return unless (@_ == 2);
 
    # Callbacks can be passed in two different ways.  If the callback
@@ -569,10 +638,10 @@ sub _callback_create
    # elements the arguments.  If the callback has not options it
    # is just passed as a CODE reference.
 
-   if ((ref($_[1]) eq 'ARRAY') && (ref($_[1]->[0]) eq 'CODE')) {
-      $_[1];
-   } elsif (ref($_[1]) eq 'CODE') {
-      [$_[1]];
+   if ((ref($callback) eq 'ARRAY') && (ref($callback->[0]) eq 'CODE')) {
+      $callback;
+   } elsif (ref($callback) eq 'CODE') {
+      [$callback];
    } else {
       return;
    }
@@ -580,6 +649,8 @@ sub _callback_create
 
 sub _callback_execute
 {
+#  my ($this, @argv) = @_;
+
    return unless (@_ > 1) && defined($_[1]);
 
    # The callback is invoked passing a reference to this object
@@ -601,7 +672,7 @@ sub _error
    my $this = shift;
 
    if (!defined($this->{_error})) {
-      $this->{_error} = sprintf(shift(@_), @_);
+      $this->{_error} = (@_ > 1) ? sprintf(shift(@_), @_) : $_[0];
       if ($this->debug) {
          printf("error: [%d] %s(): %s\n",
             (caller(0))[2], (caller(1))[3], $this->{_error}
@@ -623,7 +694,7 @@ sub DEBUG_INFO
 
    printf(
       sprintf('debug: [%d] %s(): ', (caller(0))[2], (caller(1))[3]) . 
-      shift(@_) . 
+      ((@_ > 1) ? shift(@_) : '%s') .
       "\n",
       @_
    );

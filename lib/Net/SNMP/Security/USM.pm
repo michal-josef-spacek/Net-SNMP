@@ -3,11 +3,11 @@
 
 package Net::SNMP::Security::USM;
 
-# $Id: USM.pm,v 2.2 2003/09/11 19:14:42 dtown Exp $
+# $Id: USM.pm,v 2.3 2004/07/20 13:38:01 dtown Exp $
 
 # Object that implements the SNMPv3 User-based Security Model.
 
-# Copyright (c) 2001-2003 David M. Town <dtown@cpan.org>
+# Copyright (c) 2001-2004 David M. Town <dtown@cpan.org>
 # All rights reserved.
 
 # This program is free software; you may redistribute it and/or modify it
@@ -17,14 +17,11 @@ package Net::SNMP::Security::USM;
 
 use strict;
 
-require Net::SNMP::Security;
+use Net::SNMP::Security qw( :ALL );
 
 use Net::SNMP::Message qw(
-   :msgFlags :securityLevels asn1_itoa
-   OCTET_STRING SEQUENCE INTEGER SNMP_VERSION_3 SECURITY_MODEL_USM TRUE FALSE
-); 
-
-use Sys::Hostname qw(hostname);
+   :msgFlags asn1_itoa OCTET_STRING SEQUENCE INTEGER SNMP_VERSION_3 TRUE FALSE
+);
 
 use Crypt::DES();
 use Digest::MD5();
@@ -33,51 +30,46 @@ use Digest::HMAC();
 
 ## Version of the Net::SNMP::Security::USM module
 
-our $VERSION = v2.0.2;
-
-## Package variables
-
-our $ENGINE_ID;      # Our authoritativeEngineID 
-
-our $DEBUG = FALSE;  # Debug flag
+our $VERSION = v2.1.0;
 
 ## Handle importing/exporting of symbols
 
 use Exporter();
 
-our @ISA = qw(Exporter Net::SNMP::Security);
+our @ISA = qw( Net::SNMP::Security Exporter );
 
-our @EXPORT_OK = qw(
-   AUTH_PROTOCOL_NONE AUTH_PROTOCOL_HMACMD5 AUTH_PROTOCOL_HMACSHA
-   PRIV_PROTOCOL_NONE PRIV_PROTOCOL_DES PRIV_PROTOCOL_3DESEDE
-   PRIV_PROTOCOL_AESCFB128 PRIV_PROTOCOL_AESCFB192 PRIV_PROTOCOL_AESCFB256
-   SECURITY_LEVEL_NOAUTHNOPRIV SECURITY_LEVEL_AUTHNOPRIV 
-   SECURITY_LEVEL_AUTHPRIV
-); 
+our @EXPORT_OK;
 
 our %EXPORT_TAGS = (
-   levels      => [
+   authprotos => [
+      qw( AUTH_PROTOCOL_NONE AUTH_PROTOCOL_HMACMD5 AUTH_PROTOCOL_HMACSHA )
+   ],
+   levels     => [
       qw( SECURITY_LEVEL_NOAUTHNOPRIV SECURITY_LEVEL_AUTHNOPRIV
           SECURITY_LEVEL_AUTHPRIV )
    ],
-   authprotos  => [
-      qw( AUTH_PROTOCOL_NONE AUTH_PROTOCOL_HMACMD5 AUTH_PROTOCOL_HMACSHA )
+   models     => [
+      qw( SECURITY_MODEL_ANY SECURITY_MODEL_SNMPV1 SECURITY_MODEL_SNMPV2C
+          SECURITY_MODEL_USM )
    ],
-   privprotos  => [
+   privprotos => [
       qw( PRIV_PROTOCOL_NONE PRIV_PROTOCOL_DES PRIV_PROTOCOL_3DESEDE 
           PRIV_PROTOCOL_AESCFB128 PRIV_PROTOCOL_AESCFB192 
           PRIV_PROTOCOL_AESCFB256 )
-   ],
-   ALL         => [@EXPORT_OK]
+   ]
 );
 
-## Authentication protocols
+Exporter::export_ok_tags( qw( authprotos levels models privprotos ) );
+
+$EXPORT_TAGS{ALL} = [ @EXPORT_OK ];
+
+## RCC 3414 - Authentication protocols
 
 sub AUTH_PROTOCOL_NONE()    { '1.3.6.1.6.3.10.1.1.1' } # usmNoAuthProtocol
 sub AUTH_PROTOCOL_HMACMD5() { '1.3.6.1.6.3.10.1.1.2' } # usmHMACMD5AuthProtocol
 sub AUTH_PROTOCOL_HMACSHA() { '1.3.6.1.6.3.10.1.1.3' } # usmHMACSHAAuthProtocol
 
-## Privacy protocols
+## RFC 3414 - Privacy protocols
 
 sub PRIV_PROTOCOL_NONE()    { '1.3.6.1.6.3.10.1.2.1' } # usmNoPrivProtocol
 sub PRIV_PROTOCOL_DES()     { '1.3.6.1.6.3.10.1.2.2' } # usmDESPrivProtocol
@@ -105,43 +97,10 @@ sub PRIV_PROTOCOL_AESCFB192() { '1.3.6.1.4.1.14832.1.3' }
 
 # usmAESCfb256PrivProtocol
 sub PRIV_PROTOCOL_AESCFB256() { '1.3.6.1.4.1.14832.1.4' } 
-                                                         
-our $NO_AES_SUPPORT;
 
-BEGIN
-{
-   # Attempt to load the Crypt::Rijndael module.  If this module is 
-   # not found, disable support for the AES Cipher Algorithm.
+## Package variables
 
-   if (!eval('require Crypt::Rijndael')) {
-      if ($@ =~ /(\S+\.pm)/) {
-         $NO_AES_SUPPORT = sprintf(' (Required module %s not found)', $1);
-      } else {
-         $NO_AES_SUPPORT = sprintf(' (%s)', $@);
-      }
-      # Define the MODE_CFB constant to prevent a "strict subs" error.
-      *Crypt::Rijndael::MODE_CFB = sub { 3 }; 
-   }
-
-   # Initialize our snmpEngineID using the algorithm described
-   # in RFC 3411.
-
-   # SnmpEngineID ::= TEXTUAL-CONVENTION
-
-   # The first bit is set to one to indicate that the RFC 3411 
-   # algorithm is being used.  The first fours bytes are to be
-   # the agent's SNMP management private enterprise number, but
-   # they are set to all zeros. The fifth byte is set to one to
-   # indicate that the final four bytes are a IPv4 address.
-
-   eval { 
-   $ENGINE_ID = pack('H10', '8000000001') . scalar(gethostbyname(hostname()));
-   };
-
-   # Fallback in case gethostbyname() or hostname() fail
-   $ENGINE_ID = pack('x11H2', '01') if ($@);
-}
-
+our $ENGINE_ID;               # Our authoritative snmpEngineID                                                         
 # [public methods] -----------------------------------------------------------
 
 sub new
@@ -217,14 +176,10 @@ sub new
 
    }
 
-   # Set the authoritativeEngineID if the user did not provide one
-
-   if ($this->{_authoritative}) {
-      $this->{_engine_id}    = $ENGINE_ID if ($this->{_engine_id} eq '');
-      $this->{_engine_boots} = 1;
-      $this->{_synchronized} = TRUE;
-      $this->{_discovered}   = TRUE;
-   }
+   # Generate a snmpEngineID and populate the object accordingly
+   # if we are an authoritative snmpEngine.
+ 
+   $this->_snmp_engine_init if ($this->{_authoritative});
 
    # Define the securityParameters
    if (!defined($this->_security_params)) {
@@ -243,6 +198,18 @@ sub generate_request_msg
    $this->_error_clear;
 
    return $this->_error('Required PDU and/or Message missing') unless (@_ == 3);
+
+   # Validate the SNMP version of the PDU
+   if ($pdu->version != $this->{_version}) {
+      return $this->_error('Invalid version [%d]', $pdu->version);
+   }
+
+   # Validate the securityLevel of the PDU
+   if ($pdu->security_level > $this->{_security_level}) {
+      return $this->_error(
+         'Unsupported securityLevel [%d]', $pdu->security_level
+      );
+   }
 
    # Validate PDU type with snmpEngine type
    if ($pdu->expect_response) {
@@ -279,7 +246,7 @@ sub generate_request_msg
    my $priv_params = '';
 
    # encryptedPDU::=OCTET STRING
-   if ($this->{_security_level} > SECURITY_LEVEL_AUTHNOPRIV) {
+   if ($pdu->security_level > SECURITY_LEVEL_AUTHNOPRIV) {
       if (!defined($this->_encrypt_data($msg, $priv_params, $pdu_buffer))) {
          return $this->_error;
       }
@@ -295,7 +262,7 @@ sub generate_request_msg
    my $auth_params = '';
    my $auth_location = 0;
 
-   if ($this->{_security_level} > SECURITY_LEVEL_NOAUTHNOPRIV) {
+   if ($pdu->security_level > SECURITY_LEVEL_NOAUTHNOPRIV) {
    
       # Save the location to fill in msgAuthenticationParameters later
       $auth_location = $msg->length + 12 + length($pdu_buffer);
@@ -309,7 +276,7 @@ sub generate_request_msg
    }
 
    # msgUserName::=OCTET STRING 
-   if (!defined($msg->prepare(OCTET_STRING, $this->_user_name))) {
+   if (!defined($msg->prepare(OCTET_STRING, $pdu->security_name))) {
       return $this->_error($msg->error);
    } 
 
@@ -349,7 +316,7 @@ sub generate_request_msg
    }
 
    # version::=INTEGER
-   if (!defined($msg->prepare(INTEGER, $pdu->version))) {
+   if (!defined($msg->prepare(INTEGER, $this->{_version}))) {
       return $this->_error($msg->error);
    }
 
@@ -359,7 +326,7 @@ sub generate_request_msg
    }
 
    # Apply authentication
-   if ($this->{_security_level} > SECURITY_LEVEL_NOAUTHNOPRIV) {
+   if ($pdu->security_level > SECURITY_LEVEL_NOAUTHNOPRIV) {
       if (!defined($this->_authenticate_outgoing_msg($msg, $auth_location))) {
          return $this->_error($msg->error);
       }
@@ -422,8 +389,7 @@ sub process_incoming_msg
    }
 
    # msgUserName::=OCTET STRING (SIZE(0..32))
-   my $msg_user_name;
-   if (!defined($msg_user_name = $msg->process(OCTET_STRING))) {
+   if (!defined($msg->security_name($msg->process(OCTET_STRING)))) {
       return $this->_error($msg->error); 
    }
 
@@ -463,9 +429,9 @@ sub process_incoming_msg
          );
       }
 
-      if ($msg_user_name ne $this->_user_name) {
+      if ($msg->security_name ne $this->_user_name) {
          return $this->_error(
-            'Unknown incoming msgUserName [%s]', $msg_user_name
+            'Unknown incoming msgUserName [%s]', $msg->security_name 
          );
       }
 
@@ -478,38 +444,15 @@ sub process_incoming_msg
 
    }
 
-   # Get the securityLevel of the incoming message from the msgFlags
-
-   my $security_level = SECURITY_LEVEL_NOAUTHNOPRIV;
-   my $msg_flags = $msg->msg_flags;
-
-   if ($msg_flags & MSG_FLAGS_AUTH) {
-
-      $security_level = SECURITY_LEVEL_AUTHNOPRIV;
-
-      if ($msg_flags & MSG_FLAGS_PRIV) {
-         $security_level = SECURITY_LEVEL_AUTHPRIV;
-      }
-
-   } elsif ($msg_flags & MSG_FLAGS_PRIV) {
-
-      # RFC 3412 - Section 7.2 1d: "If the authFlag is not set  
-      # and privFlag is set... ...the message is discarded..."
-
-      return $this->_error('Invalid incoming msgFlags [0x%02x]', $msg_flags);
-   } 
-
-   # RFC 3412 - Section 7.2 1e: "Any other bits... ...are ignored."
-   if ($msg_flags & ~MSG_FLAGS_MASK) {
-      DEBUG_INFO('questionable msgFlags [0x%02x]', $msg_flags);
-   }
-
    # Validate the incoming securityLevel
 
-   if ($security_level > $this->{_security_level}) {
-      return $this->_error('Unsupported securityLevel [%d]', $security_level);
-   }
+   my $security_level = $msg->security_level;
 
+   if ($security_level > $this->{_security_level}) {
+      return $this->_error(
+          'Unsupported incoming securityLevel [%d]', $security_level
+      );
+   }
  
    if ($security_level > SECURITY_LEVEL_NOAUTHNOPRIV) {
 
@@ -579,8 +522,10 @@ sub user_name
 
 sub auth_protocol
 {
-   if ($_[0]->{_security_level} > SECURITY_LEVEL_NOAUTHNOPRIV) {
-      $_[0]->{_auth_protocol};
+   my ($this) = @_;
+
+   if ($this->{_security_level} > SECURITY_LEVEL_NOAUTHNOPRIV) {
+      $this->{_auth_protocol};
    } else {
       AUTH_PROTOCOL_NONE;
    }
@@ -593,8 +538,10 @@ sub auth_key
 
 sub priv_protocol
 {
-   if ($_[0]->{_security_level} > SECURITY_LEVEL_AUTHNOPRIV) {
-      $_[0]->{_priv_protocol};
+   my ($this) = @_;
+
+   if ($this->{_security_level} > SECURITY_LEVEL_AUTHNOPRIV) {
+      $this->{_priv_protocol};
    } else {
       PRIV_PROTOCOL_NONE;
    }
@@ -632,89 +579,136 @@ sub security_model
    SECURITY_MODEL_USM;
 }
 
-sub discovered
+sub security_name
 {
-   if ($_[0]->{_security_level} > SECURITY_LEVEL_NOAUTHNOPRIV) {
-      ($_[0]->{_discovered} && $_[0]->{_synchronized});
-   } else {
-      $_[0]->{_discovered};
-   }
+   $_[0]->{_user_name};
 }
 
-sub debug
+sub discovered
 {
-   (@_ == 2) ? $DEBUG = ($_[1]) ? TRUE : FALSE : $DEBUG;
+   my ($this) = @_;
+
+   if ($this->{_security_level} > SECURITY_LEVEL_NOAUTHNOPRIV) {
+      ($this->{_discovered} && $this->{_synchronized});
+   } else {
+      $this->{_discovered};
+   }
 }
 
 # [private methods] ----------------------------------------------------------
 
 sub _version
 {
-   if ($_[1] != SNMP_VERSION_3) {
-      return $_[0]->_error('Invalid SNMP version specified [%s]', $_[1]);
+   my ($this, $version) = @_;
+
+   if ($version != SNMP_VERSION_3) {
+      return $this->_error('Invalid SNMP version specified [%s]', $version);
    }
 
-   $_[0]->{_version} = $_[1];
+   $this->{_version} = $version;
 }
 
 sub _engine_id
 {
+   my ($this, $engine_id) = @_;
+
    if (@_ == 2) {
-      if ($_[1] =~ /^(?i:0x)?([a-fA-F0-9]{10,64})$/) {
-         $_[0]->{_engine_id} = pack('H*', length($1) % 2 ? '0'.$1 : $1);
+      if ($engine_id =~ /^(?i:0x)?([a-fA-F0-9]{10,64})$/) {
+         $this->{_engine_id} = pack('H*', length($1) % 2 ? '0'.$1 : $1);
       } else {
-         return $_[0]->_error('Invalid authoritativeEngineID format specified');
+         return $this->_error('Invalid authoritativeEngineID format specified');
       }
    }
 
-   $_[0]->{_engine_id};
+   $this->{_engine_id};
 }
 
 sub _user_name
 {
+   my ($this, $user_name) = @_;
+
    if (@_ == 2) {
-      if ($_[1] eq '') {
-         return $_[0]->_error('Empty userName specified');
-      } elsif (length($_[1]) > 32) {
+      if ($user_name eq '') {
+         return $this->_error('Empty userName specified');
+      } elsif (length($user_name) > 32) {
          return $_[0]->_error(
             'Invalid userName length [%d octet%s]', 
-            length($_[1]), length($_[1]) != 1 ? 's' : ''
+            length($user_name), length($user_name) != 1 ? 's' : ''
          );
       }
-      $_[0]->{_user_name} = $_[1];
+      $this->{_user_name} = $user_name;
    }
 
    # RFC 3414 Section 4 - "Discovery... ...msgUserName of zero-length..."
 
-   ($_[0]->{_discovered}) ? $_[0]->{_user_name} : '';
+   ($this->{_discovered}) ? $this->{_user_name} : '';
+}
+
+sub _snmp_engine_init
+{
+   my ($this) = @_;
+
+   if ($this->{_engine_id} eq '') {
+
+      # Initialize our snmpEngineID using the algorithm described 
+      # in RFC 3411 - SnmpEngineID::=TEXTUAL-CONVENTION.
+
+      # The first bit is set to one to indicate that the RFC 3411
+      # algorithm is being used.  The first fours bytes are to be
+      # the agent's SNMP management private enterprise number, but
+      # they are set to all zeros. The fifth byte is set to one to
+      # indicate that the final four bytes are an IPv4 address.
+
+      if (!defined($ENGINE_ID)) {
+         eval {
+            require Sys::Hostname;
+            $ENGINE_ID = pack('H10', '8000000001') .
+                         scalar(gethostbyname(Sys::Hostname::hostname()));
+         };
+
+         # Fallback in case gethostbyname() or hostname() fail
+         $ENGINE_ID = pack('x11H2', '01') if ($@);    
+      }
+
+      $this->{_engine_id} = $ENGINE_ID;
+   }
+
+   $this->{_engine_boots} = 1;
+   $this->{_time_epoc}    = $^T;
+   $this->{_synchronized} = TRUE;
+   $this->{_discovered}   = TRUE;
 }
 
 sub _auth_key
 {
+   my ($this, $auth_key) = @_;
+
    if (@_ == 2) {
-      if ($_[1] =~ /^(?i:0x)?([a-fA-F0-9]+)$/) {
-         $_[0]->{_auth_key} = pack('H*', length($1) % 2 ? '0'.$1 : $1); 
-         if (!defined($_[0]->_auth_key_validate)) {
-            return $_[0]->_error;
+      if ($auth_key =~ /^(?i:0x)?([a-fA-F0-9]+)$/) {
+         $this->{_auth_key} = pack('H*', length($1) % 2 ? '0'.$1 : $1); 
+         if (!defined($this->_auth_key_validate)) {
+            return $this->_error;
          }
       } else {
-         return $_[0]->_error('Invalid authKey format specified');
+         return $this->_error('Invalid authKey format specified');
       }
    }
 
-   $_[0]->{_auth_key};
+   $this->{_auth_key};
 }
 
 sub _auth_password
 {
+   my ($this, $auth_password) = @_;
+
    if (@_ == 2) {
-      if ($_[1] eq '') {
+      if ($auth_password eq '') {
          return $_[0]->_error('Empty authentication password specified');
       } 
-      $_[0]->{_auth_password} = $_[1];
+      $this->{_auth_password} = $auth_password;
    }
 
-   $_[0]->{_auth_password};
+   $this->{_auth_password};
 }
 
 sub _auth_protocol
@@ -740,9 +734,7 @@ sub _auth_protocol
 
       if (@match > 1) {
          return $this->_error('Ambiguous authProtocol specified [%s]', $proto);
-      }
-
-      if (@match != 1) {
+      } elsif (@match != 1) {
          return $this->_error('Unknown authProtocol specified [%s]', $proto);
       }
 
@@ -754,44 +746,48 @@ sub _auth_protocol
 
 sub _priv_key
 {
+   my ($this, $priv_key) = @_;
+
    if (@_ == 2) {
 
-      if ($_[1] =~ /^(?i:0x)?([a-fA-F0-9]+)$/) {
+      if ($priv_key =~ /^(?i:0x)?([a-fA-F0-9]+)$/) {
 
-         $_[0]->{_priv_key} = pack('H*', length($1) % 2 ? '0'.$1 : $1);
+         $this->{_priv_key} = pack('H*', length($1) % 2 ? '0'.$1 : $1);
 
          # For backwards compatibility with previous versions of
          # this module truncate 20 byte SHA1 keys to 16 bytes. 
 
-         if (length($_[0]->{_priv_key}) == 20) {
-            $_[0]->{_priv_key} = substr($_[0]->{_priv_key}, 0, 16);
+         if (length($this->{_priv_key}) == 20) {
+            $this->{_priv_key} = substr($this->{_priv_key}, 0, 16);
          }
 
-         if (!defined($_[0]->_priv_key_validate)) {
-            return $_[0]->_error;
+         if (!defined($this->_priv_key_validate)) {
+            return $this->_error;
          }
 
       } else {
 
-         return $_[0]->_error('Invalid privKey format specified');
+         return $this->_error('Invalid privKey format specified');
 
       }
 
    }
 
-   $_[0]->{_priv_key};
+   $this->{_priv_key};
 }
 
 sub _priv_password
 {
+   my ($this, $priv_password) = @_;
+
    if (@_ == 2) {
-      if ($_[1] eq '') {
-         return $_[0]->_error('Empty privacy password specified');
+      if ($priv_password eq '') {
+         return $this->_error('Empty privacy password specified');
       }
-      $_[0]->{_priv_password} = $_[1];
+      $this->{_priv_password} = $priv_password;
    }
 
-   $_[0]->{_priv_password};
+   $this->{_priv_password};
 }
 
 sub _priv_protocol
@@ -826,24 +822,25 @@ sub _priv_protocol
 
       if (@match > 1) {
          return $this->_error('Ambiguous privProtocol specified [%s]', $proto);
-      }
-
-      if (@match != 1) {
+      } elsif (@match != 1) {
          return $this->_error('Unknown privProtocol specified [%s]', $proto);
       }
 
       $this->{_priv_protocol} = $protocols->{$match[0]};
 
-      # Validate the support of the AES cipher algorithm.
+      # Validate the support of the AES cipher algorithm.  Attempt to 
+      # load the Crypt::Rijndael module.  If this module is not found, 
+      # do not provide support for the AES Cipher Algorithm.
 
-      if (defined($NO_AES_SUPPORT) &&
-          (($this->{_priv_protocol} eq PRIV_PROTOCOL_AESCFB128) ||
-           ($this->{_priv_protocol} eq PRIV_PROTOCOL_AESCFB192) ||
-           ($this->{_priv_protocol} eq PRIV_PROTOCOL_AESCFB256)))
+      if (($this->{_priv_protocol} eq PRIV_PROTOCOL_AESCFB128) ||
+          ($this->{_priv_protocol} eq PRIV_PROTOCOL_AESCFB192) ||
+          ($this->{_priv_protocol} eq PRIV_PROTOCOL_AESCFB256))
       {
-         return $this->_error(
-            'No support for privProtocol [%s]' . $NO_AES_SUPPORT, $proto
-         ); 
+         if (defined(my $error = load_module('Crypt::Rijndael'))) {
+            return $this->_error(
+               'Support unavailable for privProtocol [%s] %s', $proto, $error 
+            );
+         }
       }
    }
 
@@ -1463,10 +1460,13 @@ sub _priv_data_init_aescfbxxx
       return $this->_error('Required privKey not defined');
    }
 
+   # Avoid a "strict subs" error if Crypt::Rijndael is not loaded.
+   no strict 'subs';
+
    # Create the AES (Rijndael) object with a 128, 192, or 256 bit key.
 
    $this->{_priv_data}->{aes} = 
-      Crypt::Rijndael->new($this->{_priv_key}, Crypt::Rijndael::MODE_CFB);
+      Crypt::Rijndael->new($this->{_priv_key}, Crypt::Rijndael::MODE_CFB());
 
    # Initialize the salt
    $this->{_priv_data}->{salt1} = int(rand(~0));
@@ -1767,18 +1767,49 @@ sub _password_localize
    $digest->add($d . $this->{_engine_id} . $d)->digest;
 }
 
+{
+   my %modules;
+
+   sub load_module
+   {
+      my ($module) = @_;
+
+      # We attempt to load the required module under the protection of an
+      # eval statement.  If there is a failure, typically it is due to a
+      # missing module required by the requested module and we attempt to
+      # simplify the error message by just listing that module.  We also
+      # need to track failures since require() only produces an error on
+      # the first attempt to load the module.
+
+      # NOTE: Contrary to our typical convention, a return value of "undef"
+      # actually means success and a defined value means error.
+
+      return $modules{$module} if (exists($modules{$module}));
+
+      if (!eval("require $module")) {
+         if ($@ =~ /locate (\S+\.pm)/) {
+            $modules{$module} = sprintf('(Required module %s not found)', $1);
+         } else {
+            $modules{$module} = sprintf('(%s)', $@);
+         }
+      } else {
+         $modules{$module} = undef;
+      }
+   }
+}
+
 sub DEBUG_INFO
 {
-   return unless $DEBUG;
+   return unless $Net::SNMP::Security::DEBUG;
 
    printf(
       sprintf('debug: [%d] %s(): ', (caller(0))[2], (caller(1))[3]) .
-      shift(@_) .
+      ((@_ > 1) ? shift(@_) : '%s') .
       "\n",
       @_
    );
 
-   $DEBUG;
+   $Net::SNMP::Security::DEBUG;
 }
 
 # ============================================================================

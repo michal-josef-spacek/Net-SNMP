@@ -1,5 +1,24 @@
                            Net::SNMP Changes
 
+RELEASE 5.0.0 JUL-20-2004 
+
+- Added support for the UDP/IPv6 Transport Domain listed in RFC 3419.
+- Support for the TCP/IPv4 and TCP/IPv6 Transport Domains was added
+  as described in RFC 3430 - "SNMP over TCP Transport Mapping".  
+- Optimizations were made to ASN.1 processing and preparation methods. 
+- Corrected a possible memory exhaustion error with OCTET STRINGs that
+  contain "printf" format characters. 
+- The ASN.1 types associated with the ObjectSyntax values in the
+  VarBindList can now be retrieved using the var_bind_types() method.
+- The function snmp_type_ntop() was added for displaying ASN.1 types.
+- The Net::SNMP::Dispatcher module now checks for select() errors.
+- Passing the "-maxrepetitions" argument with a value of 1 or less
+  to the get_table() or get_entries() methods instructs them to use 
+  get-next-request messages instead of get-bulk-request messages. 
+- The maximum allowed value for the maxMsgSize was reduced to 65535.
+- The Perl modules for the non-default Transport Domains and Security
+  Model are now loaded at runtime instead of compile time.
+
 RELEASE 4.1.2 SEP-11-2003
 
 - Removed an unintended dependency on the Crypt::Rijndael that would cause 
@@ -231,4 +250,4 @@ RELEASE 1.00 SEP-09-1998
 
 RCS
 
-    $Id: Changes,v 4.7 2003/09/11 19:14:42 dtown Exp $
+    $Id: Changes,v 5.0 2004/07/20 13:36:49 dtown Exp $

@@ -3,9 +3,9 @@
 
 package Net::SNMP;
 
-# $Id: SNMP.pm,v 4.8 2003/09/11 19:14:42 dtown Exp $
+# $Id: SNMP.pm,v 5.0 2004/07/20 13:34:51 dtown Exp $
 
-# Copyright (c) 1998-2003 David M. Town <dtown@cpan.org>
+# Copyright (c) 1998-2004 David M. Town <dtown@cpan.org>
 # All rights reserved.
 
 # This program is free software; you may redistribute it and/or modify it
@@ -106,67 +106,61 @@ BEGIN
 
 ## Version of the Net::SNMP module
 
-our $VERSION = v4.1.2;
+our $VERSION = v5.0.0;
 
 ## Load our modules
 
 use Net::SNMP::Dispatcher();
-use Net::SNMP::PDU qw(:ALL);
+use Net::SNMP::PDU qw( :ALL );
 use Net::SNMP::Security();
-use Net::SNMP::Transport::UDP qw(:ports);
+use Net::SNMP::Transport qw( :ports );
 
-## Handle exporting of symbols
+## Handle importing/exporting of symbols
 
 use Exporter();
 
-our @ISA = qw(Exporter);
+our @ISA = qw( Exporter );
 
-our @ASN1 = qw(
-   INTEGER INTEGER32 OCTET_STRING OBJECT_IDENTIFIER IPADDRESS COUNTER 
-   COUNTER32 GAUGE GAUGE32 UNSIGNED32 TIMETICKS OPAQUE COUNTER64 NOSUCHOBJECT 
-   NOSUCHINSTANCE ENDOFMIBVIEW
+our @EXPORT = qw(
+   INTEGER INTEGER32 OCTET_STRING OBJECT_IDENTIFIER IPADDRESS COUNTER
+   COUNTER32 GAUGE GAUGE32 UNSIGNED32 TIMETICKS OPAQUE COUNTER64 NOSUCHOBJECT
+   NOSUCHINSTANCE ENDOFMIBVIEW snmp_dispatcher 
 );
 
-our @ASN1_PDU = qw(
-   GET_REQUEST GET_NEXT_REQUEST GET_RESPONSE SET_REQUEST TRAP
-   GET_BULK_REQUEST INFORM_REQUEST SNMPV2_TRAP
-);
-
-our @DEBUG = qw(
-   DEBUG_ALL DEBUG_NONE DEBUG_MESSAGE DEBUG_TRANSPORT DEBUG_DISPATCHER
-   DEBUG_PROCESSING DEBUG_SECURITY snmp_debug
-);
-
-our @GENERICTRAP = qw(
-   COLD_START WARM_START LINK_DOWN LINK_UP AUTHENTICATION_FAILURE
-   EGP_NEIGHBOR_LOSS ENTERPRISE_SPECIFIC
-);
-
-our @SNMP = qw(
-   SNMP_VERSION_1 SNMP_VERSION_2C SNMP_VERSION_3 SNMP_PORT SNMP_TRAP_PORT 
-   snmp_debug oid_base_match oid_context_match oid_lex_sort ticks_to_time
-);
-
-our @TRANSLATE = qw(
-   TRANSLATE_NONE TRANSLATE_OCTET_STRING TRANSLATE_NULL TRANSLATE_TIMETICKS
-   TRANSLATE_OPAQUE TRANSLATE_NOSUCHOBJECT TRANSLATE_NOSUCHINSTANCE
-   TRANSLATE_ENDOFMIBVIEW TRANSLATE_UNSIGNED TRANSLATE_ALL
-);
-
-our @EXPORT    = (@ASN1, 'snmp_dispatcher', 'snmp_event_loop');
-our @EXPORT_OK = (
-   @ASN1_PDU, @DEBUG, @GENERICTRAP, @SNMP, @TRANSLATE, 'SEQUENCE', 'NULL', 
-   'snmp_dispatch_once'
-);
+our @EXPORT_OK = qw( snmp_event_loop oid_context_match );
 
 our %EXPORT_TAGS = (
-   asn1        => [@ASN1, @ASN1_PDU, 'SEQUENCE', 'NULL'],
-   debug       => [@DEBUG],
-   generictrap => [@GENERICTRAP],
-   snmp        => [@SNMP, 'snmp_dispatcher', 'snmp_event_loop'],
-   translate   => [@TRANSLATE],
-   ALL         => [@EXPORT, @EXPORT_OK]
+   asn1        => [ 
+      qw( INTEGER INTEGER32 OCTET_STRING NULL OBJECT_IDENTIFIER SEQUENCE
+          IPADDRESS COUNTER COUNTER32 GAUGE GAUGE32 UNSIGNED32 TIMETICKS
+          OPAQUE COUNTER64 NOSUCHOBJECT NOSUCHINSTANCE ENDOFMIBVIEW
+          GET_REQUEST GET_NEXT_REQUEST GET_RESPONSE SET_REQUEST TRAP
+          GET_BULK_REQUEST INFORM_REQUEST SNMPV2_TRAP REPORT )
+   ],
+   debug       => [ 
+      qw( DEBUG_ALL DEBUG_NONE DEBUG_MESSAGE DEBUG_TRANSPORT DEBUG_DISPATCHER
+          DEBUG_PROCESSING DEBUG_SECURITY snmp_debug )
+   ],
+   generictrap => [ 
+      qw( COLD_START WARM_START LINK_DOWN LINK_UP AUTHENTICATION_FAILURE
+          EGP_NEIGHBOR_LOSS ENTERPRISE_SPECIFIC )
+   ],
+   snmp        => [
+      qw( SNMP_VERSION_1 SNMP_VERSION_2C SNMP_VERSION_3 SNMP_PORT 
+          SNMP_TRAP_PORT snmp_debug snmp_dispatcher snmp_dispatch_once
+          snmp_type_ntop oid_base_match oid_lex_sort ticks_to_time ) 
+   ],
+   translate      => [
+      qw( TRANSLATE_NONE TRANSLATE_OCTET_STRING TRANSLATE_NULL
+          TRANSLATE_TIMETICKS TRANSLATE_OPAQUE TRANSLATE_NOSUCHOBJECT
+          TRANSLATE_NOSUCHINSTANCE TRANSLATE_ENDOFMIBVIEW TRANSLATE_UNSIGNED
+          TRANSLATE_ALL )
+   ]
 );
+
+Exporter::export_ok_tags( qw( asn1 debug generictrap snmp translate ) );
+
+$EXPORT_TAGS{ALL} = [ @EXPORT_OK ];
 
 ## Debugging bit masks
 
@@ -309,9 +303,9 @@ sub new
         '_error'             =>  undef,           # Error message
         '_nonblocking'       =>  FALSE,           # Blocking/non-blocking flag
         '_pdu'               =>  undef,           # Message/PDU object
-        '_security'          =>  undef,           # Security model
+        '_security'          =>  undef,           # Security Model object
         '_translate'         =>  TRANSLATE_ALL,   # Translation mask 
-        '_transport'         =>  undef,           # Transport model
+        '_transport'         =>  undef,           # Transport Domain object
         '_transport_argv'    =>  [],              # Transport constructor argv
         '_version'           =>  SNMP_VERSION_1,  # SNMP version
    }, $class;
@@ -319,8 +313,8 @@ sub new
    # Parse the passed arguments 
 
    my @transport = qw(
-      -dstaddr -dstport -hostname -localaddr -localport -maxmsgsize
-      -mtu -port -retries -srcaddr -srcport -timeout 
+      -domain -dstaddr -dstport -hostname -localaddr -localport 
+      -maxmsgsize -mtu -port -retries -srcaddr -srcport -timeout 
    );
    
    foreach (keys %argv) {
@@ -334,7 +328,7 @@ sub new
       } elsif (/^-?version$/i) {
          $this->_version($argv{$_});
       } else {
-         # Pull out arguments associated with the Transport Layer
+         # Pull out arguments associated with the Transport Domain 
          my $key   = $_;
          my @match = grep(/^-?\Q$key\E$/i, @transport);
          if (@match == 1) {
@@ -377,8 +371,8 @@ sub open
    # Clear any previous errors
    $this->_error_clear;
 
-   # Create a Transport Layer object
-   ($this->{_transport}, $this->{_error}) = Net::SNMP::Transport::UDP->new(
+   # Create a Transport Domain object
+   ($this->{_transport}, $this->{_error}) = Net::SNMP::Transport->new(
       @{$this->{_transport_argv}}
    );
 
@@ -405,6 +399,7 @@ sub open
                            [-localport     => $localport,]
                            [-nonblocking   => $boolean,]
                            [-version       => $version,]
+                           [-domain        => $domain,]
                            [-timeout       => $seconds,]
                            [-retries       => $count,]
                            [-maxmsgsize    => $octets,]
@@ -436,26 +431,35 @@ and valid ranges.
 
 =over
 
-=item Transport Layer Arguments
+=item Transport Domain Arguments
 
-The Net::SNMP module uses UDP/IP as the Transport Layer to pass SNMP messages
-between the local and remote devices.  The destination device can be specified
-using the B<-hostname> argument.  The B<-hostname> argument accepts either
-an IP network hostname or an IP address in dotted notation.  This argument 
-is optional and defaults to "localhost".  The destination UPD port number can
-be specified using the B<-port> argument.  This argument is also optional and
-defaults to 161, which is the port number on which devices using default 
-values expect to receive SNMP request messages.  The B<-port> argument will 
-need to be specified for remote devices expecting to receive SNMP 
-notifications since these device typically default to port 162.
+The Net::SNMP module uses UDP/IPv4 as the default Transport Domain to exchange
+SNMP messages between the local and remote devices.  The module also supports
+UDP/IPv6, TCP/IPv4, and TCP/IPv6 as alternative Transport Domains.  The 
+B<-domain> argument can be used to change the Transport Domain by setting the 
+value to one of the following strings: 'udp6', 'udp/ipv6'; 'tcp', 'tcp4', 
+'tcp/ipv4'; 'tcp6', or 'tcp/ipv6'.  The B<-domain> argument also accepts
+the strings 'udp', 'udp4', or 'udp/ipv4' which correspond to the default
+Transport Domain of UDP/IPv4.
 
-By default, the source IP address and port number are assigned dynamically by 
-the local device on which the Net::SNMP module is being used.  This dynamic 
-assignment can be overridden by using the B<-localaddr> and B<-localport> 
-arguments.  These values default to I<INADDR_ANY> (typically 0.0.0.0) and 0 
-respectively.  The B<-localaddr> argument will accept either an IP network 
-hostname or an IP address in dotted notation.  If a hostname is specified, the 
-resolved IP address must be a valid address on the local device. 
+The destination device can be specified using the B<-hostname> argument.  The
+B<-hostname> argument accepts either an IP network hostname or an IP address.
+The IP address is expected in dotted notation when using IPv4 and in
+presentation format when using IPv6.  The B<-hostname> argument is optional
+and defaults to "localhost".  The destination port number or service name
+can be specified using the B<-port> argument.  This argument is also optional
+and defaults to 161, which is the port number on which devices using 
+well-known values expect to receive SNMP request messages.  The B<-port> 
+argument will need to be specified for remote devices expecting to receive 
+SNMP notifications since these device typically default a port value of 162.
+
+By default, the source IP address and port number are assigned dynamically by
+the local device on which the Net::SNMP module is being used.  This dynamic
+assignment can be overridden by using the B<-localaddr> and B<-localport>
+arguments.  These values default to I<INADDR_ANY> (or I<in6addr_any> for IPv6)
+and 0 respectively.  The B<-localaddr> argument will accept either an IP
+network hostname or an IP address.  In either case the address must correspond
+to a valid address of an interface on the local device.
 
 =item Security Model Arguments
 
@@ -560,21 +564,23 @@ sub manager
    shift->session(@_);
 }
 
-=head2 close() - clear the Transport Layer associated with the object
+=head2 close() - clear the Transport Domain associated with the object
 
    $session->close; 
 
-This method clears the UDP Transport Layer and any errors associated with 
-the object.  Once closed, the Net::SNMP object can no longer be used to 
-send or receive SNMP messages.
+This method clears the Transport Domain and any errors associated with the 
+object.  Once closed, the Net::SNMP object can no longer be used to send or 
+receive SNMP messages.
 
 =cut
 
 sub close : locked : method
 {
-   $_[0]->_error_clear;
-   $_[0]->{_pdu}       = undef;
-   $_[0]->{_transport} = undef;
+   my ($this) = @_;
+
+   $this->_error_clear;
+   $this->{_pdu}       = undef;
+   $this->{_transport} = undef;
 }
 
 =head2 snmp_dispatcher() - enter the non-blocking object event loop
@@ -792,10 +798,11 @@ value is expected to be an OBJECT IDENTIFER in dotted notation.
 
 =item *
 
-The default value for the trap B<-agentaddr> is the local IP address from
-the host on which the script is running or the local address specified by the
-B<-localaddr> option.  The agent-addr is expected to be an IpAddress in 
-dotted notation.
+When the Transport Domain is UDP/IPv4 or TCP/IPv4, the default value for the
+trap B<-agentaddr> is the IP address associated with the hostname on which the 
+script is running or the address specified by the B<-localaddr> option.  For 
+other Transport Domains the B<-agentaddr> is defaulted to "0.0.0.0".  When 
+specified, the agent-addr is expected to be an IpAddress in dotted notation. 
 
 =item *
 
@@ -874,7 +881,7 @@ sub trap : locked : method
    defined($this->{_error}) ? $this->_error : TRUE;
 }
 
-=head2 get_bulk_request() - send a get-bulk-request to the remote agent
+=head2 get_bulk_request() - send a SNMP get-bulk-request to the remote agent
 
    $result = $session->get_bulk_request(
                           [-callback        => sub {},]     # non-blocking
@@ -955,7 +962,7 @@ sub get_bulk_request : locked : method
    $this->_send_pdu;
 }
 
-=head2 inform_request() - send an inform-request to the remote manager
+=head2 inform_request() - send a SNMP inform-request to the remote manager
 
    $result = $session->inform_request(
                           [-callback        => sub {},]     # non-blocking
@@ -1029,7 +1036,7 @@ sub inform_request : locked : method
    $this->_send_pdu;
 }
 
-=head2 snmpv2_trap() - send a snmpV2-trap to the remote manager
+=head2 snmpv2_trap() - send a SNMP snmpV2-trap to the remote manager
 
    $result = $session->snmpv2_trap(
                           [-delay           => $seconds,]   # non-blocking 
@@ -1085,6 +1092,8 @@ sub snmpv2_trap : locked : method
    my @argv;
 
    if (!defined($this->_prepare_argv([qw( -delay
+                                          -contextengineid
+                                          -contextname
                                           -varbindlist )], \@_, \@argv))) 
    {
       return $this->_error;
@@ -1119,13 +1128,14 @@ This method performs repeated SNMP get-next-request or get-bulk-request
 on the host associated with the Net::SNMP object.  The first message sent 
 is built using the OBJECT IDENTIFIER in dotted notation passed to the method 
 by the B<-baseoid> argument.   Repeated SNMP requests are issued until the 
-OBJECT IDENTIFER in the response is no longer a child of the base OBJECT 
+OBJECT IDENTIFIER in the response is no longer a child of the base OBJECT 
 IDENTIFIER.
 
 The B<-maxrepetitions> argument can be used to specify the max-repetitions
 value that is passed to the get-bulk-requests when using SNMPv2c or SNMPv3.  
 If this argument is not present, a value is calculated based on the maximum 
-message size for the Net::SNMP object.
+message size for the Net::SNMP object.  If the value is set to 1 or less, 
+get-next-requests will be used for the queries instead of get-bulk-requests.
 
 A reference to a hash is returned in blocking mode which contains the contents
 of the VarBindList.  In non-blocking mode, a true value is returned when no
@@ -1179,10 +1189,12 @@ sub get_table : locked : method
    # callbacks.  This just prevents a big argument list.
 
    my %argv = (
-      'base_oid'   => $argv[0], 
-      'callback'   => $this->{_pdu}->callback,
-      'repeat_cnt' => 0,
-      'table'      => undef,
+      base_oid   => $argv[0], 
+      callback   => $this->{_pdu}->callback,
+      repeat_cnt => 0,
+      table      => undef,
+      types      => undef,
+      use_bulk   => FALSE
    );
 
    # Override the callback now that we have stored it.
@@ -1195,16 +1207,22 @@ sub get_table : locked : method
       }
    );
 
-   # Create a get-next-request or get-bulk-request PDU depending
-   # on the SNMP version.
+   # Determine if we are going to use get-next-requests or get-bulk-requests
+   # based on the SNMP version and the -maxrepetitions argument.
 
    if ($this->version == SNMP_VERSION_1) {
-
       if (defined($argv[1])) {
          return $this->_error(
             'A max-repetitions value is not applicable when using SNMPv1'
          );
       }
+   } else {
+      $argv{use_bulk} = (defined($argv[1]) && $argv[1] <= 1) ? FALSE : TRUE;
+   }    
+
+   # Create either a get-next-request or get-bulk-request PDU.
+
+   if (!$argv{use_bulk}) {
 
       # Set max_reps to be used as a limit for loop detection.
       $argv{max_reps} = 5;
@@ -1276,7 +1294,8 @@ The B<-maxrepetitions> argument can be used to specify the max-repetitions
 value that is passed to the get-bulk-requests when using SNMPv2c or SNMPv3.
 If this argument is not present, a value is calculated based on the maximum
 message size of the object and the number of columns specified in the
-B<-columns> array.
+B<-columns> array.  If the value is set to 1 or less, get-next-requests will 
+be used for the queries instead of get-bulk-requests. 
 
 A reference to a hash is returned in blocking mode which contains the contents
 of the VarBindList.  In non-blocking mode, a true value is returned when no
@@ -1417,7 +1436,9 @@ sub get_entries : locked : method
       entries      => undef,
       last_index   => '0', 
       row_callback => $argv[5],
-      start_index  => $argv[2] 
+      start_index  => $argv[2],
+      types        => undef,
+      use_bulk     => FALSE 
    );
 
    # Override the callback now that we have stored it.
@@ -1434,16 +1455,22 @@ sub get_entries : locked : method
 
    my $vbl = [ map { join('.', $_, $start_index) } @{$argv{columns}} ]; 
 
-   # Create a get-next-request or get-bulk-request PDU depending
-   # on the SNMP version.
+   # Determine if we are going to use get-next-requests or get-bulk-requests
+   # based on the SNMP version and the -maxrepetitions argument.
 
    if ($this->version == SNMP_VERSION_1) {
-
       if (defined($argv[4])) {
          return $this->_error(
             'A max-repetitions value is not applicable when using SNMPv1'
          );
       }
+   } else {
+      $argv{use_bulk} = (defined($argv[4]) && $argv[4] <= 1) ? FALSE : TRUE;
+   }
+
+   # Create either a get-next-request or get-bulk-request PDU.
+
+   if (!$argv{use_bulk}) {
 
       if (!defined($this->{_pdu}->prepare_get_next_request($vbl))) {
          return $this->_error($this->{_pdu}->error);
@@ -1486,9 +1513,11 @@ be exported by request (see L<"EXPORTS">).
 
 sub version : locked : method
 {
-   return $_[0]->_error('SNMP version is not modifiable') if (@_ == 2);
+   my ($this) = @_;
 
-   $_[0]->{_version}; 
+   return $this->_error('SNMP version is not modifiable') if (@_ == 2);
+
+   $this->{_version}; 
 }
 
 =head2 error() - get the current error message from the object
@@ -1547,20 +1576,20 @@ sub error_index : locked : method
    defined($_[0]->{_pdu}) ? $_[0]->{_pdu}->error_index : 0;
 }
 
-=head2 var_bind_list() - get the hash reference to the last SNMP response
+=head2 var_bind_list() - get the hash reference for the VarBindList values 
 
-   $response = $session->var_bind_list;
+   $values = $session->var_bind_list;
 
 This method returns a hash reference created using the ObjectName and the 
-ObjectSyntax pairs in the VarBindList of the last SNMP GetResponse-PDU 
-received by the object.  The keys of the hash consist of the OBJECT 
-IDENTIFIERs in dotted notation corresponding to each ObjectName in the 
-VarBindList.  If any of the OBJECT IDENTIFIERs passed to the request method 
-began with a leading dot, all of the OBJECT IDENTIFIER hash keys will be 
-prefixed with a leading dot.  The value of each hash entry is set equal to 
-the value of the corresponding ObjectSyntax.  The undefined value is returned
-if there has been a failure and the C<error()> method may be used to determine
-the reason.
+ObjectSyntax pairs in the VarBindList of the last SNMP message received by 
+the object.  The keys of the hash consist of the OBJECT IDENTIFIERs in dotted
+notation corresponding to each ObjectName in the VarBindList.  If any of the 
+OBJECT IDENTIFIERs passed to the request method began with a leading dot, all
+of the OBJECT IDENTIFIER hash keys will be prefixed with a leading dot.  If 
+duplicate OBJECT IDENTIFIERs are present in the VarBindList they will be 
+padded with spaces to make them an uniq hash key.  The value of each hash entry
+is set equal to the value of the corresponding ObjectSyntax.  The undefined
+value is returned if there has been a failure.
 
 =cut
 
@@ -1569,24 +1598,44 @@ sub var_bind_list : locked : method
    defined($_[0]->{_pdu}) ? $_[0]->{_pdu}->var_bind_list : undef;
 }
 
-=head2 var_bind_names() - get the array of the ObjectNames in the last response
+=head2 var_bind_names() - get the array of the ObjectNames in the VarBindList
 
    @names = $session->var_bind_names;
 
 This method returns an array containing the OBJECT IDENTIFIERs corresponding
 to the ObjectNames in the VarBindList in the order that they were received
-in the last SNMP GetResponse-PDU.  The entries in the array will map directly
-to the keys in the hash reference returned by the methods that perform SNMP
-message exchanges and by the C<var_bind_list()> method.  The array returned for
-the convenience methods C<get_table()> and C<get_entries()> will be in
-lexicographical order.  An empty array is returned if there has been a failure
-and the C<error()> method may be used to determine reason.
+in the last SNMP message.  The entries in the array will map directly to the
+keys in the hash reference returned by the methods that perform SNMP message
+exchanges and by the C<var_bind_list()> and C<var_bind_types()> methods.  The
+array returned for the convenience methods C<get_table()> and C<get_entries()>
+will be in lexicographical order.  An empty array is returned if there has been
+a failure.
 
 =cut
 
 sub var_bind_names : locked : method
 {
    defined($_[0]->{_pdu}) ? @{$_[0]->{_pdu}->var_bind_names} : ();
+}
+
+=head2 var_bind_types() - get the hash reference for the VarBindList ASN.1 types
+
+   $types = $session->var_bind_types;
+
+This method returns a hash reference created using the ObjectName and the ASN.1
+type of the ObjectSyntax in the VarBindList of the last SNMP message received
+by the object.  The keys of the hash consist of the OBJECT IDENTIFIERs in 
+dotted notation corresponding to each ObjectName in the VarBindList.  The
+value of each hash entry is set equal to the ASN.1 type of the corresponding
+ObjectSyntax.  Constants for the supported ASN.1 types have been defined and
+are exported by the package by default (see L<"EXPORTS">).  The undefined value
+is returned if there has been a failure.
+
+=cut
+
+sub var_bind_types : locked : method
+{
+   defined($_[0]->{_pdu}) ? $_[0]->{_pdu}->var_bind_types : undef;
 }
 
 =head2 timeout() - set or get the current timeout period for the object 
@@ -1610,7 +1659,7 @@ sub timeout : locked : method
    my $this = shift;
 
    if (!defined($this->{_transport})) {
-      return $this->_error('No Transport Layer defined');
+      return $this->_error('No Transport Domain defined');
    }
 
    my $timeout = $this->{_transport}->timeout(@_);
@@ -1638,7 +1687,7 @@ sub retries : locked : method
    my $this = shift;
 
    if (!defined($this->{_transport})) {
-      return $this->_error('No Transport Layer defined');
+      return $this->_error('No Transport Domain defined');
    }
 
    my $retries = $this->{_transport}->retries(@_);
@@ -1653,10 +1702,11 @@ sub retries : locked : method
 This method returns the current value for the maximum message size 
 (maxMsgSize) for the Net::SNMP object.  This value is the largest message size
 in octets that can be prepared or processed by the object.  The default 
-maxMsgSize is 1472 octets.
+maxMsgSize is 1472 octets for UDP/IPv4, 1452 octets for UDP/IPv6, 1460 octets
+for TCP/IPv4, and 1440 octets for TCP/IPv6.
 
 If a parameter is specified, the maxMsgSize is set to the provided
-value if it falls within the range 484 to 2147483647 octets.  The undefined 
+value if it falls within the range 484 to 65535 octets.  The undefined 
 value is returned upon an error and the C<error()> method may be used to 
 determine the cause.
 
@@ -1672,7 +1722,7 @@ sub max_msg_size : locked : method
    my $this = shift;
 
    if (!defined($this->{_transport})) {
-      return $this->_error('No Transport Layer defined');
+      return $this->_error('No Transport Domain defined');
    }
 
    my $max_size = $this->{_transport}->max_msg_size(@_);
@@ -1691,15 +1741,14 @@ sub mtu
                         $mode |
                         [ # Perl anonymous ARRAY reference 
                            ['-all'            => $mode0,]
-                           ['-none'           => $mode1,]
-                           ['-octetstring     => $mode2,]
-                           ['-null'           => $mode3,]
-                           ['-timeticks'      => $mode4,]
-                           ['-opaque'         => $mode5,]
-                           ['-nosuchobject'   => $mode6,] 
-                           ['-nosuchinstance' => $mode7,]
-                           ['-endofmibview'   => $mode8,]
-                           ['-unsigned'       => $mode9]  
+                           ['-octetstring     => $mode1,]
+                           ['-null'           => $mode2,]
+                           ['-timeticks'      => $mode3,]
+                           ['-opaque'         => $mode4,]
+                           ['-nosuchobject'   => $mode5,] 
+                           ['-nosuchinstance' => $mode6,]
+                           ['-endofmibview'   => $mode7,]
+                           ['-unsigned'       => $mode8]  
                         ]
                      ]);
 
@@ -1779,12 +1828,14 @@ the cause.
 
 sub translate : locked : method
 {
+   my ($this, $mask) = @_;
+
    if (@_ == 2) {
 
-      if (ref($_[1]) ne 'ARRAY') {
+      if (ref($mask) ne 'ARRAY') {
 
          # Behave like we did before, do (not) translate everything
-         $_[0]->_translate_mask($_[1], TRANSLATE_ALL);
+         $this->_translate_mask($_[1], TRANSLATE_ALL);
 
       } else {
 
@@ -1792,41 +1843,41 @@ sub translate : locked : method
          # array is used so the order of the arguments controls how the
          # mask is defined.
 
-         my @argv = @{$_[1]};
+         my @argv = @{$mask};
          my $arg;
 
          while (defined($arg = shift(@argv))) {
             if ($arg =~ /^-?all$/i) {
-               $_[0]->_translate_mask(shift(@argv), TRANSLATE_ALL);
-            } elsif ($arg =~ /^-?none$/i) {
-               $_[0]->_translate_mask(shift(@argv), TRANSLATE_NONE);
+               $this->_translate_mask(shift(@argv), TRANSLATE_ALL);
+            } elsif ($arg =~ /^-?none$/i) { # no-op
+               $this->_translate_mask(shift(@argv), TRANSLATE_NONE);
             } elsif ($arg =~ /^-?octet_?string$/i) {
-               $_[0]->_translate_mask(shift(@argv), TRANSLATE_OCTET_STRING);
+               $this->_translate_mask(shift(@argv), TRANSLATE_OCTET_STRING);
             } elsif ($arg =~ /^-?null$/i) {
-               $_[0]->_translate_mask(shift(@argv), TRANSLATE_NULL);
+               $this->_translate_mask(shift(@argv), TRANSLATE_NULL);
             } elsif ($arg =~ /^-?timeticks$/i) {
-               $_[0]->_translate_mask(shift(@argv), TRANSLATE_TIMETICKS);
+               $this->_translate_mask(shift(@argv), TRANSLATE_TIMETICKS);
             } elsif ($arg =~ /^-?opaque$/i) {
-               $_[0]->_translate_mask(shift(@argv), TRANSLATE_OPAQUE);
+               $this->_translate_mask(shift(@argv), TRANSLATE_OPAQUE);
             } elsif ($arg =~ /^-?nosuchobject$/i) {
-               $_[0]->_translate_mask(shift(@argv), TRANSLATE_NOSUCHOBJECT);
+               $this->_translate_mask(shift(@argv), TRANSLATE_NOSUCHOBJECT);
             } elsif ($arg =~ /^-?nosuchinstance$/i) {
-               $_[0]->_translate_mask(shift(@argv), TRANSLATE_NOSUCHINSTANCE);
+               $this->_translate_mask(shift(@argv), TRANSLATE_NOSUCHINSTANCE);
             } elsif ($arg =~ /^-?endofmibview$/i) {
-               $_[0]->_translate_mask(shift(@argv), TRANSLATE_ENDOFMIBVIEW);
+               $this->_translate_mask(shift(@argv), TRANSLATE_ENDOFMIBVIEW);
             } elsif ($arg =~ /^-?unsigned$/i) {
-               $_[0]->_translate_mask(shift(@argv), TRANSLATE_UNSIGNED);
+               $this->_translate_mask(shift(@argv), TRANSLATE_UNSIGNED);
             } else {
-               return $_[0]->_error("Invalid translate argument '%s'", $arg);
+               return $this->_error("Invalid translate argument '%s'", $arg);
             }
          }
 
       }
 
-      DEBUG_INFO("translate = 0x%02x", $_[0]->{_translate});
+      DEBUG_INFO("translate = 0x%02x", $this->{_translate});
    }
 
-   $_[0]->{_translate};
+   $this->{_translate};
 }
 
 =head2 debug() - set or get the debug mode for the module 
@@ -1875,18 +1926,17 @@ exported by request (see L<"EXPORTS">).
 
 sub debug
 {
+   my (undef, $mask) = @_;
+
    if (@_ == 2) {
 
-      $DEBUG = ($_[1] =~ /^\d+$/) ? $_[1] : ($_[1]) ? DEBUG_ALL : DEBUG_NONE;
+      $DEBUG = ($mask =~ /^\d+$/) ? $mask : ($mask) ? DEBUG_ALL : DEBUG_NONE;
 
       eval { Net::SNMP::Message->debug($DEBUG & DEBUG_MESSAGE);              }; 
-      eval { Net::SNMP::PDU->debug($DEBUG & DEBUG_MESSAGE);                  };
-      eval { Net::SNMP::Transport::UDP->debug($DEBUG & DEBUG_TRANSPORT);     }; 
+      eval { Net::SNMP::Transport->debug($DEBUG & DEBUG_TRANSPORT);          }; 
       eval { Net::SNMP::Dispatcher->debug($DEBUG & DEBUG_DISPATCHER);        };
       eval { Net::SNMP::MessageProcessing->debug($DEBUG & DEBUG_PROCESSING); }; 
       eval { Net::SNMP::Security->debug($DEBUG & DEBUG_SECURITY);            };
-      eval { Net::SNMP::Security::Community->debug($DEBUG & DEBUG_SECURITY); }; 
-      eval { Net::SNMP::Security::USM->debug($DEBUG & DEBUG_SECURITY);       }; 
 
    }
 
@@ -1896,6 +1946,16 @@ sub debug
 sub snmp_debug($)
 {
    debug(undef, $_[0]);
+}
+
+sub pdu : locked : method
+{
+   $_[0]->{_pdu};
+}
+
+sub nonblocking : locked : method
+{
+   $_[0]->{_nonblocking};
 }
 
 sub security : locked : method
@@ -1967,6 +2027,22 @@ sub oid_lex_sort(@)
    } @_;
 }
 
+=head2 snmp_type_ntop() - convert an ASN.1 type to presentation format
+
+   $text = snmp_type_ntop($type);
+
+This function takes an ASN.1 type octet and returns a text string suitable for
+presentation.  Some ASN.1 type definitions map to the same octet value when
+encoded.  This method cannot distinquish between these multiple mappings and
+the most basic type name will be returned.
+
+=cut
+
+sub snmp_type_ntop($)
+{
+   asn1_itoa($_[0]);
+}
+
 =head2 ticks_to_time() - convert TimeTicks to formatted time
 
    $time = ticks_to_time($timeticks);
@@ -2004,11 +2080,13 @@ sub VERSION
 
 sub DESTROY
 {
+   my ($this) = @_;
+
    # We decrement the object type count when the object goes out of
    # existance.  We assume that _object_type_count() was called for
    # every creation or else we die.
 
-   if ($_[0]->{_nonblocking}) {
+   if ($this->{_nonblocking}) {
       if (--$NONBLOCKING < 0) {
          die('FATAL: Invalid non-blocking object count');
       }
@@ -2367,7 +2445,7 @@ sub _discovery_engine_id_cb
    if ($this->{_error} !~ /usmStatsUnknownEngineIDs/) {
 
       # Discovery of the snmpEngineID has failed, clear the 
-      # current PDU and the Transport Layer so no one can use 
+      # current PDU and the Transport Domain so no one can use 
       # this object to send messages.
  
       $this->{_pdu}       = undef;
@@ -2473,7 +2551,7 @@ sub _discovery_synchronization_cb
    DEBUG_INFO('synchronization failed');
 
    # Synchronization has failed, clear the current PDU and 
-   # the Transport Layer so no one can use this object to 
+   # the Transport Domain so no one can use this object to 
    # send messages.
 
    $this->{_pdu}       = undef;
@@ -2541,7 +2619,8 @@ sub _get_table_cb
 
    if (defined(my $result = $this->var_bind_list)) {
 
-      my @oids = oid_lex_sort(keys(%{$result}));
+      my $types = $this->var_bind_types;
+      my @oids  = oid_lex_sort(keys(%{$result}));
       my ($next_oid, $end_of_table) = (undef, FALSE);
 
       while (@oids) { 
@@ -2554,6 +2633,7 @@ sub _get_table_cb
 
             if (!exists($argv->{table}->{$next_oid})) {
                $argv->{table}->{$next_oid} = $result->{$next_oid};
+               $argv->{types}->{$next_oid} = $types->{$next_oid};
             } elsif (($result->{$next_oid} eq 'endOfMibView')      # translate
                      || (($result->{$next_oid} eq '')              # !translate
                         && ($this->error_status == ENDOFMIBVIEW)))
@@ -2602,7 +2682,7 @@ sub _get_table_cb
             }
          );
 
-         if ($this->version == SNMP_VERSION_1) {
+         if (!$argv->{use_bulk}) {
             if (!defined(
                   $this->{_pdu}->prepare_get_next_request([$next_oid])
                )) 
@@ -2627,14 +2707,14 @@ sub _get_table_cb
       }
 
       # Copy the table to the var_bind_list.
-      $this->{_pdu}->var_bind_list($argv->{table});
+      $this->{_pdu}->var_bind_list($argv->{table}, $argv->{types});
 
    }
 
    # Check for noSuchName(2) error.
    if ($this->error_status == 2) {
       $this->{_pdu}->error(undef);
-      $this->{_pdu}->var_bind_list($argv->{table});
+      $this->{_pdu}->var_bind_list($argv->{table}, $argv->{types});
    }
 
    if (!defined($argv->{table}) && (!$this->{_pdu}->error)) {
@@ -2658,6 +2738,7 @@ sub _get_entries_cb
 
    if (defined(my $result = $this->var_bind_list)) {
 
+      my $types      = $this->var_bind_types;
       my $max_index  = $argv->{last_index};
       my $last_entry = TRUE;
       my @vb_names   = $this->var_bind_names;
@@ -2774,6 +2855,7 @@ sub _get_entries_cb
                if (!exists($argv->{entries}->{$oid})) {
                   $last_entry = FALSE;
                   $argv->{entries}->{$oid} = $result->{$oid};
+                  $argv->{types}->{$oid}   = $types->{$oid};
                } else {
                   DEBUG_INFO('not adding duplicate [%s]', $oid);
                }
@@ -2856,7 +2938,7 @@ sub _get_entries_cb
 
          my $vbl = [ map { join('.', $_, $max_index) } @{$argv->{columns}} ];
 
-         if ($this->version == SNMP_VERSION_1) {
+         if (!$argv->{use_bulk}) {
             if (!defined($this->{_pdu}->prepare_get_next_request($vbl))) {
                goto callback_complete; 
             }
@@ -2876,7 +2958,7 @@ sub _get_entries_cb
       }
 
       # Copy the rows to the var_bind_list.
-      $this->{_pdu}->var_bind_list($argv->{entries});
+      $this->{_pdu}->var_bind_list($argv->{entries}, $argv->{types});
 
    }
 
@@ -2885,7 +2967,7 @@ sub _get_entries_cb
    # Check for noSuchName(2) error
    if ($this->error_status == 2) {
       $this->{_pdu}->error(undef);
-      $this->{_pdu}->var_bind_list($argv->{entries});
+      $this->{_pdu}->var_bind_list($argv->{entries}, $argv->{types});
    }
 
    if (!defined($argv->{entries}) && (!$this->{_pdu}->error)) {
@@ -2929,7 +3011,7 @@ sub _error
    }
 
    if (!defined($this->{_error})) {
-      $this->{_error} = sprintf(shift(@_), @_);
+      $this->{_error} = (@_ > 1) ? sprintf(shift(@_), @_) : $_[0];
       if ($this->debug) {
          printf("error: [%d] %s(): %s\n",
             (caller(0))[2], (caller(1))[3], $this->{_error}
@@ -2978,7 +3060,7 @@ sub DEBUG_INFO
 
    printf(
       sprintf('debug: [%d] %s(): ', (caller(0))[2], (caller(1))[3]) .
-      shift(@_) .
+      ((@_ > 1) ? shift(@_) : '%s') . 
       "\n",
       @_
    );
@@ -3004,18 +3086,19 @@ OPAQUE, COUNTER64, NOSUCHOBJECT, NOSUCHINSTANCE, ENDOFMIBVIEW
 
 =item Exportable
 
-&snmp_debug, &snmp_dispatcher, &oid_base_match, &oid_lex_sort, &ticks_to_time,
-INTEGER, INTEGER32, OCTET_STRING, NULL, OBJECT_IDENTIFIER, SEQUENCE, IPADDRESS,
-COUNTER, COUNTER32, GAUGE, GAUGE32, UNSIGNED32, TIMETICKS, OPAQUE, COUNTER64, 
-NOSUCHOBJECT, NOSUCHINSTANCE, ENDOFMIBVIEW, GET_REQUEST, GET_NEXT_REQUEST, 
-GET_RESPONSE, SET_REQUEST, TRAP, GET_BULK_REQUEST, INFORM_REQUEST, SNMPV2_TRAP,
-DEBUG_ALL, DEBUG_NONE, DEBUG_MESSAGE, DEBUG_TRANSPORT, DEBUG_DISPATCHER, 
-DEBUG_PROCESSING, DEBUG_SECURITY, COLD_START, WARM_START, LINK_DOWN, LINK_UP, 
-AUTHENTICATION_FAILURE, EGP_NEIGHBOR_LOSS, ENTERPRISE_SPECIFIC, SNMP_VERSION_1,
-SNMP_VERSION_2C, SNMP_VERSION_3, SNMP_PORT, SNMP_TRAP_PORT, TRANSLATE_NONE, 
-TRANSLATE_OCTET_STRING, TRANSLATE_NULL, TRANSLATE_TIMETICKS, TRANSLATE_OPAQUE,
-TRANSLATE_NOSUCHOBJECT, TRANSLATE_NOSUCHINSTANCE, TRANSLATE_ENDOFMIBVIEW, 
-TRANSLATE_UNSIGNED, TRANSLATE_ALL
+&snmp_debug, &snmp_dispatcher, &snmp_type_ntop, &oid_base_match, &oid_lex_sort, 
+&ticks_to_time, INTEGER, INTEGER32, OCTET_STRING, NULL, OBJECT_IDENTIFIER, 
+SEQUENCE, IPADDRESS, COUNTER, COUNTER32, GAUGE, GAUGE32, UNSIGNED32, TIMETICKS,
+OPAQUE, COUNTER64, NOSUCHOBJECT, NOSUCHINSTANCE, ENDOFMIBVIEW, GET_REQUEST,
+GET_NEXT_REQUEST, GET_RESPONSE, SET_REQUEST, TRAP, GET_BULK_REQUEST,
+INFORM_REQUEST, SNMPV2_TRAP, REPORT, DEBUG_ALL, DEBUG_NONE, DEBUG_MESSAGE,
+DEBUG_TRANSPORT, DEBUG_DISPATCHER,DEBUG_PROCESSING, DEBUG_SECURITY, COLD_START,
+WARM_START, LINK_DOWN, LINK_UP,AUTHENTICATION_FAILURE, EGP_NEIGHBOR_LOSS,
+ENTERPRISE_SPECIFIC, SNMP_VERSION_1,SNMP_VERSION_2C, SNMP_VERSION_3, SNMP_PORT,
+SNMP_TRAP_PORT, TRANSLATE_NONE,TRANSLATE_OCTET_STRING, TRANSLATE_NULL,
+TRANSLATE_TIMETICKS, TRANSLATE_OPAQUE,TRANSLATE_NOSUCHOBJECT,
+TRANSLATE_NOSUCHINSTANCE, TRANSLATE_ENDOFMIBVIEW, TRANSLATE_UNSIGNED, 
+TRANSLATE_ALL
 
 =item Tags
 
@@ -3027,7 +3110,7 @@ INTEGER, INTEGER32, OCTET_STRING, NULL, OBJECT_IDENTIFIER, SEQUENCE,
 IPADDRESS, COUNTER, COUNTER32, GAUGE, GAUGE32, UNSIGNED32, TIMETICKS, OPAQUE, 
 COUNTER64, NOSUCHOBJECT, NOSUCHINSTANCE, ENDOFMIBVIEW, GET_REQUEST, 
 GET_NEXT_REQUEST, GET_RESPONSE, SET_REQUEST, TRAP, GET_BULK_REQUEST, 
-INFORM_REQUEST, SNMPV2_TRAP
+INFORM_REQUEST, SNMPV2_TRAP, REPORT
 
 =item :debug
 
@@ -3041,8 +3124,9 @@ EGP_NEIGHBOR_LOSS, ENTERPRISE_SPECIFIC
 
 =item :snmp
 
-&snmp_debug, &snmp_dispatcher, &oid_base_match, &oid_lex_sort, &ticks_to_time,
-SNMP_VERSION_1, SNMP_VERSION_2C, SNMP_VERSION_3, SNMP_PORT, SNMP_TRAP_PORT 
+&snmp_debug, &snmp_dispatcher, &snmp_type_ntop, &oid_base_match, &oid_lex_sort, 
+&ticks_to_time, SNMP_VERSION_1, SNMP_VERSION_2C, SNMP_VERSION_3, SNMP_PORT,
+SNMP_TRAP_PORT
 
 =item :translate
 
@@ -3378,6 +3462,11 @@ F<Digest::HMAC> are required to support SNMPv3.
 In order to support the AES Cipher Algorithm as a SNMPv3 privacy protocol, the
 non-core module F<Crypt::Rijndael> is needed.
 
+=item *
+
+To use UDP/IPv6 or TCP/IPv6 as a Transport Domain, the non-core modules 
+F<Socket6> and F<IO::Socket::INET6> are needed.
+
 =back
 
 =head1 AUTHOR
@@ -3390,13 +3479,13 @@ The original concept for this module was based on F<SNMP_Session.pm>
 written by Simon Leinen <simon@switch.ch>.
 
 The Abstract Syntax Notation One (ASN.1) encode and decode methods were 
-derived by example from the CMU SNMP package whose copyright follows: 
-Copyright (c) 1988, 1989, 1991, 1992 by Carnegie Mellon University.  
+originally derived by example from the CMU SNMP package whose copyright 
+follows: Copyright (c) 1988, 1989, 1991, 1992 by Carnegie Mellon University. 
 All rights reserved. 
 
 =head1 COPYRIGHT
 
-Copyright (c) 1998-2003 David M. Town.  All rights reserved.  This program 
+Copyright (c) 1998-2004 David M. Town.  All rights reserved.  This program 
 is free software; you may redistribute it and/or modify it under the same
 terms as Perl itself.
 

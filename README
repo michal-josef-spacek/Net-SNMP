@@ -1,5 +1,5 @@
 
-                       Net::SNMP, version 4.1.2 
+                       Net::SNMP, version 5.0.0 
 
 NAME
 
@@ -50,6 +50,9 @@ REQUIREMENTS
     In order to support the AES Cipher Algorithm as a SNMPv3 privacy 
     protocol, the non-core module Crypt::Rijndael is needed.
 
+    To use UDP/IPv6 or TCP/IPv6 as a Transport Domain, the non-core 
+    modules Socket6 and IO::Socket::INET6 are needed.
+
 DOCUMENTATION
 
     Documentation is included as part of the Net::SNMP module in 
@@ -61,11 +64,11 @@ AUTHOR
 
 COPYRIGHT
 
-    Copyright (c) 1998-2003 David M. Town. All rights reserved. This
+    Copyright (c) 1998-2004 David M. Town. All rights reserved. This
     program is free software; you may redistribute it and/or modify
     it under the same terms as Perl itself.
 
 RCS
 
-    $Id: README,v 4.8 2003/09/11 19:14:42 dtown Exp $
+    $Id: README,v 5.0 2004/07/20 13:37:32 dtown Exp $
 

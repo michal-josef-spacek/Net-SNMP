@@ -6,9 +6,9 @@ if 0;
 
 # ============================================================================
 
-# $Id: snmpgetnext.pl,v 2.1 2003/05/06 11:00:46 dtown Exp $
+# $Id: snmpgetnext.pl,v 2.2 2004/07/20 13:38:01 dtown Exp $
 
-# Copyright (c) 2000-2003 David M. Town <dtown@cpan.org>
+# Copyright (c) 2000-2004 David M. Town <dtown@cpan.org>
 # All rights reserved.
 
 # This program is free software; you may redistribute it and/or modify it
@@ -16,17 +16,17 @@ if 0;
 
 # ============================================================================
 
-use Net::SNMP 4.1.0 qw(DEBUG_ALL);
+use Net::SNMP v5.0.0 qw(snmp_type_ntop DEBUG_ALL);
 use Getopt::Std;
 
 use strict;
 use vars qw($SCRIPT $VERSION %OPTS);
 
 $SCRIPT  = 'snmpgetnext';
-$VERSION = '2.1.0';
+$VERSION = '2.2.0';
 
 # Validate the command line options
-if (!getopts('a:A:c:dE:m:n:p:r:t:u:v:x:X:', \%OPTS)) {
+if (!getopts('a:A:c:dD:E:m:n:p:r:t:u:v:x:X:', \%OPTS)) {
    _usage();
 }
 
@@ -41,6 +41,7 @@ my ($s, $e) = Net::SNMP->session(
    exists($OPTS{a}) ? (-authprotocol =>  $OPTS{a}) : (),
    exists($OPTS{A}) ? (-authpassword =>  $OPTS{A}) : (),
    exists($OPTS{c}) ? (-community    =>  $OPTS{c}) : (),
+   exists($OPTS{D}) ? (-domain       =>  $OPTS{D}) : (),
    exists($OPTS{d}) ? (-debug        => DEBUG_ALL) : (),
    exists($OPTS{m}) ? (-maxmsgsize   =>  $OPTS{m}) : (),
    exists($OPTS{p}) ? (-port         =>  $OPTS{p}) : (),
@@ -70,7 +71,11 @@ if (!defined($s->get_next_request(@args))) {
 
 # Print the results
 foreach ($s->var_bind_names()) {
-   printf("%s => %s\n", $_, $s->var_bind_list()->{$_});
+   printf(
+      "%s = %s: %s\n", $_,
+      snmp_type_ntop($s->var_bind_types()->{$_}),
+      $s->var_bind_list()->{$_},
+   );
 }
 
 # Close the session
@@ -104,6 +109,7 @@ Options: -v 1|2c|3      SNMP version
          -x <privproto> Privacy protocol <des|3des|aes128|aes192|aes256>
          -X <password>  Privacy password
    Transport Layer:
+         -D <domain>    Domain <udp4|udp6|tcp4|tcp6>
          -m <octets>    Maximum message size
          -p <port>      Destination UDP port
          -r <attempts>  Number of retries
