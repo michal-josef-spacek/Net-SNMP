@@ -2,7 +2,7 @@
 # ============================================================================
 
 # $Id: require.t,v 2.0 1999/05/06 16:06:04 dtown Exp $
-# $Source: /home/dtown/Projects/Net-SNMP/require.t,v $
+# $Source: /us/dtown/Projects/Net-SNMP/require.t,v $
 
 # Required module test for Perl module Net::SNMP.
 

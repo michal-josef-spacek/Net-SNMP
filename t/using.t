@@ -2,7 +2,7 @@
 # ============================================================================
 
 # $Id: using.t,v 2.0 1999/05/06 16:08:10 dtown Exp $
-# $Source: /home/dtown/Projects/Net-SNMP/using.t,v $
+# $Source: /us/dtown/Projects/Net-SNMP/using.t,v $
 
 # Simple usage test for Perl module Net::SNMP.
 

@@ -2,7 +2,7 @@
 # ============================================================================
 
 # $Id: Makefile.PL,v 1.3 1999/03/17 13:23:27 dtown Exp $
-# $Source: /home/dtown/Projects/Net-SNMP/Makefile.PL,v $
+# $Source: /us/dtown/Projects/Net-SNMP/Makefile.PL,v $
 
 # Makefile for Perl module Net::SNMP.
 
