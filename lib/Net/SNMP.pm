@@ -3,14 +3,14 @@
 
 package Net::SNMP;
 
-# $Id: SNMP.pm,v 1.2 1998/11/06 14:03:43 dtown Exp $
+# $Id: SNMP.pm,v 1.3 1999/03/17 13:26:50 dtown Exp $
 # $Source: /home/dtown/Projects/Net-SNMP/SNMP.pm,v $
 
 # The module Net::SNMP implements an object oriented interface to the Simple 
 # Network Management Protocol version-1. The module allows a Perl application
 # to retrieve or update information on a remote host using the SNMP protocol.
 
-# Copyright (c) 1998 David M. Town <dtown@fore.com>.
+# Copyright (c) 1998-1999 David M. Town <dtown@fore.com>.
 # All rights reserved.
 
 # This program is free software; you may redistribute it and/or modify it
@@ -20,7 +20,7 @@ package Net::SNMP;
 
 ## Version of Net::SNMP module
 
-$Net::SNMP::VERSION = 1.20;
+$Net::SNMP::VERSION = 1.30;
 
 ## Required version of Perl
 
@@ -133,7 +133,8 @@ sub session
         '_error'         => undef,
         '_debug'         => 0x0,
         '_translate'     => 0x1,
-        '_buffer'        => '',
+        '_leading_dot'   => 0x0,
+        '_buffer',       => "\0" x DEFAULT_MTU 
    }, $class;
 
    # Validate the passed arguments 
@@ -604,8 +605,10 @@ sub _snmp_encode_message
 
    # We need to reset the buffer that might have been defined 
    # from a previous message and clear the var_bind_list. 
+
    $this->_object_clear_buffer;
    $this->_object_clear_var_bind_list;
+   $this->_object_clear_leading_dot;
   
    # Encode the PDU or Trap-PDU
    if ($type == TRAP) { 
@@ -1201,8 +1204,15 @@ sub _asn1_encode_object_identifier
    # Input is expected in dotted notation, so break it up into subids
    my @subids = split(/\./, $oid);
 
-   # Just in case there was a leading dot passed
-   if ($subids[0] eq '') { shift(@subids); }
+   # If there was a leading dot on _any_ OBJECT IDENTIFIER passed to 
+   # an encode method, return a leading dot on _all_ of the OBJECT
+   # IDENTIFIERs in the decode methods.
+
+   if ($subids[0] eq '') { 
+      $this->_debug_message("leading dot present\n");
+      $this->{'_leading_dot'} = 0x1;
+      shift(@subids);
+   }
 
    # The first two subidentifiers are encoded into the first identifier
    # using the the equation: subid = ((first * 40) + second).  We just
@@ -1550,8 +1560,15 @@ sub _asn1_decode_object_identifier
    $oid[1] = int($subid % 40);
    $oid[0] = int(($subid - $oid[1]) / 40);
 
-   # Return the OID in dotted notation
-   join('.', @oid);
+   # Return the OID in dotted notation (optionally with a leading dot
+   # if one was passed to the encode routine).
+
+   if ($this->{'_leading_dot'}) {
+      $this->_debug_message("adding leading dot\n");
+      '.' . join('.', @oid);
+   } else {
+      join('.', @oid);
+   }
 }
 
 sub _asn1_decode_sequence
@@ -1828,22 +1845,27 @@ sub _udp_recv_buffer
 
    # Fill the buffer
    if (!defined($sockaddr = recv($this->{'_socket'}, $this->{'_buffer'},
-                                  $this->{'_mtu'}, 0))) {
+                               $this->{'_mtu'}, 0)))
+   {
       return $this->_udp_error("recv(): %s", $!);
    }
 
    ($host_port, $host_addr) = sockaddr_in($sockaddr);
 
-   # Make sure that the address that we received the data from
-   # was the one that we sent the request to.  Just take the first
-   # eight bytes of the sockaddr structure since Windows NT seems
-   # fill the last eight with random data instead of all zeros.
+   # Make sure that the address that we received the data from was the
+   # one that we sent the request to.  We just compare the bytes 
+   # containing the port and address information since Windows NT seems
+   # to fill the last eight bytes with random data and AIX returns a 
+   # different PF_INET value in the resulting sockaddr_in structure.
 
-   if (substr($sockaddr, 0, 8) ne substr($this->{'_sockaddr'}, 0, 8)) {
-      return $this->_udp_error(
-                       "Received unexpected datagram from '%s'",
-                       inet_ntoa($host_addr)
-                    );
+   $this->_debug_message("OS   = %s\n", $^O);
+   $this->_debug_message("recv = 0x%s\n", unpack('H*', $sockaddr));
+   $this->_debug_message("send = 0x%s\n", unpack('H*', $this->{'_sockaddr'}));
+
+   if (substr($sockaddr, 2, 6) ne substr($this->{'_sockaddr'}, 2, 6)) {
+      return $this->_udp_error("Received unexpected datagram from '%s'",
+                inet_ntoa($host_addr)
+             );
    }
 
    $this->_debug_message(
@@ -1930,6 +1952,11 @@ sub _object_clear_error
 {
    $_[0]->{'_error_status'} = 0;
    $_[0]->{'_error'} = undef;
+}
+
+sub _object_clear_leading_dot
+{
+   $_[0]->{'_leading_dot'} = 0x0;
 }
 
 sub _object_buffer_length
@@ -2032,7 +2059,7 @@ __DATA__
 ###
 ## POD formatted documentation for Perl module Net::SNMP.
 ##
-## $Id: Net-SNMP.pod,v 1.2 1998/11/06 14:01:52 dtown Exp $
+## $Id: Net-SNMP.pod,v 1.3 1999/03/17 13:24:31 dtown Exp $
 ## $Source: /home/dtown/Projects/Net-SNMP/Net-SNMP.pod,v $
 ##
 ###
@@ -2128,9 +2155,11 @@ The returned reference points to a hash constructed from the VarBindList
 contained in the SNMP GetResponse-PDU.  The hash is created using the
 ObjectName and the ObjectSyntax pairs in the VarBindList.  The keys of the
 hash consist of the OBJECT IDENTIFIERs in dotted notation corresponding to
-each ObjectName in the list.  The value of each hash entry is set to be the
-value of the associated ObjectSyntax.  The hash reference can also be 
-retrieved using the C<var_bind_list()> method.
+each ObjectName in the list.  If any of the passed OBJECT IDENTIFIERs began
+with a leading dot, all of the OBJECT IDENTIFIER hash keys will be prefixed
+with a leading dot.  The value of each hash entry is set to be the value of
+the associated ObjectSyntax.  The hash reference can also be retrieved using 
+the C<var_bind_list()> method.
 
 =head2 get_next_request() - send a SNMP get-next-request to the remote agent
 
@@ -2150,9 +2179,11 @@ The returned reference points to a hash constructed from the VarBindList
 contained in the SNMP GetResponse-PDU.  The hash is created using the
 ObjectName and the ObjectSyntax pairs in the VarBindList.  The keys of the
 hash consist of the OBJECT IDENTIFIERs in dotted notation corresponding to
-each ObjectName in the list.  The value of each hash entry is set to be the
-value of the associated ObjectSyntax.  The hash reference can also be 
-retrieved using the C<var_bind_list()> method.
+each ObjectName in the list.  If any of the passed OBJECT IDENTIFIERs began
+with a leading dot, all of the OBJECT IDENTIFIER hash keys will be prefixed
+with a leading dot.  The value of each hash entry is set to be the value of
+the associated ObjectSyntax.  The hash reference can also be retrieved using
+the C<var_bind_list()> method.
 
 =head2 set_request() - send a SNMP set-request to the remote agent
 
@@ -2175,9 +2206,11 @@ The returned reference points to a hash constructed from the VarBindList
 contained in the SNMP GetResponse-PDU.  The hash is created using the
 ObjectName and the ObjectSyntax pairs in the VarBindList.  The keys of the
 hash consist of the OBJECT IDENTIFIERs in dotted notation corresponding to
-each ObjectName in the list.  The value of each hash entry is set to be the
-value of the associated ObjectSyntax.  The hash reference can also be 
-retrieved using the C<var_bind_list()> method.
+each ObjectName in the list.  If any of the passed OBJECT IDENTIFIERs began
+with a leading dot, all of the OBJECT IDENTIFIER hash keys will be prefixed
+with a leading dot.  The value of each hash entry is set to be the value of
+the associated ObjectSyntax.  The hash reference can also be retrieved using
+the C<var_bind_list()> method.
 
 =head2 trap() - send an SNMP trap to the remote manager
 
@@ -2262,9 +2295,11 @@ The returned reference points to a hash constructed from the VarBindList
 contained in the SNMP GetResponse-PDU.  The hash is created using the
 ObjectName and the ObjectSyntax pairs in the VarBindList.  The keys of the
 hash consist of the OBJECT IDENTIFIERs in dotted notation corresponding to
-each ObjectName in the list.  The value of each hash entry is set to be the
-value of the associated ObjectSyntax.  The hash reference can also be 
-retrieved using the C<var_bind_list()> method.
+each ObjectName in the list.  If any of the passed OBJECT IDENTIFIERs began
+with a leading dot, all of the OBJECT IDENTIFIER hash keys will be prefixed
+with a leading dot.  The value of each hash entry is set to be the value of
+the associated ObjectSyntax.  The hash reference can also be retrieved using
+the C<var_bind_list()> method.
 
 B<WARNING:> Results from this method can become very large if the base
 OBJECT IDENTIFIER is close the root of the SNMP MIB tree.
@@ -2505,7 +2540,7 @@ All rights reserved.
 
 =head1 COPYRIGHT
 
-Copyright (c) 1998 David M. Town.  All rights reserved.  This program is
-free software; you may redistribute it and/or modify it under the same
+Copyright (c) 1998-1999 David M. Town.  All rights reserved.  This program 
+is free software; you may redistribute it and/or modify it under the same
 terms as Perl itself.
 

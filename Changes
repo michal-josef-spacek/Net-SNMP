@@ -1,5 +1,14 @@
                             Net::SNMP Changes
 
+RELEASE 1.30 MAR-17-1999
+
+- Modified the OBJECT INDENTIFIER decode method to return a leading dot
+  on all indentifiers if there was a leading dot on any OBJECT IDENTIFIER
+  passed to the encode method. 
+- Changed the address comparison used when receiving an UDP packet to just 
+  include the port and address information in order to work around an AIX 
+  problem.
+
 RELEASE 1.20 NOV-06-1998
 
 - Now use gensym() from the Symbol module to generate typeglob references 
@@ -27,4 +36,4 @@ Initial release.
 
 RCS
 
-    $Id: Changes,v 1.2 1998/11/06 13:59:51 dtown Exp $
+    $Id: Changes,v 1.3 1999/03/17 13:22:33 dtown Exp $

@@ -1,5 +1,5 @@
 
-                       Net::SNMP, version 1.20
+                       Net::SNMP, version 1.30
 
 NAME
 
@@ -38,11 +38,11 @@ AUTHOR
 
 COPYRIGHT
 
-    Copyright (c) 1998 David M. Town. All rights reserved. This
+    Copyright (c) 1998-1999 David M. Town. All rights reserved. This
     program is free software; you may redistribute it and/or modify
     it under the same terms as Perl itself.
 
 RCS
 
-    $Id: README,v 1.2 1998/11/06 14:02:36 dtown Exp $
+    $Id: README,v 1.3 1999/03/17 13:25:22 dtown Exp $
 
