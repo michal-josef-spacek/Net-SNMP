@@ -3,7 +3,7 @@
 
 package Net::SNMP;
 
-# $Id: SNMP.pm,v 3.6 2000/09/09 14:32:46 dtown Exp $
+# $Id: SNMP.pm,v 3.65 2001/09/09 13:17:33 dtown Exp $
 # $Source: /us/dtown/Projects/Net-SNMP/SNMP.pm,v $
 
 # The module Net::SNMP implements an object oriented interface to the Simple
@@ -14,7 +14,7 @@ package Net::SNMP;
 # understanding of the Simple Network Management Protocol and related 
 # network management concepts.
 
-# Copyright (c) 1998-2000 David M. Town <david.town@marconi.com>.
+# Copyright (c) 1998-2001 David M. Town <david.town@marconi.com>.
 # All rights reserved.
 
 # This program is free software; you may redistribute it and/or modify it
@@ -31,13 +31,13 @@ use vars qw(
 
 ## Version of Net::SNMP module
 
-$Net::SNMP::VERSION = 3.60;
+$Net::SNMP::VERSION = 3.65;
 
 use strict;
 
 ## Required version of Perl
 
-require 5.003;
+require 5.004;
 
 ## Handle exporting of symbols
 
@@ -69,7 +69,7 @@ use Exporter();
 @TRANSLATE = qw(
    TRANSLATE_NONE TRANSLATE_OCTET_STRING TRANSLATE_NULL TRANSLATE_TIMETICKS
    TRANSLATE_OPAQUE TRANSLATE_NOSUCHOBJECT TRANSLATE_NOSUCHINSTANCE
-   TRANSLATE_ENDOFMIBVIEW TRANSLATE_ALL
+   TRANSLATE_ENDOFMIBVIEW TRANSLATE_UNSIGNED TRANSLATE_ALL
 );
 
 @EXPORT    = (@ASN1, 'snmp_event_loop');
@@ -150,6 +150,7 @@ sub TRANSLATE_OPAQUE()         { 0x08 }
 sub TRANSLATE_NOSUCHOBJECT()   { 0x10 }
 sub TRANSLATE_NOSUCHINSTANCE() { 0x20 }
 sub TRANSLATE_ENDOFMIBVIEW()   { 0x40 }
+sub TRANSLATE_UNSIGNED()       { 0x80 }
 sub TRANSLATE_ALL()            { 0xff }
 
 ## Default, minimum, and maximum values 
@@ -223,8 +224,8 @@ sub new
    # Validate the passed arguments
    foreach (keys %argv) {
       if (/^-?community$/i) {
-         if ($argv{$_} eq '') {
-            $this->_object_error('Empty community specified');
+         if (!defined($argv{$_})) {
+            $this->_object_error('community not defined');
          } else {
             $this->{'_community'} = $argv{$_};
          }
@@ -1186,6 +1187,8 @@ sub translate
                $_[0]->_object_translate_mask(
                   shift(@argv), TRANSLATE_ENDOFMIBVIEW
                );
+            } elsif ($type =~ /^-?unsigned$/i) {
+               $_[0]->_object_translate_mask(shift(@argv), TRANSLATE_UNSIGNED);
             } else {
                return $_[0]->_object_error( 
                   "Invalid translate argument '%s'", $type
@@ -1862,16 +1865,16 @@ sub _snmp_send_and_validate
          }
 
          # Decode the message SEQUENCE
-         if (!defined($value = $this->_asn1_decode(SEQUENCE))) { next; }
+         if (!defined($value = $this->_asn1_decode(SEQUENCE))) { goto BUFFER; }
          if ($value != $this->_object_buffer_length) {
             $this->_snmp_decode_error(
                'Encoded message length not equal to remaining data length'
             );
-            next;
+            goto BUFFER;
          }
 
          # Decode and validate the version
-         if (!defined($value = $this->_asn1_decode(INTEGER))) { next; }
+         if (!defined($value = $this->_asn1_decode(INTEGER))) { goto BUFFER; }
          if ($value != $this->{'_version'}) {
             $this->_snmp_decode_error(
                "Received version [0x%02x] is not equal to transmitted " .
@@ -1880,7 +1883,9 @@ sub _snmp_send_and_validate
          }
 
          # Decode and validate the community
-         if (!defined($value = $this->_asn1_decode(OCTET_STRING))) { next; }
+         if (!defined($value = $this->_asn1_decode(OCTET_STRING))) { 
+            goto BUFFER;
+         }
          if ($value ne $this->{'_community'}) {
             $this->_snmp_decode_error(
                "Received community [%s] is not equal to transmitted " .
@@ -1889,15 +1894,16 @@ sub _snmp_send_and_validate
          }
 
          # Decode the PDU type (we are expecting a get-response here)
-         if (!defined($this->_asn1_decode(GET_RESPONSE))) { next; }
+         if (!defined($this->_asn1_decode(GET_RESPONSE))) { goto BUFFER; }
 
          # Decode the request-id
-         if (!defined($value = $this->_asn1_decode(INTEGER))) { next; }
+         if (!defined($value = $this->_asn1_decode(INTEGER))) { goto BUFFER; }
          if ($value != $this->{'_request_id'}) {
             $this->_snmp_decode_error(
                "Received request-id [%s] is not equal to transmitted " .
                "request-id [%s]", $value, $this->{'_request_id'}
             );
+            $this->_object_buffer($buffer);
             redo;
          }
         
@@ -1932,7 +1938,9 @@ sub _snmp_send_and_validate
       } 
          
       DEBUG_INFO("request timed out, retries = %d", $retries);
-  
+
+      BUFFER:
+
       # Reset the buffer if it has been used to receive a response already.
       if (defined($buffer)) { 
          $this->_object_buffer($buffer);
@@ -2098,7 +2106,7 @@ sub _asn1_encode_type_length
    if (defined($this->{'_error'})) { return $this->_asn1_encode_error; }
 
    if (!defined($type)) {
-      return $this->_asn1_Error('ASN.1 type not defined');
+      return $this->_asn1_error('ASN.1 type not defined');
    }
 
    if (!defined($value)) { $value = ''; }
@@ -2229,7 +2237,7 @@ sub _asn1_encode_object_identifier
    my ($value, $subid, $mask, $bits, $tmask, $tbits) = ('', 0, 0, 0, 0, 0);
 
    if (!defined($oid)) {
-      return $this->_asn1_Error('OBJECT IDENTIFIER value not defined');
+      return $this->_asn1_error('OBJECT IDENTIFIER value not defined');
    }
 
    # Input is expected in dotted notation, so break it up into subids
@@ -2608,8 +2616,14 @@ sub _asn1_decode_integer32
 
    # If the first bit is set, the integer is negative
    if (($byte = unpack('C', $byte)) & 0x80) {
-      $integer = -1;
-      $negative = TRUE; 
+      if (($type == INTEGER) || 
+          (!($this->{'_translate'} & TRANSLATE_UNSIGNED)))
+      {
+         $integer = -1;
+         $negative = TRUE; 
+      } else {
+         DEBUG_INFO("translating sign bit for %s", _asn1_itoa($type));
+      } 
    }
 
    if (($length > 4) || (($length > 3) && ($byte != 0x00))) {
@@ -2630,7 +2644,6 @@ sub _asn1_decode_integer32
    if ($negative) { 
       sprintf("%d", $integer); 
    } else {
-      $integer = abs($integer);
       sprintf("%u", $integer);
    }
 }
@@ -2767,13 +2780,13 @@ sub _asn1_decode_ipaddress
 }
 
 sub _asn1_decode_counter 
-{ 
-   $_[0]->_asn1_decode_integer32(COUNTER); 
+{
+   $_[0]->_asn1_decode_integer32(COUNTER);
 }
 
 sub _asn1_decode_gauge   
 { 
-   $_[0]->_asn1_decode_integer32(GAUGE); 
+   $_[0]->_asn1_decode_integer32(GAUGE);
 }
 
 sub _asn1_decode_timeticks
@@ -2834,8 +2847,12 @@ sub _asn1_decode_counter64
    use Math::BigInt;
 
    if ($byte & 0x80) { 
-      $negative = TRUE;
-      $byte = $byte ^ 0xff; 
+      if (!($this->{'_translate'} & TRANSLATE_UNSIGNED)) { 
+         $negative = TRUE;
+         $byte = $byte ^ 0xff; 
+      } else {
+         DEBUG_INFO('translating sign bit for Counter64'); 
+      }
    }
 
    my $u_int64 = Math::BigInt->new($byte);
@@ -3125,7 +3142,7 @@ sub _asn1_lexicographical
       if ($aa > $bb) { return 1;  }
    }
 
-   0;
+   scalar(@b) ? -1 : 0;
 }
 
 sub _asn1_ticks_to_time 
@@ -3696,12 +3713,12 @@ sub _debug_dump_buffer
 
 package Net::SNMP::FSM;
 
-# $Id: FSM.pm,v 2.1 2000/09/09 14:22:03 dtown Exp $
+# $Id: FSM.pm,v 2.11 2001/09/09 13:14:00 dtown Exp $
 # $Source: /us/dtown/Projects/Net-SNMP/FSM.pm,v $
 
 # Finite State Machine for the Net::SNMP event loop.
 
-# Copyright (c) 1999-2000 David M. Town <david.town@marconi.com>.
+# Copyright (c) 1999-2001 David M. Town <david.town@marconi.com>.
 # All rights reserved.
 
 # This program is free software; you may redistribute it and/or modify it
@@ -3711,7 +3728,7 @@ package Net::SNMP::FSM;
 
 ## Version of Net::SNMP::FSM module
 
-$Net::SNMP::FSM::VERSION = 2.10;
+$Net::SNMP::FSM::VERSION = 2.11;
 
 ## Import and initialize global symbols
 
@@ -3724,6 +3741,13 @@ sub BEGIN
    *SNMPV2_TRAP  = \&Net::SNMP::SNMPV2_TRAP;
    *TRAP         = \&Net::SNMP::TRAP;
    *TRUE         = \&Net::SNMP::TRUE;
+
+   # Use a higher resolution of time() if the
+   # Time::HiRes module is available.
+
+   if (eval('require Time::HiRes')) {
+      Time::HiRes->import('time');
+   }
 }
 
 ## Finite State Machine state definitions
@@ -3930,6 +3954,9 @@ sub _action_read_data
 
    # Set the FSM's Net::SNMP object's socket equal to the socket
    $object->_socket($socket);
+
+   # Clear any previous errors
+   $object->_object_clear_error;
 
    # Read the data
    if (!defined($object->_udp_recv_buffer)) {
@@ -4373,7 +4400,7 @@ __DATA__
 ###
 ## POD formatted documentation for Perl module Net::SNMP.
 ##
-## $Id: Net-SNMP.pod,v 3.6 2000/09/09 14:26:51 dtown Exp $
+## $Id: Net-SNMP.pod,v 3.65 2001/09/09 13:15:35 dtown Exp $
 ## $Source: /us/dtown/Projects/Net-SNMP/Net-SNMP.pod,v $
 ##
 ###
@@ -5054,7 +5081,8 @@ the cause.
                            ['-opaque'         => $mode5,]
                            ['-nosuchobject'   => $mode6,] 
                            ['-nosuchinstance' => $mode7,]
-                           ['-endofmibview'   => $mode8]  
+                           ['-endofmibview'   => $mode8,]
+                           ['-unsigned'       => $mode9]  
                         ]
                      ]);
    
@@ -5099,6 +5127,11 @@ empty string.  If translation is not enabled, the SNMP error-status field
 is set to 130 which is equal to the exported definition ENDOFMIBVIEW (see 
 L<"EXPORTS">).
 
+=item *
+
+Counter, Gauges, and TimeTick values that have been incorrectly encoded as
+signed negative values are returned as unsigned values.  
+
 =back
 
 The C<translate()> method can be invoked with two different types of arguments.
@@ -5135,7 +5168,7 @@ to either enabled or disabled depending on the value of the passed parameter.
 Any value that Perl would treat as a true value will set the mode to be 
 enabled, while a false value will disable debugging.  The current state of the 
 debugging mode is returned by the method.  Debugging can also be enabled using
-the stand along function C<snmp_debug()>.  This function can be exported by
+the stand alone function C<snmp_debug()>.  This function can be exported by
 request (see L<"EXPORTS">).  
 
 =head1 FUNCTIONS
@@ -5190,7 +5223,7 @@ SNMP_VERSION_1, SNMP_VERSION_2C, SNMP_PORT, SNMP_TRAP_PORT, snmp_debug,
 snmp_event_loop, oid_context_match, oid_lex_sort, ticks_to_time,
 TRANSLATE_NONE, TRANSLATE_OCTET_STRING, TRANSLATE_NULL, TRANSLATE_TIMETICKS,
 TRANSLATE_OPAQUE, TRANSLATE_NOSUCHOBJECT, TRANSLATE_NOSUCHINSTANCE,
-TRANSLATE_ENDOFMIBVIEW, TRANSLATE_ALL
+TRANSLATE_ENDOFMIBVIEW, TRANSLATE_UNSIGNED, TRANSLATE_ALL
 
 =item Tags
 
@@ -5218,7 +5251,7 @@ snmp_event_loop, oid_context_match, oid_lex_sort, ticks_to_time
 
 TRANSLATE_NONE, TRANSLATE_OCTET_STRING, TRANSLATE_NULL, TRANSLATE_TIMETICKS,
 TRANSLATE_OPAQUE, TRANSLATE_NOSUCHOBJECT, TRANSLATE_NOSUCHINSTANCE, 
-TRANSLATE_ENDOFMIBVIEW, TRANSLATE_ALL
+TRANSLATE_ENDOFMIBVIEW, TRANSLATE_UNSIGNED, TRANSLATE_ALL
 
 =item :ALL
 
@@ -5320,19 +5353,22 @@ the last poll:
    #! /usr/local/bin/perl
 
    use strict;
-   use vars qw(@hosts @sessions $polls $last_poll_time $sleep);
+   use vars qw(@hosts @sessions $MAX_POLLS $INTERVAL $EPOC);
 
    use Net::SNMP qw(snmp_event_loop ticks_to_time);
 
    # List of hosts to poll
-   @hosts = qw(1.1.1.1 1.1.1.2 localhost);
+
+   @hosts = qw(.1.1.1 1.1.1.2 localhost);
 
    # Poll interval (in seconds).  This value should be greater than
    # the number of retries times the timeout value.
-   my $interval = 60;
 
-   # Maximum number of polls
-   my $max_polls = 10;
+   $INTERVAL = 60;
+
+   # Maximum number of polls after initial poll
+
+   $MAX_POLLS = 10;
 
    # Create a session for each host
    foreach (@hosts) {
@@ -5341,7 +5377,7 @@ the last poll:
          -nonblocking => 0x1,   # Create non-blocking objects
          -translate   => [
             -timeticks => 0x0   # Turn off so sysUpTime is numeric
-         ]   
+         ]  
       );
       if (!defined($session)) {
          printf("ERROR: %s.\n", $error);
@@ -5349,49 +5385,46 @@ the last poll:
          exit 1;
       }
 
-      # Create an array of arrays which contain the new 
-      # object and the last sysUpTime.
+      # Create an array of arrays which contains the new object, 
+      # the last sysUpTime, and the total number of polls.
 
-      push(@sessions, [$session, 0]);
+      push(@sessions, [$session, 0, 0]);
    }
 
    my $sysUpTime = '1.3.6.1.2.1.1.3.0';
 
-   while (++$polls <= $max_polls) {
-
-      $last_poll_time = time();
-
-      # Queue each of the queries for sysUpTime
-      foreach (@sessions) {
-         $_->[0]->get_request(
-             -varbindlist => [$sysUpTime],
-             -callback    => [\&validate_sysUpTime_cb, \$_->[1]]
-         );
-      }
-
-      # Enter the event loop
-      snmp_event_loop();
-
-      # Sleep until the next poll time
-      $sleep = $interval - (time() - $last_poll_time);
-      if (($sleep < 1) || ($polls >= $max_polls)) { next; }
-      sleep($sleep);
-
-      print "\n";
+   # Queue each of the queries for sysUpTime
+   foreach (@sessions) {
+      $_->[0]->get_request(
+          -varbindlist => [$sysUpTime],
+          -callback    => [\&validate_sysUpTime_cb, \$_->[1], \$_->[2]]
+      );
    }
+
+   # Define a reference point for all of the polls
+   $EPOC = time();
+
+   # Enter the event loop
+   snmp_event_loop();
 
    # Not necessary, but it is nice to clean up after yourself
    foreach (@sessions) { $_->[0]->close(); }
 
    exit 0;
 
+
    sub validate_sysUpTime_cb
    {
-      my ($this, $last_uptime) = @_;
+      my ($this, $last_uptime, $num_polls) = @_;
 
       if (!defined($this->var_bind_list())) {
+
          printf("%-15s  ERROR: %s\n", $this->hostname(), $this->error());
+
       } else {
+   
+         # Validate the sysUpTime
+
          my $uptime = $this->var_bind_list()->{$sysUpTime};
          if ($uptime < ${$last_uptime}) {
             printf("%-15s  WARNING: %s is less than %s\n",
@@ -5405,8 +5438,21 @@ the last poll:
                ticks_to_time($uptime)
             );
          }
+
          # Store the new sysUpTime
          ${$last_uptime} = $uptime;
+
+      }
+
+      # Queue the next message if we have not reach MAX_POLLS
+
+      if (++${$num_polls} <= $MAX_POLLS) {
+         my $delay = (($INTERVAL * ${$num_polls}) + $EPOC) - time();
+         $this->get_request(
+            -delay       => ($delay >= 0) ? $delay : 0,
+            -varbindlist => [$sysUpTime],
+            -callback    => [\&validate_sysUpTime_cb, $last_uptime, $num_polls]
+         );
       }
 
       $this->error_status();
@@ -5429,7 +5475,7 @@ All rights reserved.
 
 =head1 COPYRIGHT
 
-Copyright (c) 1998-2000 David M. Town.  All rights reserved.  This program 
+Copyright (c) 1998-2001 David M. Town.  All rights reserved.  This program 
 is free software; you may redistribute it and/or modify it under the same
 terms as Perl itself.
 

@@ -1,5 +1,20 @@
                             Net::SNMP Changes
 
+RELEASE 3.65 SEP-09-2001
+
+- Corrected an error in the Net::SNMP::FSM module that would cause all
+  response messages to be dropped in "non-blocking" mode if there is
+  a recv() error.
+- Updated the logic in the "blocking" response handling method such
+  the transmit buffer is properly updated if there is a decode
+  error while parsing the GetResponse-PDU. 
+- Counter, Guages, and TimeTick values that are incorrectly encoded as
+  negative signed integers are now converted to unsigned values.  This
+  feature can be disabled by setting the "-unsigned" flag to false 
+  using the translate() method.
+- An empty community name is now allowed.
+- Updated the "non-blocking" example script.
+
 RELEASE 3.60 SEP-09-2000
 
 - Translation can now be enabled or disabled on a per ASN.1 type basis.
@@ -114,4 +129,4 @@ RELEASE 1.00 SEP-09-1998
 
 RCS
 
-    $Id: Changes,v 3.60 2000/09/09 14:14:06 dtown Exp $
+    $Id: Changes,v 3.65 2001/09/09 13:11:55 dtown Exp $
