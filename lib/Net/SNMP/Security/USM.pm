@@ -3,11 +3,11 @@
 
 package Net::SNMP::Security::USM;
 
-# $Id: USM.pm,v 1.2 2001/11/09 14:03:52 dtown Exp $
+# $Id: USM.pm,v 1.3 2002/01/01 14:03:44 dtown Exp $
 
 # Object that implements the SNMPv3 User-based Security Model.
 
-# Copyright (c) 2001 David M. Town <dtown@cpan.org>
+# Copyright (c) 2001-2002 David M. Town <dtown@cpan.org>
 # All rights reserved.
 
 # This program is free software; you may redistribute it and/or modify it
@@ -20,8 +20,8 @@ use strict;
 require Net::SNMP::Security;
 
 use Net::SNMP::Message qw(
-   :v3msgflags :v3seclevels asn1_itoa
-   OCTET_STRING SEQUENCE INTEGER SNMP_VERSION_3 TRUE FALSE
+   :msgFlags :securityLevels asn1_itoa
+   OCTET_STRING SEQUENCE INTEGER SNMP_VERSION_3 SECURITY_MODEL_USM TRUE FALSE
 ); 
 
 use Sys::Hostname qw(hostname);
@@ -33,7 +33,7 @@ use Digest::SHA1();
 
 ## Version of the Net::SNMP::Security::USM module
 
-our $VERSION = v1.0.0;
+our $VERSION = v1.0.1;
 
 ## Package variables
 
@@ -49,11 +49,15 @@ our @ISA = qw(Exporter Net::SNMP::Security);
 
 our @EXPORT_OK = qw(
    AUTH_PROTOCOL_HMACMD5 AUTH_PROTOCOL_HMACSHA
-   LEVEL_NOAUTHNOPRIV LEVEL_AUTHNOPRIV LEVEL_AUTHPRIV
+   SECURITY_LEVEL_NOAUTHNOPRIV SECURITY_LEVEL_AUTHNOPRIV 
+   SECURITY_LEVEL_AUTHPRIV
 ); 
 
 our %EXPORT_TAGS = (
-   v3levels    => [qw(LEVEL_NOAUTHNOPRIV LEVEL_AUTHNOPRIV LEVEL_AUTHPRIV)],
+   levels      => [
+      qw( SECURITY_LEVEL_NOAUTHNOPRIV SECURITY_LEVEL_AUTHNOPRIV
+          SECURITY_LEVEL_AUTHPRIV )
+   ],
    authprotos  => [qw(AUTH_PROTOCOL_HMACMD5 AUTH_PROTOCOL_HMACSHA)],
    ALL         => [@EXPORT_OK]
 );
@@ -97,11 +101,10 @@ sub new
    # Create a new data structure for the object
    my $this = bless {
       '_error'              => undef,                 # Error message
-      '_version'            => SNMP_VERSION_3,        # securityModel
+      '_version'            => SNMP_VERSION_3,        # version 
       '_authoritative'      => FALSE,                 # Authoritative flag
       '_discovered'         => FALSE,                 # Engine discovery flag
       '_synchronized'       => FALSE,                 # Synchronization flag
-      '_security_level'     => LEVEL_NOAUTHNOPRIV,    # securityLevel
       '_engine_id'          => '',                    # snmpEngineID
       '_engine_boots'       => 0,                     # snmpEngineBoots
       '_engine_time'        => 0,                     # snmpEngineTime
@@ -113,7 +116,8 @@ sub new
       '_auth_protocol'      => AUTH_PROTOCOL_HMACMD5, # authProtocol 
       '_priv_key'           => undef,                 # privKey 
       '_priv_password'      => undef,                 # Privacy password
-      '_priv_protocol'      => PRIV_PROTOCOL_DES      # privProtocol
+      '_priv_protocol'      => PRIV_PROTOCOL_DES,     # privProtocol
+      '_security_level'     => SECURITY_LEVEL_NOAUTHNOPRIV
    }, $class;
 
    # We first need to find out if we are an authoritative engine
@@ -203,7 +207,7 @@ sub generate_request_msg
    my $priv_params = '';
 
    # encryptedPDU::=OCTET STRING
-   if ($this->security_level == LEVEL_AUTHPRIV) {
+   if ($this->security_level > SECURITY_LEVEL_AUTHNOPRIV) {
       if (!defined($this->_encrypt_data($msg, $priv_params, $pdu_buffer))) {
          return $this->_error;
       }
@@ -219,7 +223,7 @@ sub generate_request_msg
    my $auth_params = '';
    my $auth_location = 0;
 
-   if ($this->security_level > LEVEL_NOAUTHNOPRIV) {
+   if ($this->security_level > SECURITY_LEVEL_NOAUTHNOPRIV) {
    
       # Save the location to fill in msgAuthenticationParameters later
       $auth_location = $msg->length + 12 + length($pdu_buffer);
@@ -283,7 +287,7 @@ sub generate_request_msg
    }
 
    # Apply authentication
-   if ($this->security_level > LEVEL_NOAUTHNOPRIV) {
+   if ($this->security_level > SECURITY_LEVEL_NOAUTHNOPRIV) {
       if (!defined($this->_authenticate_outgoing_msg($msg, $auth_location))) {
          return $this->_error($msg->error);
       }
@@ -296,6 +300,9 @@ sub generate_request_msg
 sub process_incoming_msg
 {
    my ($this, $msg) = @_;
+
+   # Clear any previous errors
+   $this->_error_clear;
 
    return $this->_error('Required Message missing') unless (@_ == 2);
 
@@ -380,12 +387,12 @@ sub process_incoming_msg
    }
 
    # Get the securityLevel from the msgFlags
-   my $level = LEVEL_NOAUTHNOPRIV;
+   my $level = SECURITY_LEVEL_NOAUTHNOPRIV;
 
    if ($msg->msg_flags & MSG_FLAGS_AUTH) {
-      $level = LEVEL_AUTHNOPRIV;
+      $level = SECURITY_LEVEL_AUTHNOPRIV;
       if ($msg->msg_flags & MSG_FLAGS_PRIV) {
-         $level = LEVEL_AUTHPRIV;
+         $level = SECURITY_LEVEL_AUTHPRIV;
       }
    } elsif ($msg->msg_flags & (~MSG_FLAGS_MASK | MSG_FLAGS_PRIV)) {
       return $this->_error('Invalid msgFlags [0x%02x]', $msg->msg_flags);
@@ -396,14 +403,14 @@ sub process_incoming_msg
    }
   
    
-   if ($level > LEVEL_NOAUTHNOPRIV) {
+   if ($level > SECURITY_LEVEL_NOAUTHNOPRIV) {
 
       # Authenticate the message
       if (!defined($this->_authenticate_incoming_msg($msg, $auth_params))) { 
          return $this->_error;
       }
 
-      # Syncronize the time
+      # Synchronize the time
       $this->_synchronize($auth_engine_boots, $auth_engine_time);
 
       # Check for timeliness
@@ -411,7 +418,7 @@ sub process_incoming_msg
          return $this->_error;
       }
 
-      if ($level > LEVEL_AUTHNOPRIV) {
+      if ($level > SECURITY_LEVEL_AUTHNOPRIV) {
 
          # encryptedPDU::=OCTET STRING
 
@@ -428,10 +435,8 @@ sub process_incoming_msg
 
    }
 
-   # Handle authoritativeEngineID discovery 
-   if (!$this->discovered) {
-      $this->_discovery($auth_engine_id, $auth_engine_boots, $auth_engine_time);
-   }
+   # Handle authoritativeEngineID discovery
+   $this->_engine_id_discovery($auth_engine_id) unless ($this->{_discovered}); 
 
    TRUE;
 }
@@ -451,9 +456,16 @@ sub security_level
    $_[0]->{_security_level};
 }
 
+sub security_model
+{
+   # RFC 2571 - SnmpSecurityModel::=TEXTUAL-CONVENTION
+
+   SECURITY_MODEL_USM;
+}
+
 sub discovered
 {
-   if ($_[0]->{_security_level} > LEVEL_NOAUTHNOPRIV) {
+   if ($_[0]->{_security_level} > SECURITY_LEVEL_NOAUTHNOPRIV) {
       ($_[0]->{_discovered} && $_[0]->{_synchronized});
    } else {
       $_[0]->{_discovered};
@@ -591,10 +603,17 @@ sub _engine_time
 
    $_[0]->{_engine_time} = time() - $_[0]->{_time_epoc};
 
-   if (($_[0]->{_authoritative}) && ($_[0]->{_engine_time} > 2147483646)) {
-      $_[0]->{_engine_boots} = 1;
-      $_[0]->{_engine_time} -= 2147483646;
-      $_[0]->{_time_epoc}   += 2147483646;
+   if ($_[0]->{_engine_time} > 2147483647) {
+      DEBUG_INFO('snmpEngineTime rollover');
+      if (++$_[0]->{_engine_boots} == 2147483647) {
+         die('FATAL: Unable to handle snmpEngineBoots value');
+      }
+      $_[0]->{_engine_time} -= 2147483647;
+      $_[0]->{_time_epoc} = time() - $_[0]->{_engine_time};
+      if (!$_[0]->{_authoritative}) {
+         $_[0]->{_synchronized} = FALSE;
+         return $_[0]->{_latest_engine_time} = 0;
+      } 
    }
 
    if ($_[0]->{_engine_time} < 0) {
@@ -622,13 +641,15 @@ sub _security_params
       if (!$this->_key_valid($this->{_auth_key})) {
          return $this->_error('Invalid authKey specified');
       }
-      $this->{_auth_password}  = undef;
-      $this->{_security_level} = LEVEL_AUTHNOPRIV if ($this->{_discovered});
+      $this->{_auth_password} = undef;
+      if ($this->{_discovered}) {
+         $this->{_security_level} = SECURITY_LEVEL_AUTHNOPRIV;
+      }
 
    } elsif ((defined($this->{_auth_password})) && ($this->{_discovered})) {
 
       $this->{_auth_key} = $this->_key_generate($this->{_auth_password});
-      $this->{_security_level} = LEVEL_AUTHNOPRIV;
+      $this->{_security_level} = SECURITY_LEVEL_AUTHNOPRIV;
 
    }
 
@@ -648,13 +669,18 @@ sub _security_params
       if (!$this->_key_valid($this->{_priv_key})) {
          return $this->_error('Invalid privKey specified');
       }
-      $this->{_priv_password}  = undef;
-      $this->{_security_level} = LEVEL_AUTHPRIV if ($this->{_synchronized});
+      $this->{_priv_password} = undef;
+      if ($this->{_synchronized}) {
+         $this->{_security_level} = SECURITY_LEVEL_AUTHPRIV;
+      }
 
    } elsif ((defined($this->{_priv_password})) && ($this->{_discovered})) {
 
       $this->{_priv_key} = $this->_key_generate($this->{_priv_password});
-      $this->{_security_level} = LEVEL_AUTHPRIV if ($this->{_synchronized});
+      if ($this->{_synchronized}) {
+         $this->{_security_level} = SECURITY_LEVEL_AUTHPRIV;
+      }
+
    }   
 
    DEBUG_INFO('securityLevel = %d', $this->{_security_level});
@@ -662,9 +688,11 @@ sub _security_params
    $this->{_security_level};         
 }
 
-sub _discovery
+sub _engine_id_discovery
 {
-   my ($this, $engine_id, $engine_boots, $engine_time) = @_;
+   my ($this, $engine_id) = @_;
+
+   return TRUE if ($this->{_authoritative});
 
    if ((length($engine_id) >= 5) && (length($engine_id) <= 32)) {
          $this->{_engine_id} = $engine_id;
@@ -682,34 +710,27 @@ sub _discovery
       );
    }
 
-   # RFC 2274 states that "time synchronization... ...may be accomplished
-   # by sending an authenticated Request message...", but I have had 
-   # difficulty with some vendor's agents not responding properly, so we 
-   # will just synchronize with the this unauthenticated engine discovery 
-   # message. :-(
-
-   $this->_synchronize($engine_boots, $engine_time) || $this->_error;
+   TRUE;
 }
 
 sub _synchronize
 {
-   my ($this, $engine_boots, $engine_time) = @_;
+   my ($this, $msg_boots, $msg_time) = @_;
 
    return TRUE if ($this->{_authoritative});
-   return TRUE if ($this->{_security_level} < LEVEL_AUTHNOPRIV);
+   return TRUE if ($this->{_security_level} < SECURITY_LEVEL_AUTHNOPRIV);
 
-   if (($engine_boots > $this->{_engine_boots}) ||
-       (($engine_boots == $this->{_engine_boots}) && 
-        ($engine_time > $this->{_latest_engine_time})))
+   if (($msg_boots > $this->_engine_boots) ||
+       (($msg_boots == $this->_engine_boots) && 
+        ($msg_time > $this->{_latest_engine_time})))
    {
 
       DEBUG_INFO(
-         'update: engineBoots = %d, engineTime = %d', 
-         $engine_boots, $engine_time
+         'update: engineBoots = %d, engineTime = %d', $msg_boots, $msg_time 
       );
 
-      $this->{_engine_boots} = $engine_boots;
-      $this->{_latest_engine_time} = $this->{_engine_time} = $engine_time;
+      $this->{_engine_boots} = $msg_boots;
+      $this->{_latest_engine_time} = $this->{_engine_time} = $msg_time;
       $this->{_time_epoc} = time() - $this->{_engine_time};
 
       if (!$this->{_synchronized}) {
@@ -726,8 +747,8 @@ sub _synchronize
       DEBUG_INFO(
          'no update: engineBoots = %d, msgBoots = %d; ' .
          'latestTime = %d, msgTime = %d',
-         $this->{_engine_boots}, $engine_boots,
-         $this->{_latest_engine_time}, $engine_time
+         $this->_engine_boots, $msg_boots, 
+         $this->{_latest_engine_time}, $msg_time
       );
 
       FALSE;
@@ -737,33 +758,42 @@ sub _synchronize
 
 sub _timeliness
 {
-   my ($this, $engine_boots, $engine_time) = @_;
+   my ($this, $msg_boots, $msg_time) = @_;
 
-   return TRUE if ($this->{_security_level} < LEVEL_AUTHNOPRIV);
+   return TRUE if ($this->{_security_level} < SECURITY_LEVEL_AUTHNOPRIV);
 
-   if ($this->{_engine_boots} == 2147483647) {
+   # Retrieve a local copy of our snmpEngineBoots and snmpEngineTime 
+   # to avoid the possibilty of using different values in each of 
+   # the comparisons.  
+ 
+   my $engine_time  = $this->_engine_time;
+   my $engine_boots = $this->_engine_boots;
+
+   if ($engine_boots == 2147483647) {
       $this->{_synchronized} = FALSE;
       return $this->_error('Not in time window');
    }
 
    if ($this->{_authoritative}) {
-      if ($engine_boots != $this->{_engine_boots}) {
+
+      if ($msg_boots != $engine_boots) {
          return $this->_error('Not in time window');
       }
-      if (($engine_time < ($this->_engine_time - 150)) ||
-          ($engine_time > ($this->_engine_time + 150)))
+      if (($msg_time < ($engine_time - 150)) || 
+          ($msg_time > ($engine_time + 150))) 
       {
          return $this->_error('Not in time window');
       }
+
    } else {
-      if ($engine_boots < $this->{_engine_boots}) {
+
+      if ($msg_boots < $engine_boots) {
          return $this->_error('Not in time window');
       }
-      if (($engine_boots == $this->{_engine_boots}) &&
-          ($engine_time < ($this->_engine_time - 150)))
-      {
+      if (($msg_boots == $engine_boots) && ($msg_time < ($engine_time - 150))) {
          return $this->_error('Not in time window');
       }
+
    }
 
    TRUE;

@@ -3,11 +3,11 @@
 
 package Net::SNMP::Dispatcher;
 
-# $Id: Dispatcher.pm,v 1.1 2001/11/09 14:03:52 dtown Exp $
+# $Id: Dispatcher.pm,v 1.2 2002/01/01 14:03:44 dtown Exp $
 
 # Object the dispatches SNMP messages and handles the scheduling of events.
 
-# Copyright (c) 2001 David M. Town <dtown@cpan.org>
+# Copyright (c) 2001-2002 David M. Town <dtown@cpan.org>
 # All rights reserved.
 
 # This program is free software; you may redistribute it and/or modify it
@@ -22,7 +22,7 @@ use Net::SNMP::Message qw(TRUE FALSE);
 
 ## Version of the Net::SNMP::Dispatcher module
 
-our $VERSION = v1.0.0;
+our $VERSION = v1.0.1;
 
 ## Package variables
 
@@ -49,7 +49,7 @@ BEGIN
    }
 }
 
-CHECK
+BEGIN
 {
    # Validate the creation of the Message Processing object. 
 
@@ -67,7 +67,7 @@ sub instance
 
 sub activate
 {
-   my $this = $_[0] || instance();
+   my ($this) = @_;
 
    # Indicate that the Dispatcher is active  
    # and block on select() calls.
@@ -85,7 +85,7 @@ sub activate
 
 sub one_event
 {
-   my $this = $_[0] || instance();
+   my ($this) = @_;
 
    # Indicate that the Dispatcher is active  
    # and DO NOT block on select() calls. 
@@ -448,8 +448,8 @@ sub _event_delete
          DEBUG_INFO('defined new head [%s]', $event->[_NEXT]);
       } else {
          DEBUG_INFO('deleted [%s], list is now empty', $event);
-         $event->[_CALLBACK] = $event->[_PREVIOUS] = 
-            $event->[_NEXT] = $this->{_event_queue_t} = undef;
+         $event->[_PREVIOUS] = $event->[_NEXT] = 
+            $this->{_event_queue_t} = undef; 
          return $event;
       }
    } else {
@@ -466,7 +466,7 @@ sub _event_delete
       die('FATAL: Attempt to delete invalid Event tail');
    }
 
-   $event->[_CALLBACK] = $event->[_PREVIOUS] = $event->[_NEXT] = undef;
+   $event->[_PREVIOUS] = $event->[_NEXT] = undef;
    DEBUG_INFO('deleted [%s]', $event);
 
    $event;

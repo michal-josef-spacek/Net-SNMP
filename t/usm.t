@@ -1,11 +1,11 @@
 # -*- mode: perl -*- 
 # ============================================================================
 
-# $Id: usm.t,v 4.0 2001/10/15 13:41:26 dtown Exp $
+# $Id: usm.t,v 4.1 2002/01/01 14:03:44 dtown Exp $
 
 # Test of the SNMPv3 User-based Security Model. 
 
-# Copyright (c) 2001 David M. Town <dtown@cpan.org>.
+# Copyright (c) 2001-2002 David M. Town <dtown@cpan.org>.
 # All rights reserved.
 
 # This program is free software; you may redistribute it and/or modify it
@@ -47,8 +47,11 @@ eval
       -privpassword => 'efgh4321',
    );
 
-   # "Perform" discovery
-   $u->_discovery(pack('x11H2', '01'), 10, time()) if defined($u);
+   # "Perform" discovery...
+   $u->_engine_id_discovery(pack('x11H2', '01')) if defined($u);
+
+   # ...and synchronization
+   $u->_synchronize(10, time()) if defined($u); 
 };
 
 ok(($@ || $e), '', 'Failed to create Net::SNMP::Security::USM object');
@@ -155,8 +158,11 @@ eval
       -privpassword => 'DAVE0987',
    );
 
-   # "Perform" discovery
-   $u->_discovery(pack('x11H2', '01'), 10, time()) if defined($u);
+   # "Perform" discovery...
+   $u->_engine_id_discovery(pack('x11H2', '01')) if defined($u);
+
+   # ...and synchronization
+   $u->_synchronize(10, time()) if defined($u);
 };
 
 ok(($@ || $e), '', 'Failed to create Net::SNMP::Security::USM object');

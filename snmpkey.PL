@@ -6,9 +6,9 @@ if 0;
 
 # ============================================================================
 
-# $Id: snmpkey.PL,v 1.1 2001/11/09 14:03:52 dtown Exp $
+# $Id: snmpkey.PL,v 1.2 2002/01/01 14:03:44 dtown Exp $
 
-# Copyright (c) 2001 David M. Town <dtown@cpan.org>
+# Copyright (c) 2001-2002 David M. Town <dtown@cpan.org>
 # All rights reserved.
 
 # This program is free software; you may redistribute it and/or modify it
@@ -22,21 +22,15 @@ my $file = shift || 'snmpkey';
 
 open(OUT, ">$file") || die "Failed to open file '$file' [$!]";
 
-print OUT <<"SUBSTITUTE";
-$Config{startperl}
-
-eval '(exit \$?0)' && eval 'exec $Config{installbin}/perl \$0 \${1+"\$@"}'
-&& eval 'exec $Config{installbin}/perl \$0 \$argv:q'
-if 0;
-
-SUBSTITUTE
+print OUT "$Config{startperl}\n";
 
 print OUT <<'AS-IS';
+
 # ============================================================================
 
-# $Id: snmpkey.PL,v 1.1 2001/11/09 14:03:52 dtown Exp $
+# $Id: snmpkey.PL,v 1.2 2002/01/01 14:03:44 dtown Exp $
 
-# Copyright (c) 2001 David M. Town <dtown@cpan.org>
+# Copyright (c) 2001-2002 David M. Town <dtown@cpan.org>
 # All rights reserved.
 
 # This program is free software; you may redistribute it and/or modify it
@@ -87,7 +81,7 @@ David M. Town <dtown@cpan.org>
 
 =head1 COPYRIGHT
 
-Copyright (c) 2001 David M. Town.  All rights reserved.  This program
+Copyright (c) 2001-2002 David M. Town.  All rights reserved.  This program
 is free software; you may redistribute it and/or modify it under the same
 terms as Perl itself.
 
@@ -104,7 +98,7 @@ use strict;
 use Net::SNMP::Security::USM;
 
 my $SCRIPT  = 'snmpkey';
-my $VERSION = v1.0.0;
+my $VERSION = v1.0.1;
 
 # Do we have enough/too much information?
 if (@ARGV != 3) {
@@ -139,7 +133,7 @@ sub _exit
 sub _usage
 {
    printf("%s v%vd\n", $SCRIPT, $VERSION);
-   printf("Copyright (c) 2001 David M. Town <dtown\@cpan.org>\n");
+   printf("Copyright (c) 2001-2002 David M. Town <dtown\@cpan.org>\n");
    printf("All rights reserved.\n");
 
    printf("Usage: %s md5|sha1 <password> <authoritativeEngineID>\n",
@@ -156,6 +150,8 @@ AS-IS
 close(OUT) || die "Failed to close file '$file' [$!]";
 
 chmod(0755, $file) || die "Failed to set permissions for file '$file' [$!]";
+
+exit 0;
 
 # ============================================================================
 

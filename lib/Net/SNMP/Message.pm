@@ -3,11 +3,11 @@
 
 package Net::SNMP::Message;
 
-# $Id: Message.pm,v 1.2 2001/11/09 14:03:52 dtown Exp $
+# $Id: Message.pm,v 1.3 2002/01/01 14:03:44 dtown Exp $
 
 # Object used to represent a SNMP message. 
 
-# Copyright (c) 2001 David M. Town <dtown@cpan.org>
+# Copyright (c) 2001-2002 David M. Town <dtown@cpan.org>
 # All rights reserved.
 
 # This program is free software; you may redistribute it and/or modify it
@@ -21,7 +21,7 @@ use Math::BigInt();
 
 ## Version of the Net::SNMP::Message module
 
-our $VERSION = v1.0.0;
+our $VERSION = v1.0.1;
 
 ## Handle exporting of symbols
 
@@ -42,34 +42,43 @@ our @GENERICTRAP = qw(
    EGP_NEIGHBOR_LOSS ENTERPRISE_SPECIFIC
 );
 
+our @MSG_FLAGS = qw(
+   MSG_FLAGS_NOAUTHNOPRIV MSG_FLAGS_AUTH MSG_FLAGS_PRIV
+   MSG_FLAGS_REPORTABLE MSG_FLAGS_MASK
+);
+
+our @SECURITY_MODELS = qw(
+   SECURITY_MODEL_ANY SECURITY_MODEL_SNMPV1 SECURITY_MODEL_SNMPV2C 
+   SECURITY_MODEL_USM
+);
+
+our @SECURITY_LEVELS = qw(
+   SECURITY_LEVEL_NOAUTHNOPRIV SECURITY_LEVEL_AUTHNOPRIV 
+   SECURITY_LEVEL_AUTHPRIV
+);
+
 our @TRANSLATE = qw(
    TRANSLATE_NONE TRANSLATE_OCTET_STRING TRANSLATE_NULL TRANSLATE_TIMETICKS
    TRANSLATE_OPAQUE TRANSLATE_NOSUCHOBJECT TRANSLATE_NOSUCHINSTANCE
    TRANSLATE_ENDOFMIBVIEW TRANSLATE_UNSIGNED TRANSLATE_ALL
 );
 
-our @V3_MSG_FLAGS = qw(
-   MSG_FLAGS_NOAUTHNOPRIV MSG_FLAGS_AUTH MSG_FLAGS_PRIV
-   MSG_FLAGS_REPORTABLE MSG_FLAGS_MASK
-);
-
-our @V3_SEC_LEVELS = qw(LEVEL_NOAUTHNOPRIV LEVEL_AUTHNOPRIV LEVEL_AUTHPRIV);
-
 our @VERSIONS = qw(SNMP_VERSION_1 SNMP_VERSION_2C SNMP_VERSION_3);
 
 our @EXPORT_OK = (
-   @ASN1_TYPES, @GENERICTRAP, @TRANSLATE, @V3_MSG_FLAGS, @V3_SEC_LEVELS, 
-   @VERSIONS, qw(asn1_ticks_to_time asn1_itoa TRUE FALSE) 
+   @ASN1_TYPES, @GENERICTRAP, @TRANSLATE, @SECURITY_MODELS, @SECURITY_LEVELS,
+   @MSG_FLAGS, @VERSIONS, qw(asn1_ticks_to_time asn1_itoa TRUE FALSE) 
 );
 
 our %EXPORT_TAGS = (
-   generictrap => [@GENERICTRAP],
-   translate   => [@TRANSLATE],
-   types       => [@ASN1_TYPES],
-   v3msgflags  => [@V3_MSG_FLAGS],
-   v3seclevels => [@V3_SEC_LEVELS],
-   versions    => [@VERSIONS],
-   ALL         => [@EXPORT_OK]
+   generictrap    => [@GENERICTRAP],
+   msgFlags       => [@MSG_FLAGS],
+   securityModels => [@SECURITY_MODELS],
+   securityLevels => [@SECURITY_LEVELS],
+   translate      => [@TRANSLATE],
+   types          => [@ASN1_TYPES],
+   versions       => [@VERSIONS],
+   ALL            => [@EXPORT_OK]
 );
 
 ## ASN.1 Basic Encoding Rules type definitions
@@ -111,6 +120,37 @@ sub SNMP_VERSION_1()           { 0x00 }  # RFC 1157 SNMPv1
 sub SNMP_VERSION_2C()          { 0x01 }  # RFC 1901 Community-based SNMPv2
 sub SNMP_VERSION_3()           { 0x03 }  # RFC 2272 SNMPv3
 
+## RFC 1157 generic-trap definitions
+
+sub COLD_START()                  { 0 }  # coldStart(0)
+sub WARM_START()                  { 1 }  # warmStart(1)
+sub LINK_DOWN()                   { 2 }  # linkDown(2)
+sub LINK_UP()                     { 3 }  # linkUp(3)
+sub AUTHENTICATION_FAILURE()      { 4 }  # authenticationFailure(4)
+sub EGP_NEIGHBOR_LOSS()           { 5 }  # egpNeighborLoss(5)
+sub ENTERPRISE_SPECIFIC()         { 6 }  # enterpriseSpecific(6)
+
+## RFC 2272 - msgFlags::=OCTET STRING
+
+sub MSG_FLAGS_NOAUTHNOPRIV()   { 0x00 }  # Means noAuthNoPriv
+sub MSG_FLAGS_AUTH()           { 0x01 }  # authFlag
+sub MSG_FLAGS_PRIV()           { 0x02 }  # privFlag
+sub MSG_FLAGS_REPORTABLE()     { 0x04 }  # reportableFlag
+sub MSG_FLAGS_MASK()           { 0x07 }
+
+## RFC 2571 - SnmpSecurityLevel::=TEXTUAL-CONVENTION
+
+sub SECURITY_LEVEL_NOAUTHNOPRIV() { 1 }  # noAuthNoPriv
+sub SECURITY_LEVEL_AUTHNOPRIV()   { 2 }  # authNoPriv
+sub SECURITY_LEVEL_AUTHPRIV()     { 3 }  # authPriv
+
+## RFC 2571 - SnmpSecurityModel::=TEXTUAL-CONVENTION
+
+sub SECURITY_MODEL_ANY()          { 0 }  # Reserved for 'any'
+sub SECURITY_MODEL_SNMPV1()       { 1 }  # Reserved for SNMPv1
+sub SECURITY_MODEL_SNMPV2C()      { 2 }  # Reserved for SNMPv2c
+sub SECURITY_MODEL_USM()          { 3 }  # User-Based Security Model (USM) 
+
 ## Translation masks
 
 sub TRANSLATE_NONE()           { 0x00 }  # Bit masks used to determine
@@ -123,30 +163,6 @@ sub TRANSLATE_NOSUCHINSTANCE() { 0x20 }
 sub TRANSLATE_ENDOFMIBVIEW()   { 0x40 }
 sub TRANSLATE_UNSIGNED()       { 0x80 }
 sub TRANSLATE_ALL()            { 0xff }
-
-## RFC 1157 generic-trap definitions
-
-sub COLD_START()                  { 0 }  # coldStart(0)
-sub WARM_START()                  { 1 }  # warmStart(1)
-sub LINK_DOWN()                   { 2 }  # linkDown(2)
-sub LINK_UP()                     { 3 }  # linkUp(3)
-sub AUTHENTICATION_FAILURE()      { 4 }  # authenticationFailure(4)
-sub EGP_NEIGHBOR_LOSS()           { 5 }  # egpNeighborLoss(5)
-sub ENTERPRISE_SPECIFIC()         { 6 }  # enterpriseSpecific(6)
-
-## SNMPv3 msgFlags::=OCTET STRING
-
-sub MSG_FLAGS_NOAUTHNOPRIV()   { 0x00 }  # Means noAuthNoPriv
-sub MSG_FLAGS_AUTH()           { 0x01 }  # authFlag
-sub MSG_FLAGS_PRIV()           { 0x02 }  # privFlag
-sub MSG_FLAGS_REPORTABLE()     { 0x04 }  # reportableFlag
-sub MSG_FLAGS_MASK()           { 0x07 }
-
-## SNMPv3 SnmpSecurityLevel::= TEXTUAL-CONVENTION
-
-sub LEVEL_NOAUTHNOPRIV()          { 1 }  # noAuthNoPriv
-sub LEVEL_AUTHNOPRIV()            { 2 }  # authNoPriv
-sub LEVEL_AUTHPRIV()              { 3 }  # authPriv
 
 ## Truth values 
 
@@ -326,9 +342,9 @@ sub prepare_v3_global_data
    my $level = $pdu->security->security_level;
    $this->{_msg_flags} = MSG_FLAGS_NOAUTHNOPRIV | MSG_FLAGS_REPORTABLE;
 
-   if ($level == LEVEL_AUTHNOPRIV) {
+   if ($level == SECURITY_LEVEL_AUTHNOPRIV) {
       $this->{_msg_flags} |= MSG_FLAGS_AUTH;
-   } elsif ($level == LEVEL_AUTHPRIV) {
+   } elsif ($level == SECURITY_LEVEL_AUTHPRIV) {
       $this->{_msg_flags} |= MSG_FLAGS_AUTH | MSG_FLAGS_PRIV;
    }
 
@@ -489,9 +505,21 @@ sub msg_max_size
 sub msg_security_model
 {
    if (defined($_[0]->{_msg_security_model})) {
+
       $_[0]->{_msg_security_model};
+
    } else {
-      $_[0]->{_version};
+
+      if ($_[0]->{_version} == SNMP_VERSION_1) {
+         SECURITY_MODEL_SNMPV1; 
+      } elsif ($_[0]->{_version} == SNMP_VERSION_2C) {
+         SECURITY_MODEL_SNMPV2C;
+      } elsif ($_[0]->{_version} == SNMP_VERSION_3) {
+         SECURITY_MODEL_USM;
+      } else {
+         SECURITY_MODEL_ANY;
+      }
+
    }
 }
 
@@ -915,24 +943,56 @@ sub _prepare_object_identifier
       shift(@subids);
    }
 
-   # The first two subidentifiers are encoded into the first identifier
-   # using the the equation: subid = ((first * 40) + second).  We just
-   # return an error if there are not at least two subidentifiers.
+   # ISO/IEC 8825 - Specification of Basic Encoding Rules for Abstract
+   # Syntax Notation One (ASN.1) dictates that the first two subidentifiers 
+   # are encoded into the first identifier using the the equation: 
+   # subid = ((first * 40) + second).
+
+   # We return an error if there are not at least two subidentifiers.
 
    if (scalar(@subids) < 2) {
-      return $this->_error('Invalid OBJECT IDENTIFIER length');
+      return $this->_error(
+         'Expected at least two subidentifiers in an OBJECT IDENTIFIER'
+      );
+   } 
+
+   # The first subidentifiers are limited to ccitt(0), iso(1), and 
+   # joint-iso-ccitt(2) as defined by RFC 1155. 
+
+   if ($subids[0] > 2) {
+      return $this->_error(
+         'An OBJECT IDENTIFIER must begin with either 0 (ccitt), 1 ' .
+         '(iso), or 2 (joint-iso-ccitt)'
+      );
    }
 
-   my $value = 40 * shift(@subids);
-   $value = pack('C', ($value + shift(@subids)));
+   # If the first subidentifier is 0 or 1, the second is limited to 0 - 39.
+
+   if (($subids[0] < 2) && ($subids[1] >= 40)) {
+      return $this->_error(
+         'The second subidentifier in the OBJECT IDENTIFIER must be ' .
+         'less than 40'
+      );
+   } elsif ($subids[1] >= (~0 - 80)) {
+      return $this->_error(
+         'The second subidentifier in the OBJECT IDENTIFIER must be ' .
+         'less than %u',
+         (~0 - 80)
+      );
+   }
+
+   # Now apply: subid = ((first * 40) + second)
+
+   $subids[1] += (shift(@subids) * 40);
 
    # Encode each value as seven bits with the most significant bit
    # indicating the end of a subidentifier.
 
    my ($mask, $bits, $tmask, $tbits);
+   my $value = '';
 
    foreach my $subid (@subids) {
-      if (($subid < 0x7f) && ($subid >= 0)) {
+      if (($subid <= 0x7f) && ($subid >= 0)) {
          $value .= pack('C', $subid);
       } else {
          $mask = 0x7f;
@@ -1281,7 +1341,7 @@ sub _process_object_identifier
             return $_[0]->_error;
          }
          $byte = unpack('C', $byte);
-         if ($subid >= 0xffffffff) {
+         if ($subid >= ~0) {
             return $_[0]->_error('OBJECT IDENTIFIER subidentifier too large');
          }
          $subid = (($subid << 7) + ($byte & 0x7f));
@@ -1293,9 +1353,18 @@ sub _process_object_identifier
    # The first two subidentifiers are encoded into the first identifier
    # using the the equation: subid = ((first * 40) + second).
 
-   $subid  = $oid[1];
-   $oid[1] = int($subid % 40);
-   $oid[0] = int(($subid - $oid[1]) / 40);
+   if ($oid[1] == 0x2b) {   # Handle the most common case
+      $oid[0] = 1;          # first [iso(1).org(3)] 
+      $oid[1] = 3;
+   } elsif ($oid[1] < 40) {
+      $oid[0] = 0;
+   } elsif ($oid[1] < 80) {
+      $oid[0] = 1;
+      $oid[1] -= 40;
+   } else {
+      $oid[0] = 2;
+      $oid[1] -= 80;
+   }
 
    # Return the OID in dotted notation (optionally with a leading dot
    # if one was passed to the prepare routine).

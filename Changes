@@ -1,5 +1,17 @@
                             Net::SNMP Changes
 
+RELEASE 4.0.1 JAN-01-2002
+
+- SNMPv3 objects using authentication now send a separate authenticated
+  request message for time synchronization while performing discovery.
+- Non-blocking SNMPv1/2c messages with a "-delay" argument which are
+  queued before entering the event loop are no longer incorrectly
+  discarded.
+- The Net::SNMP::Security::Community::security_model() method now 
+  returns the correct value as reserved by RFC 2571.
+- The first subidentifier in an OBJECT IDENTIFIER is now restricted to
+  ccitt(0), iso(1), or joint-iso-ccitt(2) as specified by ISO/IEC 8825.
+
 RELEASE 4.0.0 NOV-09-2001
 
 - The module has been completely redesigned to add support for SNMPv3 
@@ -141,4 +153,4 @@ RELEASE 1.00 SEP-09-1998
 
 RCS
 
-    $Id: Changes,v 4.1 2001/11/09 14:03:52 dtown Exp $
+    $Id: Changes,v 4.2 2002/01/01 14:03:44 dtown Exp $

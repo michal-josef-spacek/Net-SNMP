@@ -3,9 +3,9 @@
 
 package Net::SNMP;
 
-# $Id: SNMP.pm,v 4.2 2001/11/09 14:03:52 dtown Exp $
+# $Id: SNMP.pm,v 4.3 2002/01/01 14:03:44 dtown Exp $
 
-# Copyright (c) 1998-2001 David M. Town <dtown@cpan.org>
+# Copyright (c) 1998-2002 David M. Town <dtown@cpan.org>
 # All rights reserved.
 
 # This program is free software; you may redistribute it and/or modify it
@@ -106,7 +106,7 @@ BEGIN
 
 ## Version of the Net::SNMP module
 
-our $VERSION = v4.0.0;
+our $VERSION = v4.0.1;
 
 ## Load our modules
 
@@ -188,7 +188,7 @@ our $BLOCKING = 0;               # Count of blocking objects
 
 our $NONBLOCKING = 0;            # Count of non-blocking objects
 
-CHECK
+BEGIN
 {
    # Validate the creation of the Dispatcher object. 
 
@@ -388,9 +388,7 @@ sub open
    $this->{_hostname} = $this->{_transport}->dstname;
 
    # Perform SNMPv3 authoritative engine discovery
-   if ($this->version == SNMP_VERSION_3) {
-      $this->_v3_discovery;
-   }
+   $this->_discovery if ($this->version == SNMP_VERSION_3);
 
    $this->{_transport};
 }
@@ -2001,11 +1999,16 @@ sub _object_type_count
    ($_[0]->{_nonblocking}) ? $NONBLOCKING++ : $BLOCKING++;
 } 
 
-sub _v3_discovery
+sub _discovery
 {
    my ($this) = @_;
 
    return TRUE if ($this->{_security}->discovered);
+
+   # RFC 2274 - Section 4: "Discovery... ...may be accomplished by
+   # generating a Request message with a securityLevel of noAuthNoPriv,
+   # a msgUserName of "initial", a msgAuthoritativeEngineID value of
+   # zero length, and the varBindList left empty."
 
    # Create a new PDU
    if (!defined($this->_create_pdu)) {
@@ -2020,7 +2023,7 @@ sub _v3_discovery
          if ($this->{_pdu}->error) {
             $this->_error($this->{_pdu}->error . ' during discovery');
          }
-         $this->_v3_discovery_cb; 
+         $this->_discovery_engine_id_cb; 
       }
    );
 
@@ -2034,20 +2037,42 @@ sub _v3_discovery
 
    snmp_dispatcher() unless ($this->{_nonblocking});
 
-   ($this->{_nonblocking}) ? TRUE : $this->var_bind_list;
+   ($this->error) ? FALSE : TRUE;
 }
 
-sub _v3_discovery_cb
+sub _discovery_engine_id_cb
 {
    my ($this) = @_;
 
-   # When we receive a response to the discovery get-request, we
-   # should get a report containing the usmStatsUnknownEngineIDs
-   # OBJECT IDENTIFIER.  If another error is returned, we assume 
-   # discovery has failed, even if the Security Model says that it 
-   # completed.
+   # "The response to this message will be a Report message containing 
+   # the snmpEngineID of the authoritative SNMP engine...  ...with the 
+   # usmStatsUnknownEngineIDs counter in the varBindList."  If another 
+   # error is returned, we assume snmpEngineID discovery has failed.
 
-   if (($this->{_security}->discovered) && ($this->{_error} =~ /EngineID/i)) {
+   if ($this->{_error} !~ /usmStatsUnknownEngineIDs/) {
+
+      # Discovery of the snmpEngineID has failed, clear the 
+      # current PDU and the Transport Layer so no one can use 
+      # this object to send messages.
+ 
+      $this->{_pdu}       = undef;
+      $this->{_transport} = undef;
+
+      # Upcall any pending messages with the current error
+      while ($_ = shift(@{$this->{_discovery_queue}})) {
+         $_->[0]->error($this->{_error});
+         $_->[0]->callback_execute;
+      }
+
+      return $this->_error;
+   }
+
+   # If the security model indicates that discovery is complete,
+   # we send any pending messages and return success.  If discovery
+   # is not complete, we probably need to synchronize with the
+   # remote authoritative engine.
+
+   if ($this->{_security}->discovered) {
 
       DEBUG_INFO('discovery complete');
 
@@ -2055,12 +2080,84 @@ sub _v3_discovery_cb
       while ($_ = shift(@{$this->{_discovery_queue}})) {
          $DISPATCHER->send_pdu(@{$_});
       }
-      
+
       return TRUE;
    }
 
-   # Discovery failed, clear the current PDU and the Transport Layer 
-   # so no one can use this object to send messages.
+   # "If authenticated communication is required, then the discovery
+   # process should also establish time synchronization with the
+   # authoritative SNMP engine.  This may be accomplished by sending
+   # an authenticated Request message..."
+
+   $this->_error_clear;
+
+   # Create a new PDU
+   if (!defined($this->_create_pdu)) {
+      return $this->_error;
+   }
+
+   # Create the callback and assign it to the PDU
+   $this->{_pdu}->callback(
+      sub {
+         $this->{_pdu} = $_[0];
+         $this->_error_clear;
+         if ($this->{_pdu}->error) {
+            $this->_error($this->{_pdu}->error . ' during synchronization');
+         }
+         $this->_discovery_synchronization_cb;
+      }
+   );
+
+   # Prepare an empty get-request
+   if (!defined($this->{_pdu}->prepare_get_request)) {
+      return $this->_error($this->{_pdu}->error);
+   }
+
+   # Send the PDU
+   $DISPATCHER->send_pdu($this->{_pdu}, 0);
+
+   snmp_dispatcher() unless ($this->{_nonblocking});
+
+   ($this->error) ? FALSE : TRUE;
+}
+
+sub _discovery_synchronization_cb
+{
+   my ($this) = @_;
+
+   # "The response... ...will be a Report message containing the up 
+   # to date values of the authoritative SNMP engine's snmpEngineBoots 
+   # and snmpEngineTime...  It also contains the usmStatsNotInTimeWindows
+   # counter in the varBindList..."  If another error is returned, we 
+   # assume that the synchronization has failed.
+
+   if (($this->{_security}->discovered) &&
+       ($this->{_error} =~ /usmStatsNotInTimeWindows/))
+   {
+    
+      DEBUG_INFO('discovery and synchronization complete');
+
+      # Discovery is complete, send any pending messages
+      while ($_ = shift(@{$this->{_discovery_queue}})) {
+         $DISPATCHER->send_pdu(@{$_});
+      }
+
+      return TRUE;
+   }
+
+   # If we received the usmStatsNotInTimeWindows report, but we are
+   # still not synchronized, provide a generic error message.
+
+   if ($this->{_error} =~ /usmStatsNotInTimeWindows/) {
+      $this->_error_clear;
+      $this->_error('Time synchronization failed during discovery');
+   }
+
+   DEBUG_INFO('synchronization failed');
+
+   # Synchronization has failed, clear the current PDU and 
+   # the Transport Layer so no one can use this object to 
+   # send messages.
 
    $this->{_pdu}       = undef;
    $this->{_transport} = undef;
@@ -2073,6 +2170,7 @@ sub _v3_discovery_cb
 
    $this->_error;
 }
+
 
 sub _translate_mask
 {
@@ -2676,7 +2774,7 @@ All rights reserved.
 
 =head1 COPYRIGHT
 
-Copyright (c) 1998-2001 David M. Town.  All rights reserved.  This program 
+Copyright (c) 1998-2002 David M. Town.  All rights reserved.  This program 
 is free software; you may redistribute it and/or modify it under the same
 terms as Perl itself.
 

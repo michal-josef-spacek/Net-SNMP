@@ -3,11 +3,11 @@
 
 package Net::SNMP::PDU;
 
-# $Id: PDU.pm,v 1.2 2001/11/09 14:03:52 dtown Exp $
+# $Id: PDU.pm,v 1.3 2002/01/01 14:03:44 dtown Exp $
 
 # Object used to represent a SNMP PDU. 
 
-# Copyright (c) 2001 David M. Town <dtown@cpan.org>
+# Copyright (c) 2001-2002 David M. Town <dtown@cpan.org>
 # All rights reserved.
 
 # This program is free software; you may redistribute it and/or modify it
@@ -21,7 +21,7 @@ use Net::SNMP::Message qw(:ALL);
 
 ## Version of the Net::SNMP::PDU module
 
-our $VERSION = v1.0.0;
+our $VERSION = v1.0.1;
 
 ## Handle importing/exporting of symbols
 
@@ -304,6 +304,11 @@ sub prepare_snmpv2_trap
    );
 }
 
+sub process_pdu
+{
+   $_[0]->_process_pdu;
+}
+
 sub process_pdu_sequence
 {
    $_[0]->_process_pdu_sequence;
@@ -345,6 +350,31 @@ sub error_status
 sub error_index
 {
    $_[0]->{_error_index};
+}
+
+sub enterprise
+{
+   $_[0]->{_enterprise}; 
+}
+
+sub agent_addr
+{
+   $_[0]->{_agent_addr};
+}
+
+sub generic_trap
+{
+   $_[0]->{_generic_trap};
+}
+
+sub specific_trap
+{
+   $_[0]->{_specific_trap};
+}
+
+sub time_stamp
+{
+   $_[0]->{_time_stamp};
 }
 
 sub var_bind_list

@@ -3,11 +3,11 @@
 
 package Net::SNMP::Security::Community;
 
-# $Id: Community.pm,v 1.1 2001/11/09 14:03:52 dtown Exp $
+# $Id: Community.pm,v 1.2 2002/01/01 14:03:44 dtown Exp $
 
 # Object that implements the SNMPv1/v2c Community-based Security Model.
 
-# Copyright (c) 2001 David M. Town <dtown@cpan.org>
+# Copyright (c) 2001-2002 David M. Town <dtown@cpan.org>
 # All rights reserved.
 
 # This program is free software; you may redistribute it and/or modify it
@@ -21,11 +21,12 @@ require Net::SNMP::Security;
 
 use Net::SNMP::Message qw(
    OCTET_STRING SEQUENCE INTEGER SNMP_VERSION_1 SNMP_VERSION_2C TRUE FALSE
+   SECURITY_MODEL_SNMPV1 SECURITY_MODEL_SNMPV2C
 ); 
 
 ## Version of the Net::SNMP::Security::Community module
 
-our $VERSION = v1.0.0;
+our $VERSION = v1.0.1;
 
 ## Package variables
 
@@ -78,7 +79,7 @@ sub generate_request_msg
    return $this->_error('Required PDU and/or Message missing') unless (@_ == 3);
 
    if ($pdu->version != $this->{_version}) {
-      return $this->_error('Unknown securityModel [%d]', $pdu->version);
+      return $this->_error('Invalid version [%d]', $pdu->version);
    }
 
    # Append the PDU
@@ -119,6 +120,17 @@ sub process_incoming_msg
    }
 
    TRUE;
+}
+
+sub security_model
+{
+   # RFC 2571 - SnmpSecurityModel::=TEXTUAL-CONVENTION 
+
+   if ($_[0]->{_version} == SNMP_VERSION_2C) {
+      SECURITY_MODEL_SNMPV2C;
+   } else {
+      SECURITY_MODEL_SNMPV1; 
+   }
 }
 
 sub debug

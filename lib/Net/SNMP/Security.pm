@@ -3,11 +3,11 @@
 
 package Net::SNMP::Security;
 
-# $Id: Security.pm,v 1.2 2001/11/09 14:03:52 dtown Exp $
+# $Id: Security.pm,v 1.3 2002/01/01 14:03:44 dtown Exp $
 
 # Base object that implements the Net::SNMP Security Models.
 
-# Copyright (c) 2001 David M. Town <dtown@cpan.org>
+# Copyright (c) 2001-2002 David M. Town <dtown@cpan.org>
 # All rights reserved.
 
 # This program is free software; you may redistribute it and/or modify it
@@ -17,11 +17,11 @@ package Net::SNMP::Security;
 
 use strict;
 
-use Net::SNMP::Message qw(:versions TRUE FALSE);
+use Net::SNMP::Message qw(:versions SECURITY_MODEL_ANY TRUE FALSE);
 
 ## Version of the Net::SNMP::Security module
 
-our $VERSION = v1.0.0;
+our $VERSION = v1.0.1;
 
 ## Package variables
 
@@ -98,7 +98,9 @@ sub discovered
 
 sub security_model
 {
-   $_[0]->{_version};
+   # RFC 2571 - SnmpSecurityModel::=TEXTUAL-CONVENTION
+
+   SECURITY_MODEL_ANY; 
 }
 
 sub debug
