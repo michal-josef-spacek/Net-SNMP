@@ -3,7 +3,7 @@
 
 package Net::SNMP;
 
-# $Id: SNMP.pm,v 3.0 1999/09/09 13:02:16 dtown Exp $
+# $Id: SNMP.pm,v 3.0.1.1 2000/01/01 17:59:46 dtown Exp $
 # $Source: /us/dtown/Projects/Net-SNMP/SNMP.pm,v $
 
 # The module Net::SNMP implements an object oriented interface to the Simple
@@ -14,7 +14,7 @@ package Net::SNMP;
 # understanding of the Simple Network Management Protocol and related 
 # network management concepts.
 
-# Copyright (c) 1998-1999 David M. Town <dtown@fore.com>.
+# Copyright (c) 1998-2000 David M. Town <dtown@fore.com>.
 # All rights reserved.
 
 # This program is free software; you may redistribute it and/or modify it
@@ -26,12 +26,12 @@ package Net::SNMP;
 
 use vars qw(
    @ISA @EXPORT @EXPORT_OK %EXPORT_TAGS @ASN1 @ASN1_PDU @GENERICTRAP @SNMP 
-   $DEBUG $FSM $REQUEST_ID $SOCKET $VERSION 
+   $DEBUG $FSM $REQUEST_ID $SOCKET $VERSION  
 );
 
 ## Version of Net::SNMP module
 
-$Net::SNMP::VERSION = 3.00;
+$Net::SNMP::VERSION = 3.01;
 
 use strict;
 
@@ -137,8 +137,8 @@ sub DEFAULT_HOSTNAME()    { 'localhost' }
 sub DEFAULT_COMMUNITY()   {    'public' }
 
 sub DEFAULT_MTU()         {   484 } # RFC 1157 maximum size in octets
-sub DEFAULT_TIMEOUT()     {   2.0 } # Timeout period for UDP in seconds
-sub DEFAULT_RETRIES()     {     4 } # Number of retransmissions 
+sub DEFAULT_TIMEOUT()     {   5.0 } # Timeout period for UDP in seconds
+sub DEFAULT_RETRIES()     {     1 } # Number of retransmissions 
 
 sub MINIMUM_MTU()         {    30 }    
 sub MINIMUM_TIMEOUT()     {   1.0 }   
@@ -192,7 +192,6 @@ sub new
         '_timeout'        =>  DEFAULT_TIMEOUT,
         '_translate'      =>  TRUE,
         '_var_bind_list'  =>  undef,
-#       '_verify_ip'      =>  TRUE,               # Deprecated v3.0.0
         '_version'        =>  SNMP_VERSION_1
    }, $class;
 
@@ -232,8 +231,6 @@ sub new
          $this->timeout($argv{$_});
       } elsif (/^-?translate$/i) {
          $this->translate($argv{$_});
-      } elsif (/^-?verifyip$/i) {
-         $this->verify_ip($argv{$_});  # Deprecated v3.0.0
       } elsif (/^-?version$/i) {
          $this->version($argv{$_});
       } else {
@@ -1041,19 +1038,6 @@ sub translate
    $this->{'_translate'};
 }
 
-sub verify_ip
-{
-   # This method was deprecated in v3.0.0.  There are enough "sanity
-   # checks" on the get-response packet that the verification of the IP
-   # address and socket was over-kill.
-
-   printf(STDERR 
-      "%s::verify_ip(): This method has been deprecated.\n", ref($_[0])
-   );
-
-   undef;
-}
-
 sub debug
 {
    my ($this, $flag) = @_;
@@ -1855,44 +1839,43 @@ sub _snmp_error_status_itoa
 
 ###
 ## Abstract Syntax Notation One (ASN.1) encode methods
-### 
+###
+
+my $ASN1_ENCODE_METHODS = {
+   INTEGER,            '_asn1_encode_integer',
+   OCTET_STRING,       '_asn1_encode_octet_string',
+   NULL,               '_asn1_encode_null',
+   OBJECT_IDENTIFIER,  '_asn1_encode_object_identifier',
+   SEQUENCE,           '_asn1_encode_sequence',
+   IPADDRESS,          '_asn1_encode_ipaddress',
+   COUNTER,            '_asn1_encode_counter',
+   GAUGE,              '_asn1_encode_gauge',
+   TIMETICKS,          '_asn1_encode_timeticks',
+   OPAQUE,             '_asn1_encode_opaque',
+   COUNTER64,          '_asn1_encode_counter64',
+   NOSUCHOBJECT,       '_asn1_encode_nosuchobject',
+   NOSUCHINSTANCE,     '_asn1_encode_nosuchinstance',
+   ENDOFMIBVIEW,       '_asn1_encode_endofmibview',
+   GET_REQUEST,        '_asn1_encode_get_request',
+   GET_NEXT_REQUEST,   '_asn1_encode_get_next_request',
+   GET_RESPONSE,       '_asn1_encode_get_response',
+   SET_REQUEST,        '_asn1_encode_set_request',
+   TRAP,               '_asn1_encode_trap',
+   GET_BULK_REQUEST,   '_asn1_encode_get_bulk_request',
+   INFORM_REQUEST,     '_asn1_encode_inform_request',
+   SNMPV2_TRAP,        '_asn1_encode_v2_trap'
+};
 
 sub _asn1_encode
-{ 
+{
    my ($this, $type, $value) = @_;
-   my ($method) = (undef);
-
-   my $encode = {
-      INTEGER,            '_asn1_encode_integer',
-      OCTET_STRING,       '_asn1_encode_octet_string',
-      NULL,               '_asn1_encode_null',
-      OBJECT_IDENTIFIER,  '_asn1_encode_object_identifier',
-      SEQUENCE,           '_asn1_encode_sequence',
-      IPADDRESS,          '_asn1_encode_ipaddress',
-      COUNTER,            '_asn1_encode_counter',
-      GAUGE,              '_asn1_encode_gauge',
-      TIMETICKS,          '_asn1_encode_timeticks',
-      OPAQUE,             '_asn1_encode_opaque',
-      COUNTER64,          '_asn1_encode_counter64',
-      NOSUCHOBJECT,       '_asn1_encode_nosuchobject',
-      NOSUCHINSTANCE,     '_asn1_encode_nosuchinstance',
-      ENDOFMIBVIEW,       '_asn1_encode_endofmibview',
-      GET_REQUEST,        '_asn1_encode_get_request',
-      GET_NEXT_REQUEST,   '_asn1_encode_get_next_request',
-      GET_RESPONSE,       '_asn1_encode_get_response',
-      SET_REQUEST,        '_asn1_encode_set_request',
-      TRAP,               '_asn1_encode_trap',
-      GET_BULK_REQUEST,   '_asn1_encode_get_bulk_request',
-      INFORM_REQUEST,     '_asn1_encode_inform_request',
-      SNMPV2_TRAP,        '_asn1_encode_v2_trap'
-   };
 
    if (!defined($type)) {
       return $this->_asn1_encode_error('ASN.1 type not defined');
    }
 
-   if (exists($encode->{$type})) {
-      $method = $encode->{$type};
+   if (exists($ASN1_ENCODE_METHODS->{$type})) {
+      my $method = $ASN1_ENCODE_METHODS->{$type};
       $this->$method($value);
    } else {
       $this->_asn1_encode_error("Unknown ASN.1 type [%s]", $type);
@@ -2307,35 +2290,34 @@ sub _asn1_encode_error
 ## Abstract Syntax Notation One (ASN.1) decode methods
 ###
 
+my $ASN1_DECODE_METHODS = {
+   INTEGER,            '_asn1_decode_integer32',
+   OCTET_STRING,       '_asn1_decode_octet_string',
+   NULL,               '_asn1_decode_null',
+   OBJECT_IDENTIFIER,  '_asn1_decode_object_identifier',
+   SEQUENCE,           '_asn1_decode_sequence',
+   IPADDRESS,          '_asn1_decode_ipaddress',
+   COUNTER,            '_asn1_decode_counter',
+   GAUGE,              '_asn1_decode_gauge',
+   TIMETICKS,          '_asn1_decode_timeticks',
+   OPAQUE,             '_asn1_decode_opaque',
+   COUNTER64,          '_asn1_decode_counter64',
+   NOSUCHOBJECT,       '_asn1_decode_nosuchobject',
+   NOSUCHINSTANCE,     '_asn1_decode_nosuchinstance',
+   ENDOFMIBVIEW,       '_asn1_decode_endofmibview',
+   GET_REQUEST,        '_asn1_decode_get_request',
+   GET_NEXT_REQUEST,   '_asn1_decode_get_next_request',
+   GET_RESPONSE,       '_asn1_decode_get_response',
+   SET_REQUEST,        '_asn1_decode_set_request',
+   TRAP,               '_asn1_decode_trap',
+   GET_BULK_REQUEST,   '_asn1_decode_get_bulk_request',
+   INFORM_REQUEST,     '_asn1_decode_inform_request',
+   SNMPV2_TRAP,        '_asn1_decode_v2_trap'
+};
+
 sub _asn1_decode
 {
    my ($this, $expected) = @_;
-   my ($method) = (undef);
-
-   my $decode = {
-      INTEGER,            '_asn1_decode_integer32',
-      OCTET_STRING,       '_asn1_decode_octet_string',
-      NULL,               '_asn1_decode_null',
-      OBJECT_IDENTIFIER,  '_asn1_decode_object_identifier',
-      SEQUENCE,           '_asn1_decode_sequence',
-      IPADDRESS,          '_asn1_decode_ipaddress',
-      COUNTER,            '_asn1_decode_counter',
-      GAUGE,              '_asn1_decode_gauge',
-      TIMETICKS,          '_asn1_decode_timeticks',
-      OPAQUE,             '_asn1_decode_opaque',
-      COUNTER64,          '_asn1_decode_counter64',
-      NOSUCHOBJECT,       '_asn1_decode_nosuchobject',
-      NOSUCHINSTANCE,     '_asn1_decode_nosuchinstance',
-      ENDOFMIBVIEW,       '_asn1_decode_endofmibview',
-      GET_REQUEST,        '_asn1_decode_get_request',
-      GET_NEXT_REQUEST,   '_asn1_decode_get_next_request',
-      GET_RESPONSE,       '_asn1_decode_get_reponse',
-      SET_REQUEST,        '_asn1_decode_set_request',
-      TRAP,               '_asn1_decode_trap',
-      GET_BULK_REQUEST,   '_asn1_decode_get_bulk_request',
-      INFORM_REQUEST,     '_asn1_decode_inform_request',
-      SNMPV2_TRAP,        '_asn1_decode_v2_trap'
-   };
 
    if (defined($this->{'_error'})) { return $this->_asn1_decode_error; }
 
@@ -2343,8 +2325,8 @@ sub _asn1_decode
 
    if (defined($type)) {
       $type = unpack('C', $type);
-      if (exists($decode->{$type})) {
-         $method = $decode->{$type};
+      if (exists($ASN1_DECODE_METHODS->{$type})) {
+         my $method = $ASN1_DECODE_METHODS->{$type};
          if (defined($expected)) {
             if ($type != $expected) {
                return $this->_asn1_decode_error(
@@ -2782,7 +2764,7 @@ sub _asn1_decode_get_next_request
    $_[0]->_asn1_decode_pdu(GET_NEXT_REQUEST); 
 }
 
-sub _asn1_decode_get_reponse      
+sub _asn1_decode_get_response      
 { 
    $_[0]->_asn1_decode_pdu(GET_RESPONSE); 
 }
@@ -3240,7 +3222,7 @@ sub _object_put_buffer
 sub _object_get_buffer
 {
    my ($this, $offset) = @_;
-   my ($substr) = ('');
+   my $substr = '';
 
    # Do not do anything if there has already been an error
    if (defined($this->{'_error'})) { return $this->_object_decode_error; }
@@ -3258,8 +3240,8 @@ sub _object_get_buffer
          $this->{'_buffer'} = substr($this->{'_buffer'}, $offset);
       }
    } else {
-      $substr = $this->{'_buffer'}; 
-      $this->_object_clear_buffer;
+      $substr = $this->{'_buffer'};
+      $this->{'_buffer'} = ''; 
    }
 
    $substr;
@@ -3326,8 +3308,9 @@ sub _object_error
    if (!defined($this->{'_error'})) {
       $this->{'_error'} = sprintf $format, @message;
       if ($this->debug) {
-         printf("error: [%d] %s(): %s\n", (caller(1))[2], (caller(2))[3], 
-            $this->{'_error'}
+         my $index = caller(3) ? 1 : 0; 
+         printf("error: [%d] %s(): %s\n", 
+            (caller($index))[2], (caller($index + 1))[3], $this->{'_error'} 
          );
       }
    }
@@ -3387,12 +3370,12 @@ sub _debug_dump_buffer
 
 package Net::SNMP::FSM;
 
-# $Id: FSM.pm,v 1.0 1999/09/09 12:49:17 dtown Exp $
+# $Id: FSM.pm,v 1.1 2000/01/01 17:55:53 dtown Exp $
 # $Source: /us/dtown/Projects/Net-SNMP/FSM.pm,v $
 
 # Finite State Machine for the Net::SNMP event loop.
 
-# Copyright (c) 1999 David M. Town <dtown@fore.com>.
+# Copyright (c) 1999-2000 David M. Town <dtown@fore.com>.
 # All rights reserved.
 
 # This program is free software; you may redistribute it and/or modify it
@@ -3607,6 +3590,7 @@ sub _state_validating
 
    # Now look for a matching queued message based on request-id
    foreach (@{$this->{'_pending_queue'}}) {
+      if ($_->{'_ttd'} == TTD_DEAD) { next; }
       if ($object->_request_id == $_->_request_id) {
          DEBUG_INFO("response received: request-id = %s (%s)", 
             $_->_request_id, $_->hostname
@@ -3766,6 +3750,7 @@ sub _action_timeout
 
    foreach (@{$this->{'_pending_queue'}}) {
       if ($_->{'_ttd'} > $time) { last; }
+      if ($_->{'_ttd'} == TTD_DEAD) { next; }
       if ($_->{'_retries'}-- > 0) {
          DEBUG_INFO("retry request-id = %s (%s), skew = %f, retries = %d",
             $_->_request_id, $_->hostname, ($time - $_->{'_ttd'}),
@@ -3871,7 +3856,7 @@ __DATA__
 ###
 ## POD formatted documentation for Perl module Net::SNMP.
 ##
-## $Id: Net-SNMP.pod,v 3.0 1999/09/09 12:51:20 dtown Exp $
+## $Id: Net-SNMP.pod,v 3.0.1.1 2000/01/01 17:58:04 dtown Exp $
 ## $Source: /us/dtown/Projects/Net-SNMP/Net-SNMP.pod,v $
 ##
 ###
@@ -4459,7 +4444,7 @@ method may be used to determine the reason.
 
 This method returns the current value for the UDP timeout for the Net::SNMP
 object.  This value is the number of seconds that the object will wait for a
-response from the agent on the remote host.  The default timeout is 2.0
+response from the agent on the remote host.  The default timeout is 5.0
 seconds.
 
 If a parameter is specified, the timeout for the object is set to the provided
@@ -4473,7 +4458,7 @@ the cause.
 
 This method returns the current value for the number of times to retry
 sending a SNMP message to the remote host.  The default number of retries
-is 4.
+is 1.
 
 If a parameter is specified, the number of retries for the object is set to
 the provided value if it falls within the range 0 to 20. The undefined value
@@ -4846,7 +4831,7 @@ All rights reserved.
 
 =head1 COPYRIGHT
 
-Copyright (c) 1998-1999 David M. Town.  All rights reserved.  This program 
+Copyright (c) 1998-2000 David M. Town.  All rights reserved.  This program 
 is free software; you may redistribute it and/or modify it under the same
 terms as Perl itself.
 

@@ -1,5 +1,15 @@
                             Net::SNMP Changes
 
+RELEASE 3.01 JAN-01-2000
+
+- Performance enhancements were made to the most heavily used methods.
+- Changed the default timeout to 5.0 seconds and the default number of retries
+  to 1 to reduce network traffic and to work around a problem with responses 
+  from certain routers when they are busy.  The total default timeout period
+  remains the same at 10 seconds. 
+- Removed the verify_ip() method and the "-verifyip" argument to the 
+  constructor.
+
 RELEASE 3.00 SEP-09-1999
 
 - Added event loop based "non-blocking" support.
@@ -76,4 +86,4 @@ RELEASE 1.00 SEP-09-1998
 
 RCS
 
-    $Id: Changes,v 3.0 1999/09/09 12:48:06 dtown Exp $
+    $Id: Changes,v 3.0.1.1 2000/01/01 17:57:12 dtown Exp $

@@ -1,12 +1,12 @@
 # -*- mode: perl -*- 
 # ============================================================================
 
-# $Id: using.t,v 2.0 1999/05/06 16:08:10 dtown Exp $
+# $Id: using.t,v 2.1 2000/01/01 17:52:35 dtown Exp $
 # $Source: /us/dtown/Projects/Net-SNMP/using.t,v $
 
 # Simple usage test for Perl module Net::SNMP.
 
-# Copyright (c) 1999 David M. Town <dtown@fore.com>.
+# Copyright (c) 1999-2000 David M. Town <dtown@fore.com>.
 # All rights reserved.
 
 # This program is free software; you may redistribute it and/or modify it
