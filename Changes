@@ -1,5 +1,21 @@
                            Net::SNMP Changes
 
+RELEASE 4.1.1 SEP-09-2003
+
+- Corrected a misinterpretation of the "The AES Cipher Algorithm in the
+  SNMP's User-based Security Model" draft specification that lead to
+  the incorrect encoding and decoding of the last block of the message.
+- The syntax of the get_entries() method was changed to expect the column
+  values to entered as full OBJECT IDENTIFIERs allowing the traversal of
+  conceptual rows in different tables which are indexed identically.
+- The processing of the serialization of an OBJECT IDENTIFIER was optimized.
+- The oid_lex_sort() function was updated to order OBJECT IDENTIFIER strings
+  padded with spaces as lexicographically greater than unpadded strings.
+- An empty contextEngineId in a response message is now accepted during  
+  the SNMPv3 discovery process.
+- Corrected an argument validation error with the get_bulk_request()
+  method.
+
 RELEASE 4.1.0 MAY-06-2003
 
 - Working in conjunction with the Extended Security Options Consortium
@@ -209,4 +225,4 @@ RELEASE 1.00 SEP-09-1998
 
 RCS
 
-    $Id: Changes,v 4.5 2003/05/06 11:00:46 dtown Exp $
+    $Id: Changes,v 4.6 2003/09/09 12:44:54 dtown Exp $

@@ -3,7 +3,7 @@
 
 package Net::SNMP;
 
-# $Id: SNMP.pm,v 4.6 2003/05/06 11:00:46 dtown Exp $
+# $Id: SNMP.pm,v 4.7 2003/09/09 12:44:54 dtown Exp $
 
 # Copyright (c) 1998-2003 David M. Town <dtown@cpan.org>
 # All rights reserved.
@@ -106,7 +106,7 @@ BEGIN
 
 ## Version of the Net::SNMP module
 
-our $VERSION = v4.1.0;
+our $VERSION = v4.1.1;
 
 ## Load our modules
 
@@ -260,11 +260,14 @@ must be set back to 0 seconds to disable the delay parameter.
 
 =item SNMPv3 Arguments
 
-RFC 3415 defines the View-based Access Control Model for SNMP which allows an
-administrator to restrict access to a specific MIB view.  Part of this access 
-control includes the contextEngineID and contextName which are part of a
-SNMPv3 scopedPDU.  All methods that generate a SNMP message optionally take
-a B<-contextengineid> and B<-contextname> argument to configure these fields.
+A SNMP context is a collection of management information accessible by a SNMP 
+entity.  An item of management information may exist in more than one context 
+and a SNMP entity potentially has access to many contexts.  The combination of 
+a contextEngineID and a contextName unambiguously identifies a context within 
+an administrative domain.  In a SNMPv3 message, the contextEngineID and 
+contextName are included as part of the scopedPDU.  All methods that generate 
+a SNMP message optionally take a B<-contextengineid> and B<-contextname> 
+argument to configure these fields.
 
 =over
 
@@ -477,17 +480,17 @@ B<-community> argument.  This argument expects a string that is to be used as
 the SNMP community name.  By default the community name is set to 'public' 
 if the argument is not present.
 
-=item User-based Security Arguments 
+=item User-based Security Model Arguments 
 
-The User-based Security Model used by SNMPv3 requires that a securityName be 
-specified using the B<-username> argument.  The creation of a Net::SNMP
+The User-based Security Model (USM) used by SNMPv3 requires that a securityName
+be specified using the B<-username> argument.  The creation of a Net::SNMP
 object with the version set to SNMPv3 will fail if the B<-username> argument
 is not present.  The B<-username> argument expects a string 1 to 32 octets
 in length.
 
-The SNMPv3 User-based Security Model (USM) allows different levels of security
-which address authentication and privacy concerns.  A SNMPv3 Net::SNMP object
-will derive the security level (securityLevel) based on which of the following 
+Different levels of security are allowed by the User-based Security Model which
+address authentication and privacy concerns.  A SNMPv3 Net::SNMP object will 
+derive the security level (securityLevel) based on which of the following 
 arguments are specified.
 
 By default a securityLevel of 'noAuthNoPriv' is assumed.  If the B<-authkey> 
@@ -1167,7 +1170,7 @@ sub get_table : locked : method
       );
    }
 
-   # Create a new PDU
+   # Create a new PDU.
    if (!defined($this->_create_pdu)) {
       return $this->_error;
    }
@@ -1182,7 +1185,7 @@ sub get_table : locked : method
       'table'      => undef,
    );
 
-   # Override the callback now that we have stored it
+   # Override the callback now that we have stored it.
    $this->{_pdu}->callback(
       sub {
          $this->{_pdu} = $_[0];
@@ -1240,7 +1243,6 @@ sub get_table : locked : method
                           [-delay           => $seconds,]   # non-blocking
                           [-contextengineid => $engine_id,] # v3
                           [-contextname     => $name,]      # v3
-                          -entryoid         => $oid,
                           -columns          => \@columns,
                           [-startindex      => $start,]
                           [-endindex        => $end,]
@@ -1250,30 +1252,31 @@ sub get_table : locked : method
 This method performs repeated SNMP get-next-request or get-bulk-request
 (when using SNMPv2c or SNMPv3) queries to gather data from the remote agent
 on the host associated with the Net::SNMP object.  Each message specifically
-requests data for each column specified in the B<-columns> array combined
-with the OBJECT IDENTIFIER defined by the B<-entryoid> argument.  The optional
-B<-startindex> and B<-endindex> arguments may be specified to limit the query
-to specific rows in the table.
+requests data for each OBJECT IDENTIFIER specified in the B<-columns> array.
+The OBJECT IDENTIFIERs must correspond to column entries for a conceptual row 
+in a table.  They may however be columns in different tables as long as each
+table is indexed the same way.  The optional B<-startindex> and B<-endindex> 
+arguments may be specified to limit the query to specific rows in the table(s).
 
 The B<-startindex> can be specified as a single decimal value or in dotted
 notation if the index associated with the entry so requires.  If the
 B<-startindex> is specified, it will be include as part of the query results.
 If no B<-startindex> is specified, the first request message will be sent
 without an index.  To insure that the B<-startindex> is included, the last
-subidentifier in the index is decremented by one.  If the last subidentifier 
-has a value of zero, the subidentifier is removed from the index. 
+subidentifier in the index is decremented by one.  If the last subidentifier
+has a value of zero, the subidentifier is removed from the index.
 
 The optional B<-endindex> argument can be specified as a single decimal value
-or in dotted notation.  If the B<-endindex> is specified, it will include as
-part of the query results.  If no B<-endindex> is specified, repeated SNMP
-requests are issued until the response is no longer part of the table specified
-by the B<-entryoid> argument.
+or in dotted notation.  If the B<-endindex> is specified, it will be included 
+as part of the query results.  If no B<-endindex> is specified, repeated SNMP
+requests are issued until the response no longer returns entries matching 
+any of the columns specified in the B<-columns> array.
 
 The B<-maxrepetitions> argument can be used to specify the max-repetitions
-value that is passed to the get-bulk-requests when using SNMPv2c or SNMPv3. 
-If this argument is not present, a value is calculated based on the maximum 
-message size of the object and the number of columns specified in the 
-B<-columns> array. 
+value that is passed to the get-bulk-requests when using SNMPv2c or SNMPv3.
+If this argument is not present, a value is calculated based on the maximum
+message size of the object and the number of columns specified in the
+B<-columns> array.
 
 A reference to a hash is returned in blocking mode which contains the contents
 of the VarBindList.  In non-blocking mode, a true value is returned when no
@@ -1291,7 +1294,7 @@ sub get_entries : locked : method
 
    my @argv;
 
-   # Validate the passed arguments.
+   # Validate the passed arguments.  
 
    if (!defined($this->_prepare_argv([qw( -callback
                                           -delay
@@ -1300,16 +1303,11 @@ sub get_entries : locked : method
                                           -entryoid
                                           -columns
                                           -startindex
-                                          -endindex        
-                                          -maxrepetitions   )], \@_, \@argv)))
+                                          -endindex  
+                                          -maxrepetitions       
+                                          -rowcallback     )], \@_, \@argv)))
    {
       return $this->_error;
-   }
-
-   if ($argv[0] !~ /^\.?\d+\.\d+(?:\.\d+)*$/) {
-      return $this->_error(
-         'Expected entry OBJECT IDENTIFIER in dotted notation'
-      );
    }
 
    if (ref($argv[1]) ne 'ARRAY') {
@@ -1320,18 +1318,51 @@ sub get_entries : locked : method
       return $this->_error('Empty column list specified');
    }
 
-   my $columns = {};
+   # The syntax of get_entries() changes between release 4.1.0 and
+   # release 4.1.1.  For backwards compatibility, we assume the old
+   # syntax is being used if the "-entryoid" argument is present
+   # and we silently convert to the new syntax.  
 
-   for (@{$argv[1]}) {
-      if (!/^\d+$/) {
+   if (defined($argv[0])) {
+
+      if ($argv[0] !~ /^\.?\d+\.\d+(?:\.\d+)*$/) {
          return $this->_error(
-            'Expected positive numeric value in column list [%s]', $_
+            'Expected entry OBJECT IDENTIFIER in dotted notation'
          );
       }
-      if (exists($columns->{$_})) {
-         return $this->_error('Duplicate entry in column list [%s]', $_);
-      } else {
-          $columns->{$_} = $_;
+
+      my $columns = {};
+
+      for (@{$argv[1]}) {
+         if (!/^\d+$/) {
+            return $this->_error(
+               'Expected positive numeric value in column list [%s]', $_
+            );
+         }
+         if (exists($columns->{$_})) {
+            return $this->_error('Duplicate entry in column list [%s]', $_);
+         } else {
+            $columns->{$_} = $_;
+         }
+      }
+
+      # Now create the new syntax for the columns list
+
+      $argv[1] = [];
+
+      for (sort { $a <=> $b } (keys(%{$columns}))) {
+         push(@{$argv[1]}, join('.', $argv[0], $_));      
+      }
+
+   }
+
+   # Validate the column list. 
+ 
+   for (@{$argv[1]}) {
+      if (!/^\.?\d+\.\d+(?:\.\d+)*$/) {
+         return $this->_error(
+            'Expected column OBJECT IDENTIFIER in dotted notation [%s]', $_
+         );
       }
    }
 
@@ -1342,7 +1373,7 @@ sub get_entries : locked : method
          return $this->_error('Expected start index in dotted notation');
       }
       my @subids = split('\.', $argv[2]);
-      if ($subids[-1] > 0) {
+      if ($subids[-1] > 0) { 
          $subids[-1]--;
       } else {
          pop(@subids);
@@ -1361,7 +1392,17 @@ sub get_entries : locked : method
       }
    }
 
-   # Create a new PDU
+   # Undocumented and unsupported "-rowcallback" argument.
+
+   if (defined($argv[5])) {
+      if (ref($argv[5]) eq 'CODE') {
+         $argv[5] = [$argv[5]];
+      } elsif ((ref($argv[5]) ne 'ARRAY') || (ref($argv[5]->[0]) ne 'CODE')) {
+         return $this->_error('Invalid row callback format');
+      }
+   }   
+
+   # Create a new PDU.
    if (!defined($this->_create_pdu)) {
       return $this->_error;
    }
@@ -1371,18 +1412,15 @@ sub get_entries : locked : method
 
    my %argv = (
       callback     => $this->{_pdu}->callback,
-      columns      => [ sort { $a <=> $b } (keys(%{$columns})) ],
-      columns_hash => $columns,
+      columns      => $argv[1],
       end_index    => $argv[3],
       entries      => undef,
-      entry_oid    => $argv[0],
-      last_column  => 0,
-      last_index   => '0',
-      match        => qr($argv[0]\.(\d+)\.(\d+(:?\.\d+)*)$),
-      start_index  => defined($argv[2]) ? $argv[2] : '0'
+      last_index   => '0', 
+      row_callback => $argv[5],
+      start_index  => $argv[2] 
    );
 
-   # Override the callback now that we have stored it
+   # Override the callback now that we have stored it.
    $this->{_pdu}->callback(
       sub {
          $this->{_pdu} = $_[0];
@@ -1391,13 +1429,10 @@ sub get_entries : locked : method
          $this->_get_entries_cb(\%argv);
       }
    );
+   
+   # Create the varBindList by indexing each column with the start index.
 
-   # Create the varBindList by indexing the entry OBJECT IDENTIFIER
-   # with each of the columns and the start index.
-
-   my $vbl = [
-      map { join('.', $argv[0], $_, $start_index) } @{$argv{columns}}
-   ];
+   my $vbl = [ map { join('.', $_, $start_index) } @{$argv{columns}} ]; 
 
    # Create a get-next-request or get-bulk-request PDU depending
    # on the SNMP version.
@@ -1406,7 +1441,7 @@ sub get_entries : locked : method
 
       if (defined($argv[4])) {
          return $this->_error(
-            'A max-repetitions value is not applicable when using SNMPv1' 
+            'A max-repetitions value is not applicable when using SNMPv1'
          );
       }
 
@@ -1422,7 +1457,7 @@ sub get_entries : locked : method
          $argv{max_reps} = $argv[4];
       } else {
          # Scale the max-repetitions based on the number of columns.
-         $argv{max_reps} = 
+         $argv{max_reps} =
             int($this->_msg_size_max_reps / @{$argv{columns}}) + 1;
       }
 
@@ -1927,6 +1962,7 @@ sub oid_lex_sort(@)
    map  {
       my $oid = $_; 
       $oid =~ s/^\.//o;
+      $oid =~ s/ /\.0/og;
       [$_, pack('N*', split('\.', $oid))]
    } @_;
 }
@@ -2498,7 +2534,7 @@ sub _get_table_cb
    # table could be at the end of the tree.  Also return the table when
    # the value of the OID equals endOfMibView(2) when using SNMPv2c.
 
-   # Assign the "real" callback to the PDU 
+   # Assign the user callback to the PDU.  
    $this->{_pdu}->callback($argv->{callback});
 
    # Check to see if the var_bind_list is defined (was there an error?)
@@ -2546,8 +2582,12 @@ sub _get_table_cb
 
       if (!$end_of_table) {
        
-         # Create a new PDU
+         my $pdu = $this->{_pdu};
+
+         # Create a new PDU. 
          if (!defined($this->_create_pdu)) {
+            $this->{_pdu} = $pdu;
+            $this->{_pdu}->error($this->error);
             $this->{_pdu}->var_bind_list(undef);
             return $this->{_pdu}->callback_execute;
          }
@@ -2582,16 +2622,16 @@ sub _get_table_cb
             }
          } 
 
-         # Send the next PDU with no delay
+         # Send the next PDU with no delay.
          return $DISPATCHER->send_pdu($this->{_pdu}, 0) ? TRUE : $this->_error;
       }
 
-      # Copy the table to the var_bind_list
+      # Copy the table to the var_bind_list.
       $this->{_pdu}->var_bind_list($argv->{table});
 
    }
 
-   # Check for noSuchName(2) error
+   # Check for noSuchName(2) error.
    if ($this->error_status == 2) {
       $this->{_pdu}->error(undef);
       $this->{_pdu}->var_bind_list($argv->{table});
@@ -2611,138 +2651,194 @@ sub _get_entries_cb
 {
    my ($this, $argv) = @_;
 
-   # Assign the "real" callback to the PDU
+   # Assign the user callback to the PDU.
    $this->{_pdu}->callback($argv->{callback});
 
-   # Check to see if the var_bind_list is defined (was there an error?)
+   # Check to see if the varBindList is defined (was there an error?)
 
    if (defined(my $result = $this->var_bind_list)) {
 
-      my @oids = oid_lex_sort(keys(%{$result}));
-      my ($column, $index) = (0, '');
-      my $max_column = $argv->{last_column};
       my $max_index  = $argv->{last_index};
-      my $last_entry = FALSE;
+      my $last_entry = TRUE;
+      my @vb_names   = $this->var_bind_names;
+      my $vb_index   = @vb_names;
 
-      while (@oids) {
+      # Iterate through the response OBJECT IDENTIFIERs.  The response(s)
+      # will (should) be grouped in the same order as the columns that
+      # were requested.  We use this assumption to map the response(s) to
+      # get-next/bulk-requests.
 
-         my $oid = shift(@oids);
+      while ($vb_index > 0) {
+     
+         my @row;
+         my $row_index;
 
-         # See if the OBJECT IDENTIFIER is a part of the entry and
-         # at the same time extract the current column and index.
+         # Match up the responses to the requested columns.
 
-         if ($oid =~ /$argv->{match}/) {
+         for (my $col_num = 0; $col_num <= $#{$argv->{columns}}; $col_num++) { 
 
-            $column = $1;
-            $index = $2;
+            my $column = $argv->{columns}->[$col_num];
 
-            DEBUG_INFO("column = %s, index = %s", $column, $index);
+            if ($vb_names[-$vb_index] =~ /$column\.(\d+(:?\.\d+)*)/) { 
 
-            # If the end index is set, make sure we have not passed it.
+               my $index = $1;
+               DEBUG_INFO('index: %s', $index);
 
-            if ((!defined($argv->{end_index})) ||
-                (_index_cmp($index, $argv->{end_index}) <= 0))
-            {
-
-               # Check if this column was requested.
-
-               if (exists($argv->{columns_hash}->{$column})) {
-
-                  # Make sure that we are not before the start index
-
-                  if (_index_cmp($index, $argv->{start_index}) >= 0) {
-
-                     # Do not add duplicate entries.
-
-                     if (!exists($argv->{entries}->{$oid})) {
-
-                        $argv->{entries}->{$oid} = $result->{$oid};
-
-                        if (_index_cmp($index, $max_index) >= 0) {
-                           $max_index = $index;
-                           $max_column = $column;
-                        }
-                     } else {
-                        DEBUG_INFO('not adding duplicate');
-                     }
-
-                  } else {
-                     DEBUG_INFO('not past start entry');
-                  }
-
-               } elsif (($column > $argv->{columns}->[-1]) &&
-                        (_index_cmp($index, $max_index) >= 0))
+               # Validate the index of the response.
+ 
+               if ((defined($argv->{start_index})) &&
+                   (_index_cmp($index, $argv->{start_index}) < 0))
                {
 
-                  # We are done if the current column is greater
-                  # than than highest column requested and the
-                  # current index is greater the the maximum
-                  # index found.
+                  DEBUG_INFO(
+                     'index [%s] not past start index [%s]',
+                     $index, $argv->{start_index}
+                  );
 
-                  DEBUG_INFO('last_entry: past last column and max index');
+               } elsif ((defined($argv->{end_index})) &&
+                        (_index_cmp($index, $argv->{end_index}) > 0))
+               { 
+
+                  DEBUG_INFO(
+                     'last_entry: index [%s] past end index [%s]',
+                     $index, $argv->{end_index}
+                  );
                   $last_entry = TRUE;
 
                } else {
-                  DEBUG_INFO('column not requested, but not greater than ' .
-                             'max requested or max index');
+
+                  # To handle "holes" in the conceptual row, checks
+                  # need to be made so that the lowest index for
+                  # each group of responses is used.
+
+                  $row_index = $index unless defined($row_index);
+
+                  my $index_cmp = _index_cmp($index, $row_index);
+
+                  if ($index_cmp == 0) {
+
+                     # The index for this response entry matches
+                     # so fill in the corresponding row entry.
+
+                     $row[$col_num] = $vb_names[-$vb_index];
+
+                  } elsif ($index_cmp < 0) {
+
+                     # The index for this response is less than
+                     # the current index, so we throw out 
+                     # everything and start over.
+
+                     DEBUG_INFO('new minimum index [%s]', $index);
+                     @row = ();
+                     $row_index = $index;
+                     $row[$col_num] = $vb_names[-$vb_index];
+
+                  } else {
+
+                     # Skip this entry, there must be a "hole"
+                     # in the row the was requested.
+
+                     DEBUG_INFO(
+                        'index [%s] greater than current minimum [%s]',
+                        $index, $row_index
+                     ); 
+                  }
+
+               }              
+
+            } else {
+
+               # The response does not map to the the request, there 
+               # could be a "hole" or we are out of entries. 
+
+               DEBUG_INFO(
+                  'last_entry: column mismatch [%s]', $vb_names[-$vb_index] 
+               );
+               $last_entry = TRUE;
+            }
+
+            if ($vb_index-- < 1) {
+               DEBUG_INFO('column number / oid number mismatch');
+               @row = ();
+               last; 
+            }
+
+         }
+
+         # Now store the results for the conceptual row.
+
+         if (@row) {
+
+            foreach my $oid (@row) {
+               next unless defined($oid);
+               if (!exists($argv->{entries}->{$oid})) {
+                  $last_entry = FALSE;
+                  $argv->{entries}->{$oid} = $result->{$oid};
+               } else {
+                  DEBUG_INFO('not adding duplicate [%s]', $oid);
+               }
+            }
+
+            # Upcall with the row information if so configured.
+
+            if (defined($argv->{row_callback})) {
+               
+               my @argv = @{$argv->{row_callback}};
+               my $cb   = shift(@argv);
+         
+               # Add the "values" found for each column to 
+               # the front of the callback argument list.
+ 
+               for (my $num = $#{$argv->{columns}}; $num >= 0; $num--) {
+                  if (defined($row[$num])) {
+                     unshift(@argv, $argv->{entries}->{$row[$num]});
+                  } else {
+                     unshift(@argv, undef);
+                  }
                }
 
-            } elsif ($column >= $argv->{columns}->[-1]) {
+               # Prepend the index for the conceptual row.
+               unshift(@argv, $row_index);
+              
+               eval { $cb->(@argv); }; 
 
-               # If we are past the end index and the last
-               # column has been found, we are done.
-
-               DEBUG_INFO('last_entry: past end index');
-               $last_entry = TRUE;
-
-            } else {
-               DEBUG_INFO('past end index, but not column');
             }
 
-         } elsif (!oid_base_match($argv->{entry_oid}, $oid)) {
+            # Store the maximum index found to be used 
+            # for the next get-next/bulk-request.
 
-            # If the OBJECT IDENTIFIER is no longer in
-            # the entry and the last column has been found
-            # we are done.
-
-            if ($max_column >= $argv->{columns}->[-1]) {
-               DEBUG_INFO('last_entry: into next table');
-               $last_entry = TRUE;
-            } else {
-               DEBUG_INFO('not in base entry, but not past column');
+            if (_index_cmp($row_index, $max_index) > 0) {
+               $max_index = $row_index;
             }
 
-         } else {
-            DEBUG_INFO('still in entry');
          }
 
       }
 
-      DEBUG_INFO(
-         'last_index = %s, max_index = %s, last_column = %d, max_column = %d',
-         $argv->{last_index}, $max_index, $argv->{last_column}, $max_column
-      );
+      # Make sure we are not stuck (looping) on a single index.
 
-      if ((!$last_entry) &&
-          (!_index_cmp($max_index, $argv->{last_index})) &&
-          ($max_column == $argv->{last_column}))
-      {
-         DEBUG_INFO('last_entry: repeat entries');
+      my $index_cmp = _index_cmp($max_index, $argv->{last_index});
+
+      if ((!$last_entry) && (!$index_cmp)) {
          $last_entry = TRUE;
+         DEBUG_INFO('last_entry: duplicate entries');
+      } elsif ($index_cmp > 0) {
+         $argv->{last_index} = $max_index;
       }
 
-      # If we have not reached the last requested entry,
-      # generate another request message.
+
+      # If we have not reached the last requested entry, 
+      # generate another get-next/bulk-request message.
 
       if (!$last_entry) {
 
-         $argv->{last_index} = $max_index;
-         $argv->{last_column} = $max_column;
+         my $pdu = $this->{_pdu};
 
          # Create a new PDU
          if (!defined($this->_create_pdu)) {
-            $this->{_pdu}->var_bind_list(undef);
-            return $this->{_pdu}->callback_execute;
+            $this->{_pdu} = $pdu;
+            $this->{_pdu}->error($this->error); 
+            goto callback_complete;
          }
 
          # Override the callback
@@ -2755,19 +2851,14 @@ sub _get_entries_cb
             }
          );
 
-         # Create the varBindList by indexing the entry OBJECT
-         # IDENTIFIER with the columns and maximum index found.
+         # Create the varBindList by indexing each column OBJECT
+         # IDENTIFIER with the maximum index found in the response.
 
-         my $vbl = [
-            map {
-               join('.', $argv->{entry_oid}, $_, $max_index)
-            } @{$argv->{columns}}
-         ];
+         my $vbl = [ map { join('.', $_, $max_index) } @{$argv->{columns}} ];
 
          if ($this->version == SNMP_VERSION_1) {
             if (!defined($this->{_pdu}->prepare_get_next_request($vbl))) {
-               $this->{_pdu}->var_bind_list(undef);
-               return $this->{_pdu}->callback_execute;
+               goto callback_complete; 
             }
          } else {
             if (!defined(
@@ -2776,20 +2867,20 @@ sub _get_entries_cb
                   )
                ))
             {
-               $this->{_pdu}->var_bind_list(undef);
-               return $this->{_pdu}->callback_execute;
+               goto callback_complete;
             }
          }
 
-         # Send the next PDU with no delay
-         return $DISPATCHER->send_pdu($this->{_pdu}, 0) ? TRUE : $this->_error;
-
+         # Send the next PDU with no delay.
+         return $DISPATCHER->send_pdu($this->{_pdu}, 0); 
       }
 
-      # Copy the rows to the var_bind_list
+      # Copy the rows to the var_bind_list.
       $this->{_pdu}->var_bind_list($argv->{entries});
 
    }
+
+   callback_complete:
 
    # Check for noSuchName(2) error
    if ($this->error_status == 2) {
@@ -2799,6 +2890,21 @@ sub _get_entries_cb
 
    if (!defined($argv->{entries}) && (!$this->{_pdu}->error)) {
       $this->{_pdu}->error('Requested entries are empty or do not exist');
+   }
+
+   # If there was an error and the row callback is defined upcall.
+
+   if ($this->{_pdu}->error && defined($argv->{row_callback})) {
+
+      my @argv = @{$argv->{row_callback}};
+      my $cb   = shift(@argv);
+
+      for (my $num = 0; $num <= $#{$argv->{columns}} + 1; $num++) {
+         unshift(@argv, undef);
+      }
+
+      eval { $cb->(@argv); };
+
    }
 
    # Invoke the user defined callback.
@@ -2852,7 +2958,7 @@ sub require_version
    if ($wanted =~ /(\d+)\.(\d{1,3})\.(\d{1,3})/) {
       $wanted = sprintf('%d.%03d%03d', $1, $2, $3);
    } elsif ($wanted =~ /(\d+)\.(\d+)/) {
-      $wanted = sprintf('%d.%d', $1, $2);
+      $wanted = sprintf('%d.%03d', $1, $2);
    }
 
    my $version = eval { $pkg->UNIVERSAL::VERSION($wanted); };

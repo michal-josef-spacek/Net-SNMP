@@ -3,7 +3,7 @@
 
 package Net::SNMP::Message;
 
-# $Id: Message.pm,v 1.5 2003/05/06 11:00:46 dtown Exp $
+# $Id: Message.pm,v 1.6 2003/09/09 12:44:54 dtown Exp $
 
 # Object used to represent a SNMP message. 
 
@@ -21,7 +21,7 @@ use Math::BigInt();
 
 ## Version of the Net::SNMP::Message module
 
-our $VERSION = v1.0.3;
+our $VERSION = v1.0.4;
 
 ## Handle exporting of symbols
 
@@ -452,9 +452,26 @@ sub process_v3_scoped_pdu
    return $this->_error unless defined($this->process(SEQUENCE));
 
    # contextEngineID::=OCTET STRING
-   if (!defined($this->context_engine_id($this->process(OCTET_STRING)))) {
+
+   if (!defined($this->{_context_engine_id} = $this->process(OCTET_STRING))) {
       return $this->_error;
    }
+
+   # RFC 3412 - Section 7.1 3.d.2 states "If statusInformation
+   # contains a value for contextEngineID, then contextEngineID is
+   # set to that value, otherwise it is set to the value of this
+   # entity's snmpEngineID."  However, some snmpEngines return an
+   # empty contextEngineID during discovery, so we will be lenient
+   # here and accept a contextEngineID whose length is zero.
+
+   my $length = CORE::length($this->{_context_engine_id});
+
+   if ((($length < 5) || ($length > 32)) && ($length != 0)) {
+      return $this->_error(
+         'Invalid contextEngineID length [%d octet%s]',
+         $length, $length != 1 ? 's' : ''
+      ); 
+   }  
 
    # contextName::=OCTET STRING
    $this->context_name($this->process(OCTET_STRING));
@@ -1355,23 +1372,23 @@ sub _process_object_identifier
       return $_[0]->_error('OBJECT IDENTIFIER length equal to zero');
    }
 
-   my ($subid_cnt, $subid) = (1, 0);
-   my ($byte, @oid);
+   # Retrieve the whole byte stream outside of the loop (by Niilo Neuvo).
+
+   return $_[0]->_error unless defined(my $bytes = $_[0]->_buffer_get($length));
+   my @bytes = unpack('C*', $bytes);
+   
+   my ($subid_index, $subid, $byte_index) = (1, 0, 0);
+   my @oid;
 
    while ($length > 0) {
       $subid = 0;
       do {
-         if (!defined($byte = $_[0]->_buffer_get(1))) {
-            return $_[0]->_error;
-         }
-         $byte = unpack('C', $byte);
          if ($subid >= ~0) {
             return $_[0]->_error('OBJECT IDENTIFIER subidentifier too large');
          }
-         $subid = (($subid << 7) + ($byte & 0x7f));
-         $length--;
-      } while ($byte & 0x80);
-      $oid[$subid_cnt++] = $subid;
+         $subid = (($subid << 7) + ($bytes[$byte_index] & 0x7f));
+      } while ((--$length > 0) && ($bytes[$byte_index++] & 0x80));
+      $oid[$subid_index++] = $subid;
    }
 
    # The first two subidentifiers are encoded into the first identifier

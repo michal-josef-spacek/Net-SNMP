@@ -3,7 +3,7 @@
 
 package Net::SNMP::PDU;
 
-# $Id: PDU.pm,v 1.5 2003/05/06 11:00:46 dtown Exp $
+# $Id: PDU.pm,v 1.6 2003/09/09 12:44:54 dtown Exp $
 
 # Object used to represent a SNMP PDU. 
 
@@ -21,7 +21,7 @@ use Net::SNMP::Message qw(:ALL);
 
 ## Version of the Net::SNMP::PDU module
 
-our $VERSION = v1.0.3;
+our $VERSION = v1.0.4;
 
 ## Handle importing/exporting of symbols
 
@@ -265,7 +265,7 @@ sub prepare_get_bulk_request
          );
       }
 
-      if (($this->{_error_status} == @{$oids}) && (!$this->{_error_index})) {
+      if (($this->{_error_status} == @{$oids}) && ($this->{_error_index})) {
          return $this->_error( 
             'Non-repeaters equals the number of variable-bindings and ' .
             'max-repetitions is not equal to zero'
@@ -402,6 +402,7 @@ sub var_bind_list
             map  {
                my $oid = $_;
                $oid =~ s/^\.//o;
+               $oid =~ s/ /\.0/og;
                [$_, pack('N*', split('\.', $oid))]
             } keys(%{$_[1]});
 
@@ -642,10 +643,12 @@ sub _process_pdu_sequence
 
       # Indicate that we have an SNMP error
       if (($this->{_error_status}) || ($this->{_error_index})) {
-         $this->_error(
-            'Received %s error-status at error-index %d',
-            _error_status_itoa($this->{_error_status}), $this->{_error_index}
-         );
+         if ($this->{_pdu_type} != GET_BULK_REQUEST) {
+            $this->_error(
+               'Received %s error-status at error-index %d',
+               _error_status_itoa($this->{_error_status}), $this->{_error_index}
+            );
+         }
       } 
 
    } else { # Trap-PDU::=IMPLICIT SEQUENCE
@@ -787,6 +790,8 @@ sub _create_request_id()
       '1.3.6.1.6.3.11.2.1.1' => 'snmpUnknownSecurityModels',
       '1.3.6.1.6.3.11.2.1.2' => 'snmpInvalidMsgs',
       '1.3.6.1.6.3.11.2.1.3' => 'snmpUnknownPDUHandlers',
+      '1.3.6.1.6.3.12.1.4'   => 'snmpUnavailableContexts',
+      '1.3.6.1.6.3.12.1.5'   => 'snmpUnknownContexts',
       '1.3.6.1.6.3.15.1.1.1' => 'usmStatsUnsupportedSecLevels',
       '1.3.6.1.6.3.15.1.1.2' => 'usmStatsNotInTimeWindows',
       '1.3.6.1.6.3.15.1.1.3' => 'usmStatsUnknownUserNames',

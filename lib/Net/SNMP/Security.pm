@@ -3,7 +3,7 @@
 
 package Net::SNMP::Security;
 
-# $Id: Security.pm,v 1.4 2003/05/06 11:00:46 dtown Exp $
+# $Id: Security.pm,v 1.5 2003/09/09 12:44:54 dtown Exp $
 
 # Base object that implements the Net::SNMP Security Models.
 
@@ -17,11 +17,13 @@ package Net::SNMP::Security;
 
 use strict;
 
-use Net::SNMP::Message qw(:versions SECURITY_MODEL_ANY TRUE FALSE);
+use Net::SNMP::Message qw(
+   :versions SECURITY_MODEL_ANY SECURITY_LEVEL_NOAUTHNOPRIV TRUE FALSE
+);
 
 ## Version of the Net::SNMP::Security module
 
-our $VERSION = v1.0.2;
+our $VERSION = v1.0.3;
 
 ## Package variables
 
@@ -103,6 +105,13 @@ sub security_model
    # RFC 3411 - SnmpSecurityModel::=TEXTUAL-CONVENTION
 
    SECURITY_MODEL_ANY; 
+}
+
+sub security_level
+{
+   # RFC 3411 - SnmpSecurityLevel::=TEXTUAL-CONVENTION
+
+   SECURITY_LEVEL_NOAUTHNOPRIV;
 }
 
 sub debug

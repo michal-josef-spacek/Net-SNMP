@@ -3,7 +3,7 @@
 
 package Net::SNMP::Security::USM;
 
-# $Id: USM.pm,v 2.0 2003/05/06 10:57:52 dtown Exp $
+# $Id: USM.pm,v 2.1 2003/09/09 12:44:54 dtown Exp $
 
 # Object that implements the SNMPv3 User-based Security Model.
 
@@ -33,7 +33,7 @@ use Digest::HMAC();
 
 ## Version of the Net::SNMP::Security::USM module
 
-our $VERSION = v2.0.0;
+our $VERSION = v2.0.1;
 
 ## Package variables
 
@@ -1462,7 +1462,9 @@ sub _priv_data_init_aescfbxxx
    }
 
    # Create the AES (Rijndael) object with a 128, 192, or 256 bit key.
-   $this->{_priv_data}->{aes} = Crypt::Rijndael->new($this->{_priv_key});
+
+   $this->{_priv_data}->{aes} = 
+      Crypt::Rijndael->new($this->{_priv_key}, Crypt::Rijndael::MODE_CFB);
 
    # Initialize the salt
    $this->{_priv_data}->{salt1} = int(rand(~0));
@@ -1496,25 +1498,30 @@ sub _priv_encrypt_aescfbxxx
       'NN', $_[0]->{_priv_data}->{salt2}, $_[0]->{_priv_data}->{salt1}
    );
 
-   # Extract the last segment of r bits (r is less or equal to 128)
-   $length = (($length % 16) || 16);
-   my $last = substr($_[2], -$length, $length, '');
+   # AES in the USM Section - Section 3.1.3 "The last ciphertext 
+   # block is produced by exclusive-ORing the last plaintext segment 
+   # of r bits (r is less or equal to 128) with the segment of the r 
+   # most significant bits of the last output block."  
+   
+   # This operation is identical to those performed on the previous 
+   # blocks except for the fact that the block can be less than the 
+   # block size.  We can just pad the last block and operate on it as 
+   # usual and then ignore the padding after encrypting.
 
-   # Create the IV and use it as the first input block
-   my $input  = 
-      pack('NN', $_[0]->{_engine_boots}, $_[0]->{_engine_time}) . $_[1];
+   $_[2] .= "\000" x (16 - ($length % 16));
 
-   my $cipher = '';
-   my $output;
+   # Create the IV by concatenating "...the generating SNMP engine's 
+   # 32-bit snmpEngineBoots, the SNMP engine's 32-bit  snmpEngineTime, 
+   # and a local 64-bit integer..." 
 
-   # Perform 128 bit Cipher Feedback (CFB)
-   while ($_[2] =~ /(.{16})/gs) {
-      $output = $_[0]->{_priv_data}->{aes}->encrypt($input);
-      $cipher .= $input = $output ^ $1;
-   }
+   $_[0]->{_priv_data}->{aes}->set_iv(
+      pack('NN', $_[0]->{_engine_boots}, $_[0]->{_engine_time}) . $_[1]
+   );
 
-   # Exclusive-OR the last segment with the last output block
-   $cipher .= $last ^ substr($output, 0, $length);
+   # Let the Crypt::Rijndael module perform 128 bit Cipher Feedback 
+   # (CFB) and return the result minus the "internal" padding.
+
+   substr($_[0]->{_priv_data}->{aes}->encrypt($_[2]), 0, $length);
 }
 
 sub _priv_decrypt_aescfbxxx
@@ -1543,25 +1550,26 @@ sub _priv_decrypt_aescfbxxx
       return $_[0]->_error('AES cipher length not greater than block size');
    }
 
-   # Extract the last segment of r bits (r is less or equal to 128)
-   $length = (($length % 16) || 16);
-   my $last = substr($_[2], -$length, $length, '');
+   # AES in the USM Section - Section 3.1.4 "The last ciphertext 
+   # block (whose size r is less or equal to 128) is less or equal 
+   # to 128) is exclusive-ORed with the segment of the r most 
+   # significant bits of the last output block to recover the last 
+   # plaintext block of r bits."
 
-   # Use the msgPrivParameters as the IV which is the first input block
-   my $input = $_[1]; 
+   # This operation is identical to those performed on the previous
+   # blocks except for the fact that the block can be less than the
+   # block size.  We can just pad the last block and operate on it as
+   # usual and then ignore the padding after decrypting.
 
-   my $plain = '';
-   my $output;
+   $_[2] .= "\000" x (16 - ($length % 16));
 
-   # Perform 128 bit Cipher Feedback (CFB)
-   while ($_[2] =~ /(.{16})/gs) {
-      $output = $_[0]->{_priv_data}->{aes}->encrypt($input);
-      $plain .= $output ^ $1;
-      $input  = $1;
-   }
+   # Use the msgPrivParameters as the IV.
+   $_[0]->{_priv_data}->{aes}->set_iv($_[1]); 
 
-   # Exclusive-OR the last segment with the last output block
-   $plain .= $last ^ substr($output, 0, $length);
+   # Let the Crypt::Rijndael module perform 128 bit Cipher Feedback
+   # (CFB) and return the result minus the "internal" padding.
+
+   substr($_[0]->{_priv_data}->{aes}->decrypt($_[2]), 0, $length);
 }
 
 sub _auth_key_generate
