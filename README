@@ -1,26 +1,31 @@
 
-                       Net::SNMP, version 3.65 
+                       Net::SNMP, version 4.0.0 
 
 NAME
 
-    Net::SNMP - Simple Network Management Protocol
+    Net::SNMP - Object oriented interface to SNMP 
 
 DESCRIPTION
 
-    The module Net::SNMP implements an object oriented interface to
-    the Simple Network Management Protocol.  Perl applications can
-    use the module to retrieve or update information on a remote
-    host using the SNMP protocol.  Net::SNMP is implemented completely
-    in Perl, requires no compiling, and uses only standard Perl 
-    modules.  Both SNMPv1 and SNMPv2c (Community-Based SNMPv2) are
-    supported by the module.  The Net::SNMP module assumes that the
-    user has a basic understanding of the Simple Network Management 
-    Protocol and related network management concepts.
+    The Net::SNMP module implements an object oriented interface to the 
+    Simple Network Management Protocol.  Perl applications can use the  
+    module to retrieve or update information on a remote host using the 
+    SNMP protocol.  The module supports SNMP version-1, SNMP version-2c 
+    (Community-Based SNMPv2), and SNMP version-3.  The Net::SNMP module 
+    assumes that the user has a basic understanding of the Simple Network 
+    Management Protocol and related network management concepts.
 
 INSTALLATION
 
-    To install, cd to the directory containing the unpacked
-    distribution and do one of the following:
+    To install the Net::SNMP module and all of it's dependencies directly
+    from the Comprehensive Perl Archive Network (CPAN) execute the 
+    command:
+
+	perl -MCPAN -e 'install Net::SNMP'
+
+    The Net::SNMP module can also be installed using the distribution file
+    downloaded from CPAN.  After unpacking the file, perform one of the 
+    following steps while in the top level directory of the distribution:
 
         a.  Create a makefile by running Perl against Makefile.PL and 
             then run make:
@@ -29,16 +34,27 @@ INSTALLATION
                 make test
                 make install
 
-        b.  Copy or move the file lib/Net/SNMP.pm from the distribution
-            into a directory named Net in a Perl library directory. 
+        b.  Copy or move the entire directory structure (including 
+            files) located under the lib/Net directory in the 
+            distribution into a directory named Net in a Perl library 
+            directory.
+
+REQUIREMENTS
+
+    Net::SNMP uses syntax that is not supported in versions of Perl 
+    earlier than v5.6.0. 
+
+    The non-core modules Crypt::DES, Digest::MD5, Digest::SHA1, and 
+    Digest::HMAC are needed to support SNMPv3.
 
 DOCUMENTATION
 
-    Documentation is included at the end of the module in POD format.
+    Documentation is included as part of the Net::SNMP module in 
+    Plain Old Documentation (POD) format. 
 
 AUTHOR
 
-    David M. Town <david.town@marconi.com>
+    David M. Town <dtown@cpan.org>
 
 COPYRIGHT
 
@@ -48,5 +64,5 @@ COPYRIGHT
 
 RCS
 
-    $Id: README,v 3.65 2001/09/09 13:16:13 dtown Exp $
+    $Id: README,v 4.2 2001/11/09 14:03:52 dtown Exp $
 

@@ -1,12 +1,11 @@
 # -*- mode: perl -*-
 # ============================================================================
 
-# $Id: Makefile.PL,v 2.1 2000/09/09 14:23:52 dtown Exp $
-# $Source: /us/dtown/Projects/Net-SNMP/Makefile.PL,v $
+# $Id: Makefile.PL,v 4.1 2001/11/09 14:03:52 dtown Exp $
 
-# Makefile for Perl module Net::SNMP.
+# Makefile for the Perl module Net::SNMP.
 
-# Copyright (c) 1998-2000 David M. Town <david.town@marconi.com>.
+# Copyright (c) 1998-2001 David M. Town <dtown@cpan.org>
 # All rights reserved.
 
 # This program is free software; you may redistribute it and/or modify it
@@ -14,17 +13,37 @@
 
 # ============================================================================
 
+eval { require 5.6.0 } or die <<'EOD'; 
+
+ This version of Net::SNMP uses syntax that is not supported 
+ in versions of Perl earlier than v5.6.0.
+
+ Unable to install Net::SNMP with the current version of Perl.
+
+EOD
+
 use ExtUtils::MakeMaker qw(WriteMakefile);
 
 WriteMakefile(
+   AUTHOR        => 'David M. Town <dtown@cpan.org>',
+   ABSTRACT      => 'Object oriented interface to SNMP',
    NAME          => 'Net::SNMP',
    DISTNAME      => 'Net-SNMP',
-   VERSION_FROM  => 'lib/Net/SNMP.pm',
-   dist          => { COMPRESS => 'gzip', SUFFIX => 'gz' },
-   ($] ge '5.005') ? (
-      'AUTHOR'   => 'David M. Town <david.town@marconi.com>',
-      'ABSTRACT' => 'Object oriented interface to SNMP',
-   ) : (),
+   VERSION       => '4.0.0',
+#  VERSION_FROM  => 'lib/Net/SNMP.pm', # Does not handle v-strings properly
+   EXE_FILES	 => ['snmpkey'],
+   PL_FILES      => {'snmpkey.PL' => 'snmpkey'},
+   PREREQ_PM     => {
+      Crypt::DES   => '2.03',
+      Digest::MD5  => '2.11',
+      Digest::SHA1 => '1.02',
+      Digest::HMAC => '1.00'
+   },   
+   dist          => { 
+      CI       => 'ci -u -m\"Changes for v$(VERSION)\"',
+      COMPRESS => 'gzip --best', 
+      SUFFIX   => 'gz' 
+   },
 );
 
 exit 0;

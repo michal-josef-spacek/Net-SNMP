@@ -6,9 +6,9 @@ if 0;
 
 # ============================================================================
 
-# $Id: table.pl,v 1.0 2000/09/09 14:37:27 dtown Exp $
+# $Id: table.pl,v 4.1 2001/11/09 14:03:52 dtown Exp $
 
-# Copyright (c) 2000 David M. Town <david.town@marconi.com>.
+# Copyright (c) 2000-2001 David M. Town <dtown@cpan.org>
 # All rights reserved.
 
 # This program is free software; you may redistribute it and/or modify it
@@ -16,17 +16,16 @@ if 0;
 
 # ============================================================================
 
-use Net::SNMP(qw(snmp_event_loop oid_lex_sort));
-
 use strict;
-use vars qw($session $error $response);
+
+use Net::SNMP qw(snmp_dispatcher oid_lex_sort);
 
 # Create the SNMP session 
-($session, $error) = Net::SNMP->session(
+my ($session, $error) = Net::SNMP->session(
    -hostname  => $ARGV[0] || 'localhost',
    -community => $ARGV[1] || 'public',
    -port      => $ARGV[2] || 161,
-#   -debug     => 1
+   -version   => 'snmpv2c'
 );
 
 # Was the session created?
@@ -35,30 +34,16 @@ if (!defined($session)) {
    exit 1;
 }
 
-# iso.org.dod.internet.mgmt.interfaces.ifTable.ifEntry.ifInOctets
-my $interfaces = '1.3.6.1.2.1.2.2.1.10';
+# iso.org.dod.internet.mgmt.interfaces.ifTable
+my $ifTable = '1.3.6.1.2.1.2.2';
 
-printf("\n== SNMPv1 blocking get_table(): %s ==\n\n", $interfaces);
+printf("\n== SNMPv2c blocking get_table(): %s ==\n\n", $ifTable);
 
-if (defined($response = $session->get_table($interfaces))) {
-   foreach (oid_lex_sort(keys(%{$response}))) {
-      printf("%s => %s\n", $_, $response->{$_});
-   }
-   print "\n";
-} else {
-   printf("ERROR: %s\n\n", $session->error());
-}
+my $result;
 
-# Switch to SNMPv2c and get_table() will use get-bulk-requests instead
-# of get-next-requests.
-
-printf("\n== SNMPv2c blocking get_table(): %s ==\n\n", $interfaces);
-
-$session->version('v2c');
-
-if (defined($response = $session->get_table($interfaces))) {
-   foreach (oid_lex_sort(keys(%{$response}))) {
-      printf("%s => %s\n", $_, $response->{$_});
+if (defined($result = $session->get_table(-baseoid => $ifTable))) {
+   foreach (oid_lex_sort(keys(%{$result}))) {
+      printf("%s => %s\n", $_, $result->{$_});
    }
    print "\n";
 } else {
@@ -67,19 +52,27 @@ if (defined($response = $session->get_table($interfaces))) {
 
 $session->close;
 
+
 ###
 ## Now a non-blocking example
 ###
 
-printf("\n== SNMPv1 non-blocking get_table(): %s ==\n\n", $interfaces); 
+printf("\n== SNMPv2c non-blocking get_table(): %s ==\n\n", $ifTable); 
+
+# Blocking and non-blocking objects cannot exist at the
+# same time.  We must clear the reference to the blocking
+# object or the creation of the non-blocking object will
+# fail.
+
+$session = undef;
 
 # Create the non-blocking SNMP session
 ($session, $error) = Net::SNMP->session(
    -hostname    => $ARGV[0] || 'localhost',
    -community   => $ARGV[1] || 'public',
    -port        => $ARGV[2] || 161,
-   -nonblocking => 0x1,
-#   -debug       => 1
+   -nonblocking => 1,
+   -version     => 'snmpv2c'
 );
 
 # Was the session created?
@@ -88,31 +81,28 @@ if (!defined($session)) {
    exit 1;
 }
 
-if (!defined($session->get_table(-baseoid  => $interfaces,
-                                 -callback => [\&_print_results_cb])))
+if (!defined($session->get_table(-baseoid  => $ifTable,
+                                 -callback => \&print_results_cb)))
 {
    printf("ERROR: %s\n", $session->error());
 }
 
 # Start the event loop
-snmp_event_loop();
+snmp_dispatcher();
 
 print "\n";
 
 exit 0;
 
-
-# [private] ------------------------------------------------------------------
-
-sub _print_results_cb
+sub print_results_cb
 {
-   my ($this) = @_;
+   my ($session) = @_;
 
-   if (!defined($this->var_bind_list())) {
-      printf("ERROR = %s\n", $this->error());
+   if (!defined($session->var_bind_list())) {
+      printf("ERROR = %s\n", $session->error());
    } else {
-      foreach (oid_lex_sort(keys(%{$this->var_bind_list()}))) {
-         printf("%s => %s\n", $_, $this->var_bind_list()->{$_});
+      foreach (oid_lex_sort(keys(%{$session->var_bind_list()}))) {
+         printf("%s => %s\n", $_, $session->var_bind_list()->{$_});
       } 
    }
 }

@@ -6,9 +6,9 @@ if 0;
 
 # ============================================================================
 
-# $Id: snmpwalk.pl,v 1.0 2000/09/09 14:44:23 dtown Exp $
+# $Id: snmpwalk.pl,v 2.0 2001/10/15 13:21:52 dtown Exp $
 
-# Copyright (c) 2000 David M. Town <david.town@marconi.com>.
+# Copyright (c) 2000-2001 David M. Town <dtown@cpan.org>
 # All rights reserved.
 
 # This program is free software; you may redistribute it and/or modify it
@@ -16,35 +16,39 @@ if 0;
 
 # ============================================================================
 
-use Net::SNMP(qw(oid_lex_sort oid_context_match SNMP_VERSION_1));
+use Net::SNMP qw(oid_lex_sort oid_base_match SNMP_VERSION_1 DEBUG_ALL);
 use Getopt::Std;
 
 use strict;
 use vars qw($SCRIPT $VERSION %OPTS);
 
 $SCRIPT  = 'snmpwalk';
-$VERSION = '1.00';
+$VERSION = '2.0.0';
 
 # Validate the command line options
-if (!getopts('dm:p:r:t:v:', \%OPTS)) {
+if (!getopts('a:A:c:dE:m:n:p:r:t:u:v:X:', \%OPTS)) {
    _usage();
 }
 
 # Do we have enough/too much information?
-if (@ARGV != 3) {
+if (@ARGV != 2) {
    _usage();
 }
 
 # Create the SNMP session
 my ($s, $e) = Net::SNMP->session(
    -hostname  => shift,
-   -community => shift,
-   exists($OPTS{'d'}) ? (-debug   => $OPTS{'d'}) : (),
-   exists($OPTS{'m'}) ? (-mtu     => $OPTS{'m'}) : (),
-   exists($OPTS{'p'}) ? (-port    => $OPTS{'p'}) : (),
-   exists($OPTS{'r'}) ? (-retries => $OPTS{'r'}) : (),
-   exists($OPTS{'t'}) ? (-timeout => $OPTS{'t'}) : (),
-   exists($OPTS{'v'}) ? (-version => $OPTS{'v'}) : ()
+   exists($OPTS{a}) ? (-authprotocol =>  $OPTS{a}) : (),
+   exists($OPTS{A}) ? (-authpassword =>  $OPTS{A}) : (),
+   exists($OPTS{c}) ? (-community    =>  $OPTS{c}) : (),
+   exists($OPTS{d}) ? (-debug        => DEBUG_ALL) : (),
+   exists($OPTS{m}) ? (-maxmsgsize   =>  $OPTS{m}) : (),
+   exists($OPTS{p}) ? (-port         =>  $OPTS{p}) : (),
+   exists($OPTS{r}) ? (-retries      =>  $OPTS{r}) : (),
+   exists($OPTS{t}) ? (-timeout      =>  $OPTS{t}) : (),
+   exists($OPTS{u}) ? (-username     =>  $OPTS{u}) : (),
+   exists($OPTS{v}) ? (-version      =>  $OPTS{v}) : (),
+   exists($OPTS{X}) ? (-privpassword =>  $OPTS{X}) : ()
 );
 
 # Was the session created?
@@ -52,35 +56,46 @@ if (!defined($s)) {
    _exit($e);
 }
 
-# Define the first OBJECT IDENTIFIER to query
-my $next = $ARGV[0];
-
 # Perform repeated get-next-requests or get-bulk-requests (SNMPv2c) 
 # until the last returned OBJECT IDENTIFIER is no longer a child of
 # OBJECT IDENTIFIER passed in on the command line.
 
+my @args = (
+   exists($OPTS{E}) ? (-contextengineid => $OPTS{E}) : (),
+   exists($OPTS{n}) ? (-contextname     => $OPTS{n}) : (),
+   -varbindlist    => [$ARGV[0]]
+);
+
 if ($s->version == SNMP_VERSION_1) {
 
-   while (defined($s->get_next_request($next))) {
-      $next = (keys(%{$s->var_bind_list}))[0];
-      if (!oid_context_match($ARGV[0], $next)) { last; }
-      printf("%s => %s\n", $next, $s->var_bind_list->{$next});   
+   while (defined($s->get_next_request(@args))) {
+      $_ = (keys(%{$s->var_bind_list}))[0];
+
+      if (!oid_base_match($ARGV[0], $_)) { last; }
+      printf("%s => %s\n", $_, $s->var_bind_list->{$_});   
+
+      @args = (-varbindlist => [$_]);
    }
 
 } else {
 
-   iterator: while (defined($s->get_bulk_request(-maxrepetitions => 10,
-                                                 -varbindlist    => [$next])))
-   {
+   push(@args, -maxrepetitions => 25); 
+
+   outer: while (defined($s->get_bulk_request(@args))) {
+
       my @oids = oid_lex_sort(keys(%{$s->var_bind_list}));
+
       foreach (@oids) {
-         if (!oid_context_match($ARGV[0], $_)) { last iterator; }
+
+         if (!oid_base_match($ARGV[0], $_)) { last outer; }
          printf("%s => %s\n", $_, $s->var_bind_list->{$_});
+
          # Make sure we have not hit the end of the MIB
-         if ($s->var_bind_list->{$_} eq 'endOfMibView') { last iterator; } 
+         if ($s->var_bind_list->{$_} eq 'endOfMibView') { last outer; } 
       }
+
       # Get the last OBJECT IDENTIFIER in the returned list
-      $next = pop(@oids);
+      @args = (-maxrepetitions => 25, -varbindlist => [pop(@oids)]);
    }
 
 }
@@ -107,15 +122,29 @@ sub _usage
 {
    printf("%s v%s\n", $SCRIPT, $VERSION);
 
-   printf("Usage: %s [options] <hostname> <community> <oid>\n", 
+   printf("Usage: %s [options] <hostname> <oid>\n", 
       $SCRIPT
    );
-   printf("Options: -d             enable debugging\n");
-   printf("         -m <octets>    maximum transport unit\n"); 
-   printf("         -p <port>      UDP port\n");
-   printf("         -r <attempts>  number of retries\n");
-   printf("         -t <secs>      timeout period\n");
-   printf("         -v 1|2c        SNMP version\n");
+
+   printf("Options: -v 1|2c|3      SNMP version\n");
+   printf("         -d             Enable debugging\n");
+
+   printf("   SNMPv1/SNMPv2c:\n");
+   printf("         -c <community> Community name\n");
+
+   printf("   SNMPv3:\n");
+   printf("         -u <username>  Username (required)\n");
+   printf("         -E <engineid>  Context Engine ID\n");
+   printf("         -n <name>      Context Name\n");
+   printf("         -a md5|sha1    Authentication protocol\n");
+   printf("         -A <password>  Authentication password\n");
+   printf("         -X <password>  Privacy password\n");
+
+   printf("   Transport Layer:\n");
+   printf("         -m <octets>    Maximum message size\n");
+   printf("         -p <port>      Destination UDP port\n");
+   printf("         -r <attempts>  Number of retries\n");
+   printf("         -t <secs>      Timeout period\n");
 
    exit 1;
 }

@@ -1,5 +1,17 @@
                             Net::SNMP Changes
 
+RELEASE 4.0.0 NOV-09-2001
+
+- The module has been completely redesigned to add support for SNMPv3 
+  and to follow the SNMP Management Framework defined by RFC 2571.
+- Perl version 5.6.0 or greater is now required to use the module.
+- Updated the method calls to expect the same argument syntax regardless 
+  of whether they are invoked by "blocking" or "non-blocking" objects. 
+- The non-core modules Crypt::DES, Digest::MD5, Digest::SHA1, and 
+  Digest::HMAC are now required to support SNMPv3.
+- Added the ability to specify the local address and port number used by
+  each object.
+
 RELEASE 3.65 SEP-09-2001
 
 - Corrected an error in the Net::SNMP::FSM module that would cause all
@@ -129,4 +141,4 @@ RELEASE 1.00 SEP-09-1998
 
 RCS
 
-    $Id: Changes,v 3.65 2001/09/09 13:11:55 dtown Exp $
+    $Id: Changes,v 4.1 2001/11/09 14:03:52 dtown Exp $

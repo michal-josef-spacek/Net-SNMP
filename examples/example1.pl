@@ -2,9 +2,9 @@
 
 # ============================================================================
 
-# $Id: example1.pl,v 1.0 2000/09/09 14:33:55 dtown Exp $
+# $Id: example1.pl,v 4.0 2001/10/15 13:13:17 dtown Exp $
 
-# Copyright (c) 2000 David M. Town <david.town@marconi.com>.
+# Copyright (c) 2000-2001 David M. Town <dtown@cpan.org>
 # All rights reserved.
 
 # This program is free software; you may redistribute it and/or modify it
@@ -13,11 +13,10 @@
 # ============================================================================
 
 use strict;
-use vars qw($session $error $response);
 
 use Net::SNMP;
 
-($session, $error) = Net::SNMP->session(
+my ($session, $error) = Net::SNMP->session(
    -hostname  => shift || 'localhost',
    -community => shift || 'public',
    -port      => shift || 161 
@@ -30,18 +29,21 @@ if (!defined($session)) {
 
 my $sysUpTime = '1.3.6.1.2.1.1.3.0';
 
-if (!defined($response = $session->get_request($sysUpTime))) {
-   printf("ERROR: %s.\n", $session->error());
-   $session->close();
+my $result = $session->get_request(
+   -varbindlist => [$sysUpTime]
+);
+
+if (!defined($result)) {
+   printf("ERROR: %s.\n", $session->error);
+   $session->close;
    exit 1;
 }
 
-printf("sysUpTime for host '%s' is %s\n", 
-   $session->hostname(), 
-   $response->{$sysUpTime}
+printf("sysUpTime for host '%s' is %s\n",
+   $session->hostname, $result->{$sysUpTime} 
 );
 
-$session->close();
+$session->close;
 
 exit 0;
 

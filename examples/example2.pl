@@ -2,9 +2,9 @@
 
 # ============================================================================
 
-# $Id: example2.pl,v 1.0 2000/09/09 14:35:18 dtown Exp $
+# $Id: example2.pl,v 4.0 2001/10/15 13:14:35 dtown Exp $
 
-# Copyright (c) 2000 David M. Town <david.town@marconi.com>.
+# Copyright (c) 2000-2001 David M. Town <dtown@cpan.org>
 # All rights reserved.
 
 # This program is free software; you may redistribute it and/or modify it
@@ -13,14 +13,16 @@
 # ============================================================================
 
 use strict;
-use vars qw($session $error $response);
 
 use Net::SNMP;
 
-($session, $error) = Net::SNMP->session(
-   -hostname  => shift || 'localhost',
-   -community => shift || 'private',
-   -port      => shift || 161
+my ($session, $error) = Net::SNMP->session(
+   -hostname     => 'myv3host.company.com',
+   -version      => 'snmpv3',
+   -username     => 'myv3Username',
+   -authkey      => '0x05c7fbde31916f64da4d5b77156bdfa7',
+   -authprotocol => 'md5',
+   -privkey      => '0x93725fd3a02a48ce02df4e065a1c1746'
 );
 
 if (!defined($session)) {
@@ -29,21 +31,21 @@ if (!defined($session)) {
 }
 
 my $sysContact = '1.3.6.1.2.1.1.4.0';
-my $contact    = 'Help Desk';
 
-$response = $session->set_request($sysContact, OCTET_STRING, $contact);
+my $result = $session->set_request(
+   -varbindlist => [$sysContact, OCTET_STRING, 'Help Desk x911']
+);
 
-if (!defined($response)) {
-   printf("ERROR: %s.\n", $session->error());
-   $session->close();
+if (!defined($result)) {
+   printf("ERROR: %s.\n", $session->error);
+   $session->close;
    exit 1;
 }
 
 printf("sysContact for host '%s' set to '%s'\n", 
-   $session->hostname(),
-   $response->{$sysContact}
+   $session->hostname, $result->{$sysContact}
 );
 
-$session->close();
+$session->close;
 
 exit 0;

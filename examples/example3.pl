@@ -2,9 +2,9 @@
 
 # ============================================================================
 
-# $Id: example3.pl,v 1.1 2001/09/09 13:19:44 dtown Exp $
+# $Id: example3.pl,v 4.0 2001/10/15 13:15:48 dtown Exp $
 
-# Copyright (c) 2000-2001 David M. Town <david.town@marconi.com>.
+# Copyright (c) 2001 David M. Town <dtown@cpan.org>
 # All rights reserved.
 
 # This program is free software; you may redistribute it and/or modify it
@@ -13,108 +13,91 @@
 # ============================================================================
 
 use strict;
-use vars qw(@hosts @sessions $MAX_POLLS $INTERVAL $EPOC);
 
-use Net::SNMP qw(snmp_event_loop ticks_to_time);
+use Net::SNMP qw(:snmp);
 
-# List of hosts to poll
+my ($session, $error) = Net::SNMP->session(
+   -version     => 'snmpv2c',
+   -nonblocking => 1,
+   -hostname    => shift || 'localhost',
+   -community   => shift || 'public',
+   -port        => shift || 161 
+);
 
-@hosts = qw(.1.1.1 1.1.1.2 localhost);
-
-# Poll interval (in seconds).  This value should be greater than
-# the number of retries times the timeout value.
-
-$INTERVAL = 60;
-
-# Maximum number of polls after initial poll
-
-$MAX_POLLS = 10;
-
-# Create a session for each host
-foreach (@hosts) {
-   my ($session, $error) = Net::SNMP->session(
-      -hostname    => $_,
-      -nonblocking => 0x1,   # Create non-blocking objects
-      -translate   => [
-         -timeticks => 0x0   # Turn off so sysUpTime is numeric
-      ]  
-,-debug => 1 
-   );
-   if (!defined($session)) {
-      printf("ERROR: %s.\n", $error);
-      foreach (@sessions) { $_->[0]->close(); }
-      exit 1;
-   }
-
-   # Create an array of arrays which contains the new object, 
-   # the last sysUpTime, and the total number of polls.
-
-   push(@sessions, [$session, 0, 0]);
+if (!defined($session)) {
+   printf("ERROR: %s.\n", $error);
+   exit 1;
 }
 
-my $sysUpTime = '1.3.6.1.2.1.1.3.0';
+my $ifTable = '1.3.6.1.2.1.2.2';
 
-# Queue each of the queries for sysUpTime
-foreach (@sessions) {
-   $_->[0]->get_request(
-       -varbindlist => [$sysUpTime],
-       -callback    => [\&validate_sysUpTime_cb, \$_->[1], \$_->[2]]
-   );
+my $result = $session->get_bulk_request(
+   -callback       => [\&table_cb, {}],
+   -maxrepetitions => 10,
+   -varbindlist    => [$ifTable]
+);
+
+if (!defined($result)) {
+   printf("ERROR: %s.\n", $session->error);
+   $session->close;
+   exit 1;
 }
 
-# Define a reference point for all of the polls
-$EPOC = time();
+snmp_dispatcher();
 
-# Enter the event loop
-snmp_event_loop();
-
-# Not necessary, but it is nice to clean up after yourself
-foreach (@sessions) { $_->[0]->close(); }
+$session->close;
 
 exit 0;
 
-
-sub validate_sysUpTime_cb
+sub table_cb
 {
-   my ($this, $last_uptime, $num_polls) = @_;
+   my ($session, $table) = @_;
 
-   if (!defined($this->var_bind_list())) {
+   if (!defined($session->var_bind_list)) {
 
-      printf("%-15s  ERROR: %s\n", $this->hostname(), $this->error());
+      printf("ERROR: %s\n", $session->error);   
 
    } else {
-   
-      # Validate the sysUpTime
 
-      my $uptime = $this->var_bind_list()->{$sysUpTime};
-      if ($uptime < ${$last_uptime}) {
-         printf("%-15s  WARNING: %s is less than %s\n",
-            $this->hostname(), 
-            ticks_to_time($uptime), 
-            ticks_to_time(${$last_uptime})
-         );
-      } else {
-         printf("%-15s  Ok (%s)\n", 
-            $this->hostname(), 
-            ticks_to_time($uptime)
-         );
+      # Loop through each of the OIDs in the response and assign
+      # the key/value pairs to the anonymous hash that is passed
+      # to the callback.  Make sure that we are still in the table
+      # before assigning the key/values.
+
+      my $next;
+
+      foreach my $oid (oid_lex_sort(keys(%{$session->var_bind_list}))) {
+         if (!oid_base_match($ifTable, $oid)) {
+            $next = undef;
+            last;
+         }
+         $next = $oid; 
+         $table->{$oid} = $session->var_bind_list->{$oid};   
       }
 
-      # Store the new sysUpTime
-      ${$last_uptime} = $uptime;
+      # If $next is defined we need to send another request 
+      # to get more of the table.
 
+      if (defined($next)) {
+      
+         $result = $session->get_bulk_request(
+            -callback       => [\&table_cb, $table],
+            -maxrepetitions => 10,
+            -varbindlist    => [$next]
+         ); 
+
+         if (!defined($result)) {
+            printf("ERROR: %s\n", $session->error);
+         }
+
+      } else {
+
+         # We are no longer in the table, so print the results.
+
+         foreach my $oid (oid_lex_sort(keys(%{$table}))) {
+            printf("%s => %s\n", $oid, $table->{$oid});
+         }
+
+      }
    }
-
-   # Queue the next message if we have not reach MAX_POLLS
-
-   if (++${$num_polls} <= $MAX_POLLS) {
-      my $delay = (($INTERVAL * ${$num_polls}) + $EPOC) - time();
-      $this->get_request(
-         -delay       => ($delay >= 0) ? $delay : 0,
-         -varbindlist => [$sysUpTime],
-         -callback    => [\&validate_sysUpTime_cb, $last_uptime, $num_polls]
-      );
-   }
-
-   $this->error_status();
 }

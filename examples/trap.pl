@@ -6,9 +6,9 @@ if 0;
 
 # ============================================================================
 
-# $Id: trap.pl,v 1.0 2000/09/09 14:38:34 dtown Exp $
+# $Id: trap.pl,v 4.0 2001/10/15 13:22:40 dtown Exp $
 
-# Copyright (c) 2000 David M. Town <david.town@marconi.com>.
+# Copyright (c) 2000-2001 David M. Town <dtown@cpan.org>
 # All rights reserved.
 
 # This program is free software; you may redistribute it and/or modify it
@@ -16,14 +16,13 @@ if 0;
 
 # ============================================================================
 
-use Net::SNMP qw(:ALL);
-
 use strict;
-use vars qw($session $error $result @varbind);
 
-($session, $error) = Net::SNMP->session(
-   -hostname  => shift || 'localhost',
-   -community => shift || 'public',
+use Net::SNMP qw(:ALL); 
+
+my ($session, $error) = Net::SNMP->session(
+   -hostname  => $ARGV[0] || 'localhost',
+   -community => $ARGV[1] || 'public',
    -port      => SNMP_TRAP_PORT,      # Need to use port 162 
 );
 
@@ -34,7 +33,7 @@ if (!defined($session)) {
 
 ## Trap example specifying all values
 
-$result = $session->trap(
+my $result = $session->trap(
    -enterprise   => '1.3.6.1.4.1',
    -agentaddr    => '10.10.1.1',
    -generictrap  => WARM_START,
@@ -48,30 +47,50 @@ $result = $session->trap(
 
 if (!defined($result)) {
    printf("ERROR: %s\n", $session->error());
+} else {
+   printf("Trap-PDU sent.\n");
 }
-
 
 ## A second trap example using mainly default values
 
-push(@varbind, '1.3.6.1.2.1.2.2.1.7.0', INTEGER, 1);
+my @varbind = ('1.3.6.1.2.1.2.2.1.7.0', INTEGER, 1);
 
 $result = $session->trap(-varbindlist  => \@varbind); 
 
 if (!defined($result)) {
    printf("ERROR: %s\n", $session->error());
+} else {
+   printf("Trap-PDU sent.\n");
 }
 
-## Change the SNMP version to SNMPv2c to send a snmpV2-trap
+$session->close();
 
-$session->version('2c');
+## Create a new object with the version set to SNMPv2c 
+## to send a snmpV2-trap.
+
+($session, $error) = Net::SNMP->session(
+   -hostname  => $ARGV[0] || 'localhost',
+   -community => $ARGV[1] || 'public',
+   -port      => SNMP_TRAP_PORT,      # Need to use port 162
+   -version   => 'snmpv2c'
+);
+
+if (!defined($session)) {
+   printf("ERROR: %s\n", $error);
+   exit 1;
+}
 
 $result = $session->snmpv2_trap(
-   '1.3.6.1.2.1.1.3.0', TIMETICKS, 600,
-   '1.3.6.1.6.3.1.1.4.1.0', OBJECT_IDENTIFIER, '1.3.6.1.4.1.326' 
+   -varbindlist => [
+      '1.3.6.1.2.1.1.3.0', TIMETICKS, 600,
+      '1.3.6.1.6.3.1.1.4.1.0', OBJECT_IDENTIFIER, '1.3.6.1.4.1.326' 
+   ]
 );
 
 if (!defined($result)) {
    printf("ERROR: %s\n", $session->error());
+} else {
+   printf("SNMPv2-Trap-PDU sent.\n");
 }
 
 $session->close();
