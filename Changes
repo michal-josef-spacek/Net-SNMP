@@ -1,0 +1,24 @@
+                            Net::SNMP Changes
+
+RELEASE 1.10 OCT-14-1998
+
+- New method trap() for sending SNMP Trap-PDUs added.
+- New method error_status() which retrieves the SNMP error-status contained
+  in the last SNMP GetResponse-PDU added.
+- Named arguments for the method session() are now validated.
+- New export tags ":asn1", ":generictrap", and ":ALL" added.
+- New exportable symbols for generic-trap types added. 
+- A comma contained in an OCTET STRING no longer causes the decoded result 
+  of a GetResponse-PDU to be converted to a hexadecimal representation if 
+  translation is enabled.
+- The control characters \n\r\t no longer trigger an OCTET STRING in a
+  GetResponse-PDU to be converted to a hexadecimal representation if 
+  translation is enabled.
+ 
+RELEASE 1.00 SEP-09-1998
+
+Initial release.
+
+RCS
+
+    $Id: Changes,v 1.1 1998/10/14 12:22:57 dtown Exp $
