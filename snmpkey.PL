@@ -6,9 +6,9 @@ if 0;
 
 # ============================================================================
 
-# $Id: snmpkey.PL,v 1.2 2002/01/01 14:03:44 dtown Exp $
+# $Id: snmpkey.PL,v 1.3 2003/05/06 11:00:46 dtown Exp $
 
-# Copyright (c) 2001-2002 David M. Town <dtown@cpan.org>
+# Copyright (c) 2001-2003 David M. Town <dtown@cpan.org>
 # All rights reserved.
 
 # This program is free software; you may redistribute it and/or modify it
@@ -28,9 +28,9 @@ print OUT <<'AS-IS';
 
 # ============================================================================
 
-# $Id: snmpkey.PL,v 1.2 2002/01/01 14:03:44 dtown Exp $
+# $Id: snmpkey.PL,v 1.3 2003/05/06 11:00:46 dtown Exp $
 
-# Copyright (c) 2001-2002 David M. Town <dtown@cpan.org>
+# Copyright (c) 2001-2003 David M. Town <dtown@cpan.org>
 # All rights reserved.
 
 # This program is free software; you may redistribute it and/or modify it
@@ -40,16 +40,16 @@ print OUT <<'AS-IS';
 
 =head1 NAME
 
-snmpkey - Create a SNMPv3 security key for the Net::SNMP module
+snmpkey - Create SNMPv3 security keys for the Net::SNMP module
 
 =head1 SYNOPSIS
 
-The C<snmpkey> utility generates a security key based on a password and
+The C<snmpkey> utility generates security keys based on a password and
 an authoritativeEngineID passed on the command line.  This key can then
 be used by the Net::SNMP module instead of the plain text password when
 creating SNMPv3 objects.
 
-   snmpkey md5|sha1 <password> <authoritativeEngineID>
+   snmpkey <authProto> <password> <authEngineID> [<privProto> [<password>]]
 
 =head1 DESCRIPTION
 
@@ -64,16 +64,28 @@ or privacy.  The C<snmpkey> utility can be used to generate the key to be
 used by the B<-authkey> or B<-privkey> named arguments when they are passed 
 to the Net::SNMP C<session()> constructor.
 
-The C<snmpkey> utility expects three command line arguments.  The first
-argument defines which hash algorithm to use when creating the key.  Either
-MD5 (RFC 1321) or SHA-1 (NIST FIPS PUB 180) can be specified with the
-string 'md5' or 'sha1' respectively.  This choice must match the
-algorithm passed to the B<-authprotocol> argument when creating Net::SNMP
-objects.  The second argument is the plain text password that is to be 
-localized.  The final argument is the authoritativeEngineID of the remote 
-SNMP engine associated with the Net::SNMP argument B<-hostname>.  The
+The C<snmpkey> utility requires at least three command line arguments.  The
+first argument defines which hash algorithm to use when creating the authKey.
+Either HMAC-MD5-96 or HMAC-SHA-96 can be specified with the string 'md5' or 
+'sha' respectively.  This choice must match the algorithm passed to the 
+B<-authprotocol> argument when creating the Net::SNMP object.  The second 
+argument is the plain text password that is to be localized to create the 
+authKey.  The third required argument is the authoritativeEngineID of the 
+remote SNMP engine associated with the Net::SNMP argument B<-hostname>.  The 
 authoritativeEngineID is to be entered as a hexadecimal string 10 to 64 
 characters (5 to 32 octets) long and can be prefixed with an optional "0x".
+
+The last two arguments are optional and can be used to determine how the
+privKey will be generated.  By default, the fourth argument assumes a value
+of 'des' corresponding to the only privacy protocol defined in the User-based
+Security Model.  The Net::SNMP module supports CBC-3DES-EDE and
+CFB128-AES-128/192/256 as alternatives to the default protocol CBC-DES.  These
+protocols can be chosen by specifying the string '3desede', 'aescfb128',
+'aescfb192', or 'aescfb256' respectively.  This choice must match the protocol
+passed to the B<-privprotocol> argument when creating the Net::SNMP object.
+The last argument can be used to specify the plain text password that is to
+be localized to create the privKey.  If this argument is not specified, the 
+authKey password is used.
 
 =head1 AUTHOR
 
@@ -81,7 +93,7 @@ David M. Town <dtown@cpan.org>
 
 =head1 COPYRIGHT
 
-Copyright (c) 2001-2002 David M. Town.  All rights reserved.  This program
+Copyright (c) 2001-2003 David M. Town.  All rights reserved.  This program
 is free software; you may redistribute it and/or modify it under the same
 terms as Perl itself.
 
@@ -95,29 +107,32 @@ L<Net::SNMP>
 
 use strict;
 
-use Net::SNMP::Security::USM;
+use Net::SNMP::Security::USM 2.0.0;
 
 my $SCRIPT  = 'snmpkey';
-my $VERSION = v1.0.1;
+my $VERSION = v2.0.0;
 
 # Do we have enough/too much information?
-if (@ARGV != 3) {
+if ((@ARGV < 3) || (@ARGV > 5)) {
    _usage();
 }
 
 my ($usm, $error) = Net::SNMP::Security::USM->new(
    -authoritative => 1, # Undocumented / unsupported argument
    -username      => 'initial',
-   -authprotocol  => shift,
-   -authpassword  => shift,
-   -engineid      => shift,
+   -authprotocol  => $ARGV[0],
+   -authpassword  => $ARGV[1],
+   -engineid      => $ARGV[2],
+   -privprotocol  => (@ARGV > 3) ? $ARGV[3] : 'des',
+   -privpassword  => (@ARGV > 4) ? $ARGV[4] : $ARGV[1]
 );
 
 if (!defined($usm)) {
    _exit($error);
 }
 
-printf("Key: 0x%s\n", unpack('H*', $usm->auth_key));
+printf("authKey: 0x%s\n", unpack('H*', $usm->auth_key));
+printf("privKey: 0x%s\n", unpack('H*', $usm->priv_key));
 
 exit 0;
 
@@ -133,13 +148,13 @@ sub _exit
 sub _usage
 {
    printf("%s v%vd\n", $SCRIPT, $VERSION);
-   printf("Copyright (c) 2001-2002 David M. Town <dtown\@cpan.org>\n");
-   printf("All rights reserved.\n");
-
-   printf("Usage: %s md5|sha1 <password> <authoritativeEngineID>\n",
-      $SCRIPT
-   );
-
+   print << "USAGE";
+Copyright (c) 2001-2003 David M. Town <dtown\@cpan.org>
+All rights reserved.
+Usage: $SCRIPT <authProto> <password> <authEngineID> [<privProto> [<password>]]
+       <authProto> = md5|sha
+       <privProto> = des|3desede|aescfb128|aescfb192|aescfb256
+USAGE
    exit 1;
 }
 

@@ -3,11 +3,11 @@
 
 package Net::SNMP::PDU;
 
-# $Id: PDU.pm,v 1.4 2002/05/06 12:30:37 dtown Exp $
+# $Id: PDU.pm,v 1.5 2003/05/06 11:00:46 dtown Exp $
 
 # Object used to represent a SNMP PDU. 
 
-# Copyright (c) 2001-2002 David M. Town <dtown@cpan.org>
+# Copyright (c) 2001-2003 David M. Town <dtown@cpan.org>
 # All rights reserved.
 
 # This program is free software; you may redistribute it and/or modify it
@@ -21,7 +21,7 @@ use Net::SNMP::Message qw(:ALL);
 
 ## Version of the Net::SNMP::PDU module
 
-our $VERSION = v1.0.2;
+our $VERSION = v1.0.3;
 
 ## Handle importing/exporting of symbols
 
@@ -103,198 +103,204 @@ sub new
 
 sub prepare_get_request
 {
-#  my ($this, $oids) = @_;
+   my ($this, $oids) = @_;
 
-   $_[0]->_error_clear;
+   $this->_error_clear;
 
-   $_[0]->_prepare_pdu(GET_REQUEST, $_[0]->_create_oid_null_pairs($_[1]));
+   $this->_prepare_pdu(GET_REQUEST, $this->_create_oid_null_pairs($oids));
 }
 
 sub prepare_get_next_request
 {
-#  my ($this, $oids) = @_; 
+   my ($this, $oids) = @_; 
 
-   $_[0]->_error_clear;
+   $this->_error_clear;
 
-   $_[0]->_prepare_pdu(GET_NEXT_REQUEST, $_[0]->_create_oid_null_pairs($_[1]));
+   $this->_prepare_pdu(GET_NEXT_REQUEST, $this->_create_oid_null_pairs($oids));
+}
+
+sub prepare_get_response
+{
+   my ($this, $trios) = @_;
+
+   $this->_error_clear;
+
+   $this->_prepare_pdu(GET_RESPONSE, $this->_create_oid_value_pairs($trios));
 }
 
 sub prepare_set_request
 {
-#  my ($this, $trios) = @_; 
+   my ($this, $trios) = @_; 
 
-   $_[0]->_error_clear;
+   $this->_error_clear;
 
-   $_[0]->_prepare_pdu(SET_REQUEST, $_[0]->_create_oid_value_pairs($_[1]));
+   $this->_prepare_pdu(SET_REQUEST, $this->_create_oid_value_pairs($trios));
 }
 
 sub prepare_trap
 {
-#  my ($this, $enterprise, $addr, $generic, $specific, $time, $trios) = @_;
+   my ($this, $enterprise, $addr, $generic, $specific, $time, $trios) = @_;
 
-   $_[0]->_error_clear;
+   $this->_error_clear;
 
-   return $_[0]->_error('Missing arguments for Trap-PDU') if (@_ < 6);
+   return $this->_error('Missing arguments for Trap-PDU') if (@_ < 6);
 
    # enterprise
 
-   if (!defined($_[1])) {
+   if (!defined($enterprise)) {
 
       # Use iso(1).org(3).dod(6).internet(1).private(4).enterprises(1) 
       # for the default enterprise.
 
-      $_[0]->{_enterprise} = '1.3.6.1.4.1';
+      $this->{_enterprise} = '1.3.6.1.4.1';
 
-   } elsif ($_[1] !~ /^\.?\d+\.\d+(?:\.\d+)*/) {
-      return $_[0]->_error(
+   } elsif ($enterprise !~ /^\.?\d+\.\d+(?:\.\d+)*/) {
+      return $this->_error(
          'Expected enterprise as an OBJECT IDENTIFIER in dotted notation'
       );
    } else {
-      $_[0]->{_enterprise} = $_[1];
+      $this->{_enterprise} = $enterprise;
    }
 
    # agent-addr
 
-   if (!defined($_[2])) {
+   if (!defined($addr)) {
 
       # See if we can get the agent-addr from the Transport
       # Layer.  If not, we return an error.
 
-      if (defined($_[0]->{_transport})) {
-         $_[0]->{_agent_addr} = $_[0]->{_transport}->srchost;
+      if (defined($this->{_transport})) {
+         $this->{_agent_addr} = $this->{_transport}->srchost;
       }
-      if ((!exists($_[0]->{_agent_addr})) || 
-          ($_[0]->{_agent_addr} eq '0.0.0.0'))
-      {
-         return $_[0]->_error('Unable to resolve local agent-addr');
+      if (!exists($this->{_agent_addr}) || $this->{_agent_addr} eq '0.0.0.0') { 
+         return $this->_error('Unable to resolve local agent-addr');
       }
  
-   } elsif ($_[2] !~ /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/) {
-      return $_[0]->_error('Expected agent-addr in dotted notation');
+   } elsif ($addr !~ /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/) {
+      return $this->_error('Expected agent-addr in dotted notation');
    } else {
-      $_[0]->{_agent_addr} = $_[2];
+      $this->{_agent_addr} = $addr;
    } 
 
    # generic-trap
 
-   if (!defined($_[3])) {
+   if (!defined($generic)) {
 
       # Use enterpriseSpecific(6) for the generic-trap type.
-      $_[0]->{_generic_trap} = ENTERPRISE_SPECIFIC;
+      $this->{_generic_trap} = ENTERPRISE_SPECIFIC;
 
-   } elsif ($_[3] !~ /^\d+$/) {
-      return $_[0]->_error('Expected positive numeric generic-trap type');
+   } elsif ($generic !~ /^\d+$/) {
+      return $this->_error('Expected positive numeric generic-trap type');
    } else {
-      $_[0]->{_generic_trap} = $_[3];
+      $this->{_generic_trap} = $generic;
    }
 
    # specific-trap
 
-   if (!defined($_[4])) {
-      $_[0]->{_specific_trap} = 0;
-   } elsif ($_[4] !~ /^\d+$/) {
-      return $_[0]->_error('Expected positive numeric specific-trap type');
+   if (!defined($specific)) {
+      $this->{_specific_trap} = 0;
+   } elsif ($specific !~ /^\d+$/) {
+      return $this->_error('Expected positive numeric specific-trap type');
    } else {
-      $_[0]->{_specific_trap} = $_[4];
+      $this->{_specific_trap} = $specific;
    }
 
    # time-stamp
 
-   if (!defined($_[5])) {
+   if (!defined($time)) {
 
       # Use the "uptime" of the script for the time-stamp.
-      $_[0]->{_time_stamp} = ((time() - $^T) * 100);
+      $this->{_time_stamp} = ((time() - $^T) * 100);
 
-   } elsif ($_[5] !~ /^\d+$/) {
-      return $_[0]->_error('Expected positive numeric time-stamp');
+   } elsif ($time !~ /^\d+$/) {
+      return $this->_error('Expected positive numeric time-stamp');
    } else {
-      $_[0]->{_time_stamp} = $_[5];
+      $this->{_time_stamp} = $time;
    }
 
-   $_[0]->_prepare_pdu(TRAP, $_[0]->_create_oid_value_pairs($_[6]));
+   $this->_prepare_pdu(TRAP, $this->_create_oid_value_pairs($trios));
 }
 
 sub prepare_get_bulk_request
 {
-#  my ($this, $repeaters, $repetitions, $oids) = @_;
+   my ($this, $repeaters, $repetitions, $oids) = @_;
 
-   $_[0]->_error_clear;
+   $this->_error_clear;
 
-   return $_[0]->_error('Missing arguments for GetBulkRequest-PDU') if (@_ < 3);
+   return $this->_error('Missing arguments for GetBulkRequest-PDU') if (@_ < 3);
 
    # non-repeaters
 
-   if (!defined($_[1])) {
-      $_[0]->{_error_status} = 0;
-   } elsif ($_[1] !~ /^\d+$/) {
-      return $_[0]->_error('Expected positive numeric non-repeaters value');
-   } elsif ($_[1] > 2147483647) { 
-      return $_[0]->_error('Exceeded maximum non-repeaters value [2147483647]');
+   if (!defined($repeaters)) {
+      $this->{_error_status} = 0;
+   } elsif ($repeaters !~ /^\d+$/) {
+      return $this->_error('Expected positive numeric non-repeaters value');
+   } elsif ($repeaters > 2147483647) { 
+      return $this->_error('Exceeded maximum non-repeaters value [2147483647]');
    } else {
-      $_[0]->{_error_status} = $_[1];
+      $this->{_error_status} = $repeaters;
    }
 
    # max-repetitions
 
-   if (!defined($_[2])) {
-      $_[0]->{_error_index} = 0;
-   } elsif ($_[2] !~ /^\d+$/) {
-      return $_[0]->_error('Expected positive numeric max-repetitions value');
-   } elsif ($_[2] > 2147483647) {
-      return $_[0]->_error(
+   if (!defined($repetitions)) {
+      $this->{_error_index} = 0;
+   } elsif ($repetitions !~ /^\d+$/) {
+      return $this->_error('Expected positive numeric max-repetitions value');
+   } elsif ($repetitions > 2147483647) {
+      return $this->_error(
          'Exceeded maximum max-repetitions value [2147483647]'
       );
    } else {
-      $_[0]->{_error_index} = $_[2];
+      $this->{_error_index} = $repetitions;
    }
 
    # Some sanity checks
 
-   if (defined($_[3]) && (ref($_[3]) eq 'ARRAY')) {
+   if (defined($oids) && (ref($oids) eq 'ARRAY')) {
 
-      if ($_[0]->{_error_status} > @{$_[3]}) {
-         return $_[0]->_error(
+      if ($this->{_error_status} > @{$oids}) {
+         return $this->_error(
             'Non-repeaters greater than the number of variable-bindings'
          );
       }
 
-      if (($_[0]->{_error_status} == @{$_[3]}) && ($_[0]->{_error_index} != 0))
-      {
-         return $_[0]->_error( 
+      if (($this->{_error_status} == @{$oids}) && (!$this->{_error_index})) {
+         return $this->_error( 
             'Non-repeaters equals the number of variable-bindings and ' .
             'max-repetitions is not equal to zero'
          );
       }
    }
 
-   $_[0]->_prepare_pdu(GET_BULK_REQUEST, $_[0]->_create_oid_null_pairs($_[3]));
+   $this->_prepare_pdu(GET_BULK_REQUEST, $this->_create_oid_null_pairs($oids));
 }
 
 sub prepare_inform_request
 {
-#  my ($this, $trios) = @_;
+   my ($this, $trios) = @_;
 
-   $_[0]->_error_clear;
+   $this->_error_clear;
 
-   $_[0]->_prepare_pdu(INFORM_REQUEST, $_[0]->_create_oid_value_pairs($_[1]));
+   $this->_prepare_pdu(INFORM_REQUEST, $this->_create_oid_value_pairs($trios));
 }
 
 sub prepare_snmpv2_trap
 {
-#  my ($this, $trios) = @_;
+   my ($this, $trios) = @_;
 
-   $_[0]->_error_clear;
+   $this->_error_clear;
 
-   $_[0]->_prepare_pdu(SNMPV2_TRAP, $_[0]->_create_oid_value_pairs($_[1]));
+   $this->_prepare_pdu(SNMPV2_TRAP, $this->_create_oid_value_pairs($trios));
 }
 
 sub prepare_report
 {
-#  my ($this, $trios) = @_;
+   my ($this, $trios) = @_;
 
-   $_[0]->_error_clear;
+   $this->_error_clear;
 
-   $_[0]->_prepare_pdu(REPORT, $_[0]->_create_oid_value_pairs($_[1]));
+   $this->_prepare_pdu(REPORT, $this->_create_oid_value_pairs($trios));
 }
 
 sub process_pdu
@@ -374,7 +380,45 @@ sub var_bind_list
 {
    return if defined($_[0]->{_error});
 
-   (@_ == 2) ? $_[0]->{_var_bind_list} = $_[1] : $_[0]->{_var_bind_list}; 
+   if (@_ == 2) {
+
+      # The VarBindList HASH is being updated from an external
+      # source.  We need to update the VarBind names ARRAY to
+      # correspond to the new keys of the HASH.  If the updated
+      # information is valid, we will use lexicographical ordering
+      # for the ARRAY entries since we do not have a PDU to use
+      # to determine the ordering. 
+
+      if (!defined($_[1]) || (ref($_[1]) ne 'HASH')) {
+
+         $_[0]->{_var_bind_names} = [];
+         $_[0]->{_var_bind_list}  = undef;
+
+      } else {
+
+         @{$_[0]->{_var_bind_names}} =
+            map  { $_->[0] }
+            sort { $a->[1] cmp $b->[1] }
+            map  {
+               my $oid = $_;
+               $oid =~ s/^\.//o;
+               [$_, pack('N*', split('\.', $oid))]
+            } keys(%{$_[1]});
+
+         $_[0]->{_var_bind_list} = $_[1];
+
+      }
+
+   }
+
+   $_[0]->{_var_bind_list};
+}
+
+sub var_bind_names
+{
+   return [] if defined($_[0]->{_error}) || !defined($_[0]->{_var_bind_names});
+
+   $_[0]->{_var_bind_names};
 }
 
 sub debug
@@ -386,81 +430,81 @@ sub debug
 
 sub _prepare_pdu
 {
-#  my ($this, $type, $var_bind_list) = @_;
+   my ($this, $type, $var_bind) = @_;
 
    # Do not do anything if there has already been an error
-   return $_[0]->_error if defined($_[0]->{_error});
+   return $this->_error if defined($this->{_error});
 
    # Make sure the PDU type was passed
-   return $_[0]->_error('No SNMP PDU type defined') unless (@_ > 0);
+   return $this->_error('No SNMP PDU type defined') unless (@_ > 0);
 
    # Set the PDU type
-   $_[0]->{_pdu_type} = $_[1];
+   $this->{_pdu_type} = $type;
 
    # Clear the buffer
-   $_[0]->_buffer_get;
+   $this->_buffer_get;
 
    # Make sure the request-id has been set
-   if (!exists($_[0]->{_request_id})) {
-      $_[0]->{_request_id} = _create_request_id();
+   if (!exists($this->{_request_id})) {
+      $this->{_request_id} = _create_request_id();
    }
 
-   # We need to encode eveything in reverse order so the
+   # We need to encode everything in reverse order so the
    # objects end up in the correct place.
 
    # Encode the variable-bindings
-   if (!defined($_[0]->_prepare_var_bind_list($_[2] || []))) {
-      return $_[0]->_error;
+   if (!defined($this->_prepare_var_bind_list($var_bind || []))) {
+      return $this->_error;
    }
    
-   if ($_[0]->{_pdu_type} != TRAP) { # PDU::=SEQUENCE
+   if ($this->{_pdu_type} != TRAP) { # PDU::=SEQUENCE
 
       # error-index/max-repetitions::=INTEGER 
-      if (!defined($_[0]->prepare(INTEGER, $_[0]->{_error_index}))) {
-         return $_[0]->_error;
+      if (!defined($this->prepare(INTEGER, $this->{_error_index}))) {
+         return $this->_error;
       }
 
       # error-status/non-repeaters::=INTEGER
-      if (!defined($_[0]->prepare(INTEGER, $_[0]->{_error_status}))) {
-         return $_[0]->_error;
+      if (!defined($this->prepare(INTEGER, $this->{_error_status}))) {
+         return $this->_error;
       }
 
       # request-id::=INTEGER  
-      if (!defined($_[0]->prepare(INTEGER, $_[0]->{_request_id}))) {
-         return $_[0]->_error;
+      if (!defined($this->prepare(INTEGER, $this->{_request_id}))) {
+         return $this->_error;
       }
 
    } else { # Trap-PDU::=IMPLICIT SEQUENCE
 
       # time-stamp::=TimeTicks 
-      if (!defined($_[0]->prepare(TIMETICKS, $_[0]->{_time_stamp}))) {
-         return $_[0]->_error;
+      if (!defined($this->prepare(TIMETICKS, $this->{_time_stamp}))) {
+         return $this->_error;
       }
 
       # specific-trap::=INTEGER 
-      if (!defined($_[0]->prepare(INTEGER, $_[0]->{_specific_trap}))) {
-         return $_[0]->_error;
+      if (!defined($this->prepare(INTEGER, $this->{_specific_trap}))) {
+         return $this->_error;
       }
 
       # generic-trap::=INTEGER  
-      if (!defined($_[0]->prepare(INTEGER, $_[0]->{_generic_trap}))) {
-         return $_[0]->_error;
+      if (!defined($this->prepare(INTEGER, $this->{_generic_trap}))) {
+         return $this->_error;
       }
 
       # agent-addr::=NetworkAddress 
-      if (!defined($_[0]->prepare(IPADDRESS, $_[0]->{_agent_addr}))) {
-         return $_[0]->_error;
+      if (!defined($this->prepare(IPADDRESS, $this->{_agent_addr}))) {
+         return $this->_error;
       }
 
       # enterprise::=OBJECT IDENTIFIER 
-      if (!defined($_[0]->prepare(OBJECT_IDENTIFIER, $_[0]->{_enterprise}))) {
-         return $_[0]->_error;
+      if (!defined($this->prepare(OBJECT_IDENTIFIER, $this->{_enterprise}))) {
+         return $this->_error;
       }
 
    }
 
    # PDUs::=CHOICE 
-   $_[0]->prepare($_[0]->{_pdu_type}, $_[0]->_buffer_get);
+   $this->prepare($this->{_pdu_type}, $this->_buffer_get);
 }
 
 sub _prepare_var_bind_list
@@ -515,19 +559,19 @@ sub _prepare_var_bind_list
 
 sub _create_oid_null_pairs
 {
-#  my ($this, $oids) = @_;
+   my ($this, $oids) = @_;
 
-   return [] unless defined($_[1]);
+   return [] unless defined($oids);
 
-   if (ref($_[1]) ne 'ARRAY') {
-      return $_[0]->_error('Expected array reference for variable-bindings');
+   if (ref($oids) ne 'ARRAY') {
+      return $this->_error('Expected array reference for variable-bindings');
    }
 
    my $pairs = [];
 
-   for (@{$_[1]}) {
+   for (@{$oids}) {
       if (!/^\.?\d+\.\d+(?:\.\d+)*/) {
-         return $_[0]->_error('Expected OBJECT IDENTIFIER in dotted notation');
+         return $this->_error('Expected OBJECT IDENTIFIER in dotted notation');
       }
       push(@{$pairs}, OBJECT_IDENTIFIER, $_, NULL, '');
    }
@@ -537,28 +581,28 @@ sub _create_oid_null_pairs
 
 sub _create_oid_value_pairs
 {
-#  my ($this, $trios) = @_;
+   my ($this, $trios) = @_;
 
-   return [] unless defined($_[1]);
+   return [] unless defined($trios);
 
-   if (ref($_[1]) ne 'ARRAY') {
-      return $_[0]->_error('Expected array reference for variable-bindings');
+   if (ref($trios) ne 'ARRAY') {
+      return $this->_error('Expected array reference for variable-bindings');
    }
 
-   if (@{$_[1]} % 3) {
-      return $_[0]->_error(
+   if (@{$trios} % 3) {
+      return $this->_error(
          'Expected [OBJECT IDENTIFIER, ASN.1 type, object value] combination'
       );
    }
 
    my $pairs = [];
 
-   for (my $i = 0; $i < $#{$_[1]}; $i += 3) {
-      if ($_[1]->[$i] !~ /^\.?\d+\.\d+(?:\.\d+)*/) {
-         return $_[0]->_error('Expected OBJECT IDENTIFIER in dotted notation');
+   for (my $i = 0; $i < $#{$trios}; $i += 3) {
+      if ($trios->[$i] !~ /^\.?\d+\.\d+(?:\.\d+)*/) {
+         return $this->_error('Expected OBJECT IDENTIFIER in dotted notation');
       }
       push(@{$pairs},
-         OBJECT_IDENTIFIER, $_[1]->[$i], $_[1]->[$i+1], $_[1]->[$i+2]
+         OBJECT_IDENTIFIER, $trios->[$i], $trios->[$i+1], $trios->[$i+2]
       );
    }
 
@@ -574,57 +618,57 @@ sub _process_pdu
 
 sub _process_pdu_sequence
 {
-#  my ($this) = @_;
+   my ($this) = @_;
 
    # PDUs::=CHOICE
-   if (!defined($_[0]->{_pdu_type} = $_[0]->process)) {
-      return $_[0]->_error;
+   if (!defined($this->{_pdu_type} = $this->process)) {
+      return $this->_error;
    }
 
-   if ($_[0]->{_pdu_type} != TRAP) { # PDU::=SEQUENCE
+   if ($this->{_pdu_type} != TRAP) { # PDU::=SEQUENCE
 
       # request-id::=INTEGER
-      if (!defined($_[0]->{_request_id} = $_[0]->process(INTEGER))) {
-         return $_[0]->_error;
+      if (!defined($this->{_request_id} = $this->process(INTEGER))) {
+         return $this->_error;
       }
       # error-status::=INTEGER
-      if (!defined($_[0]->{_error_status} = $_[0]->process(INTEGER))) {
-         return $_[0]->_error;
+      if (!defined($this->{_error_status} = $this->process(INTEGER))) {
+         return $this->_error;
       }
       # error-index::=INTEGER
-      if (!defined($_[0]->{_error_index} = $_[0]->process(INTEGER))) {
-         return $_[0]->_error;
+      if (!defined($this->{_error_index} = $this->process(INTEGER))) {
+         return $this->_error;
       }
 
       # Indicate that we have an SNMP error
-      if (($_[0]->{_error_status}) || ($_[0]->{_error_index})) {
-         $_[0]->_error(
+      if (($this->{_error_status}) || ($this->{_error_index})) {
+         $this->_error(
             'Received %s error-status at error-index %d',
-            _error_status_itoa($_[0]->{_error_status}), $_[0]->{_error_index}
+            _error_status_itoa($this->{_error_status}), $this->{_error_index}
          );
       } 
 
    } else { # Trap-PDU::=IMPLICIT SEQUENCE
 
       # enterprise::=OBJECT IDENTIFIER
-      if (!defined($_[0]->{_enterprise} = $_[0]->process(OBJECT_IDENTIFIER))) {
-         return $_[0]->_error;
+      if (!defined($this->{_enterprise} = $this->process(OBJECT_IDENTIFIER))) {
+         return $this->_error;
       }
       # agent-addr::=NetworkAddress
-      if (!defined($_[0]->{_agent_addr} = $_[0]->process(IPADDRESS))) {
-         return $_[0]->_error;
+      if (!defined($this->{_agent_addr} = $this->process(IPADDRESS))) {
+         return $this->_error;
       }
       # generic-trap::=INTEGER
-      if (!defined($_[0]->{_generic_trap} = $_[0]->process(INTEGER))) {
-         return $_[0]->_error;
+      if (!defined($this->{_generic_trap} = $this->process(INTEGER))) {
+         return $this->_error;
       }
       # specific-trap::=INTEGER
-      if (!defined($_[0]->{_specific_trap} = $_[0]->process(INTEGER))) {
-         return $_[0]->_error;
+      if (!defined($this->{_specific_trap} = $this->process(INTEGER))) {
+         return $this->_error;
       }
       # time-stamp::=TimeTicks
-      if (!defined($_[0]->{_time_stamp} = $_[0]->process(TIMETICKS))) {
-         return $_[0]->_error;
+      if (!defined($this->{_time_stamp} = $this->process(TIMETICKS))) {
+         return $this->_error;
       }
 
    }
@@ -634,37 +678,38 @@ sub _process_pdu_sequence
 
 sub _process_var_bind_list
 {
-#  my ($this) = @_;
+   my ($this) = @_;
 
    my $value;
 
    # VarBindList::=SEQUENCE
-   if (!defined($value = $_[0]->process(SEQUENCE))) {
-      return $_[0]->_error;
+   if (!defined($value = $this->process(SEQUENCE))) {
+      return $this->_error;
    }
 
    # Using the length of the VarBindList SEQUENCE, 
    # calculate the end index.
 
-   my $end = $_[0]->index + $value;
+   my $end = $this->index + $value;
 
-   $_[0]->{_var_bind_list} = {};
+   $this->{_var_bind_list}  = {};
+   $this->{_var_bind_names} = [];
 
    my $oid;
 
-   while ($_[0]->index < $end) {
+   while ($this->index < $end) {
 
       # VarBind::=SEQUENCE
-      if (!defined($_[0]->process(SEQUENCE))) {
-         return $_[0]->_error;
+      if (!defined($this->process(SEQUENCE))) {
+         return $this->_error;
       }
       # name::=ObjectName
-      if (!defined($oid = $_[0]->process(OBJECT_IDENTIFIER))) {
-         return $_[0]->_error;
+      if (!defined($oid = $this->process(OBJECT_IDENTIFIER))) {
+         return $this->_error;
       }
       # value::=ObjectSyntax
-      if (!defined($value = $_[0]->process)) {
-         return $_[0]->_error;
+      if (!defined($value = $this->process)) {
+         return $this->_error;
       }
 
       # Create a hash consisting of the OBJECT IDENTIFIER as a
@@ -673,22 +718,28 @@ sub _process_var_bind_list
       # that OBJECT IDENTIFIER with spaces to make a unique
       # key in the hash.
 
-      while (exists($_[0]->{_var_bind_list}->{$oid})) {
+      while (exists($this->{_var_bind_list}->{$oid})) {
          $oid .= ' '; # Pad with spaces
       }
 
-      DEBUG_INFO("{ %s => %s }", $oid, $value);
-      $_[0]->{_var_bind_list}->{$oid} = $value;
+      DEBUG_INFO('{ %s => %s }', $oid, $value);
+      $this->{_var_bind_list}->{$oid} = $value;
+
+      # Create an array with the ObjectName OBJECT IDENTIFIERs
+      # so that the order in which the VarBinds where encoded
+      # in the PDU can be retrieved later.
+
+      push(@{$this->{_var_bind_names}}, $oid);
 
    }
 
    # Return an error based on the contents of the VarBindList
    # if we received a Report-PDU.
 
-   return $_[0]->_report_pdu_error if ($_[0]->{_pdu_type} == REPORT);
+   return $this->_report_pdu_error if ($this->{_pdu_type} == REPORT);
 
    # Return the var_bind_list hash
-   $_[0]->{_var_bind_list};
+   $this->{_var_bind_list};
 }
 
 sub _create_request_id()
@@ -724,10 +775,10 @@ sub _create_request_id()
       return '??' unless (@_ == 1);
 
       if (($_[0] > $#error_status) || ($_[0] < 0)) {
-         return sprintf("??(%d)", $_[0]);
+         return sprintf('??(%d)', $_[0]);
       }
 
-      sprintf("%s(%d)", $error_status[$_[0]], $_[0]);
+      sprintf('%s(%d)', $error_status[$_[0]], $_[0]);
    }
 }
 
@@ -767,7 +818,6 @@ sub _create_request_id()
          $var_bind_list{$oid} = $this->{_var_bind_list}->{$_};
 
       } keys(%{$this->{_var_bind_list}});
-
      
       if ($count == 1) {
  
@@ -810,4 +860,4 @@ sub DEBUG_INFO
 }
 
 # ============================================================================
-1; # [end Net::SNMP::Message]
+1; # [end Net::SNMP::PDU]

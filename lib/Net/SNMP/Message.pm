@@ -3,11 +3,11 @@
 
 package Net::SNMP::Message;
 
-# $Id: Message.pm,v 1.4 2002/05/06 12:30:37 dtown Exp $
+# $Id: Message.pm,v 1.5 2003/05/06 11:00:46 dtown Exp $
 
 # Object used to represent a SNMP message. 
 
-# Copyright (c) 2001-2002 David M. Town <dtown@cpan.org>
+# Copyright (c) 2001-2003 David M. Town <dtown@cpan.org>
 # All rights reserved.
 
 # This program is free software; you may redistribute it and/or modify it
@@ -21,7 +21,7 @@ use Math::BigInt();
 
 ## Version of the Net::SNMP::Message module
 
-our $VERSION = v1.0.2;
+our $VERSION = v1.0.3;
 
 ## Handle exporting of symbols
 
@@ -118,7 +118,7 @@ sub REPORT()                   { 0xa8 }  # Report-PDU          - SNMPv3
 
 sub SNMP_VERSION_1()           { 0x00 }  # RFC 1157 SNMPv1
 sub SNMP_VERSION_2C()          { 0x01 }  # RFC 1901 Community-based SNMPv2
-sub SNMP_VERSION_3()           { 0x03 }  # RFC 2272 SNMPv3
+sub SNMP_VERSION_3()           { 0x03 }  # RFC 3411 SNMPv3
 
 ## RFC 1157 generic-trap definitions
 
@@ -130,7 +130,7 @@ sub AUTHENTICATION_FAILURE()      { 4 }  # authenticationFailure(4)
 sub EGP_NEIGHBOR_LOSS()           { 5 }  # egpNeighborLoss(5)
 sub ENTERPRISE_SPECIFIC()         { 6 }  # enterpriseSpecific(6)
 
-## RFC 2272 - msgFlags::=OCTET STRING
+## RFC 3412 - msgFlags::=OCTET STRING
 
 sub MSG_FLAGS_NOAUTHNOPRIV()   { 0x00 }  # Means noAuthNoPriv
 sub MSG_FLAGS_AUTH()           { 0x01 }  # authFlag
@@ -138,13 +138,13 @@ sub MSG_FLAGS_PRIV()           { 0x02 }  # privFlag
 sub MSG_FLAGS_REPORTABLE()     { 0x04 }  # reportableFlag
 sub MSG_FLAGS_MASK()           { 0x07 }
 
-## RFC 2571 - SnmpSecurityLevel::=TEXTUAL-CONVENTION
+## RFC 3411 - SnmpSecurityLevel::=TEXTUAL-CONVENTION
 
 sub SECURITY_LEVEL_NOAUTHNOPRIV() { 1 }  # noAuthNoPriv
 sub SECURITY_LEVEL_AUTHNOPRIV()   { 2 }  # authNoPriv
 sub SECURITY_LEVEL_AUTHPRIV()     { 3 }  # authPriv
 
-## RFC 2571 - SnmpSecurityModel::=TEXTUAL-CONVENTION
+## RFC 3411 - SnmpSecurityModel::=TEXTUAL-CONVENTION
 
 sub SECURITY_MODEL_ANY()          { 0 }  # Reserved for 'any'
 sub SECURITY_MODEL_SNMPV1()       { 1 }  # Reserved for SNMPv1
@@ -245,7 +245,8 @@ sub new
       TRAP,               \&_prepare_trap,
       GET_BULK_REQUEST,   \&_prepare_get_bulk_request,
       INFORM_REQUEST,     \&_prepare_inform_request,
-      SNMPV2_TRAP,        \&_prepare_v2_trap
+      SNMPV2_TRAP,        \&_prepare_v2_trap,
+      REPORT,             \&_prepare_report
    };
 
    sub prepare 
@@ -306,7 +307,7 @@ sub new
                'Expected %s, but found %s', asn1_itoa($_[1]), asn1_itoa($type)
             );
          }
-         $_[0]->${\$process_methods->{$type}}($type);;
+         $_[0]->${\$process_methods->{$type}}($type);
       } else {
          $_[0]->_error('Unknown ASN.1 type [0x%02x]', $type);
       }
@@ -369,7 +370,7 @@ sub prepare_v3_global_data
 
    # msgID::=INTEGER
    if (!defined($this->prepare(INTEGER, $this->{_msg_id} = $pdu->request_id))) {
-      return $_[0]->_error;
+      return $this->_error;
    }
 
    # msgGlobalData::=SEQUENCE
@@ -398,6 +399,12 @@ sub process_v3_global_data
    # msgFlags::=OCTET STRING
    if (!defined($this->{_msg_flags} = $this->process(OCTET_STRING))) {
       return $this->_error;
+   }
+   if (CORE::length($this->{_msg_flags}) != 1) {
+      return $this->_error(
+         'Invalid msgFlags length [%d octets]', 
+         CORE::length($this->{_msg_flags}) 
+      );
    }
    $this->{_msg_flags} = unpack('C', $this->{_msg_flags});
 
@@ -445,23 +452,26 @@ sub process_v3_scoped_pdu
    return $this->_error unless defined($this->process(SEQUENCE));
 
    # contextEngineID::=OCTET STRING
-   if (!defined($this->{_context_engine_id} = $this->process(OCTET_STRING))) {
+   if (!defined($this->context_engine_id($this->process(OCTET_STRING)))) {
       return $this->_error;
    }
 
    # contextName::=OCTET STRING
-   $this->{_context_name} = $this->process(OCTET_STRING);
+   $this->context_name($this->process(OCTET_STRING));
 }
 
 sub context_engine_id
 {
    if (@_ == 2) {
+      if (!defined($_[1])) {
+         return $_[0]->_error('contextEngineID not defined');
+      }
       if ((CORE::length($_[1]) >= 5) && (CORE::length($_[1]) <= 32)) {
          $_[0]->{_context_engine_id} = $_[1];
       } else {
          return $_[0]->_error(
             'Invalid contextEngineID length [%d octet%s]', 
-            CORE::length($_[1]), (CORE::length($_[1]) != 1) ? 's' : ''
+            CORE::length($_[1]), CORE::length($_[1]) != 1 ? 's' : ''
          );
       }
    }
@@ -478,6 +488,9 @@ sub context_engine_id
 sub context_name
 {
    if (@_ == 2) {
+      if (!defined($_[1])) {
+         return $_[0]->_error('contextName not defined');
+      }
       if (CORE::length($_[1]) > 32) {
          return $_[0]->_error(
             'Invalid contextName length [%d octets]', CORE::length($_[1])
@@ -560,6 +573,11 @@ sub error_index
 sub var_bind_list 
 {
    undef;
+}
+
+sub var_bind_names
+{
+   [];
 }  
 
 #
@@ -709,21 +727,23 @@ sub callback
 
 sub callback_execute
 {
-   if (!defined($_[0]->{_callback})) {
+   my ($this) = @_;
+
+   if (!defined($this->{_callback})) {
       DEBUG_INFO('no callback');
       return TRUE;
    }
 
    # Protect ourselves from user error.
-   eval { $_[0]->{_callback}->($_[0]); };
+   eval { $this->{_callback}->($this); };
 
    # We clear the callback in case it was a 
    # closure which might hold up the reference
    # count of the calling object.
 
-   $_[0]->{_callback} = undef;
+   $this->{_callback} = undef;
 
-   ($@) ? $_[0]->_error($@) : TRUE; 
+   ($@) ? $this->_error($@) : TRUE; 
 }
 
 sub timeout_id
@@ -910,7 +930,7 @@ sub _prepare_integer32
    }
 
    # Encode ASN.1 header
-   $_[0]->_prepare_type_length($type, $value);
+   $this->_prepare_type_length($type, $value);
 }
 
 sub _prepare_octet_string
@@ -1683,7 +1703,7 @@ sub _process_report
       if (exists($types->{$_[0]})) {
          $types->{$_[0]};
       } else {
-         sprintf("?? [0x%02x]", $_[0]);
+         sprintf('?? [0x%02x]', $_[0]);
       }
    }
 }
@@ -1706,16 +1726,16 @@ sub asn1_ticks_to_time
    my $seconds = ($ticks / 100);
 
    if ($days != 0){
-      sprintf("%d day%s, %02d:%02d:%05.02f", $days,
+      sprintf('%d day%s, %02d:%02d:%05.02f', $days,
          ($days == 1 ? '' : 's'), $hours, $minutes, $seconds);
    } elsif ($hours != 0) {
-      sprintf("%d hour%s, %02d:%05.02f", $hours,
+      sprintf('%d hour%s, %02d:%05.02f', $hours,
          ($hours == 1 ? '' : 's'), $minutes, $seconds);
    } elsif ($minutes != 0) {
-      sprintf("%d minute%s, %05.02f", $minutes,
+      sprintf('%d minute%s, %05.02f', $minutes,
          ($minutes == 1 ? '' : 's'), $seconds);
    } else {
-      sprintf("%04.02f second%s", $seconds, ($seconds == 1 ? '' : 's'));
+      sprintf('%04.02f second%s', $seconds, ($seconds == 1 ? '' : 's'));
    }
 }
 
@@ -1775,9 +1795,9 @@ sub _buffer_get
       if (($_[0]->{_index} += $_[1]) > $_[0]->{_length}) {
          $_[0]->{_index} -= $_[1];
          if ($_[0]->{_length} >= $_[0]->max_msg_size) {
-            return $_[0]->_error('Message size exceeded maxMsgSize'); 
+            return $_[0]->_error('Message size exceeded buffer maxMsgSize'); 
          }
-         return $_[0]->_error('Unexpected end of message');
+         return $_[0]->_error('Unexpected end of message buffer');
       }
       substr($_[0]->{_buffer}, $_[0]->{_index} - $_[1], $_[1]);
 
@@ -1810,14 +1830,14 @@ sub _buffer_dump
 
    DEBUG_INFO("%d byte%s", $_[0]->{_length}, $_[0]->{_length} != 1 ? 's' : '');
 
-   my ($offset, $hex) = (0, '');
+   my ($offset, $hex, $text) = (0, '', '');
 
    while ($_[0]->{_buffer} =~ /(.{1,16})/gs) {
-      $hex  = unpack('H*', ($_ = $1));
+      $hex  = unpack('H*', ($text = $1));
       $hex .= ' ' x (32 - CORE::length($hex));
-      $hex  = sprintf("%s %s %s %s  " x 4, unpack('a2' x 16, $hex));
-      s/[\x00-\x1f\x7f-\xff]/./g;
-      printf("[%04d]  %s %s\n", $offset, uc($hex), $_);
+      $hex  = sprintf('%s %s %s %s  ' x 4, unpack('a2' x 16, $hex));
+      $text =~ s/[\x00-\x1f\x7f-\xff]/./g;
+      printf("[%04d]  %s %s\n", $offset, uc($hex), $text);
       $offset += 16;
    }
 

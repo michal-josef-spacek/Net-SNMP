@@ -3,11 +3,11 @@
 
 package Net::SNMP::Dispatcher;
 
-# $Id: Dispatcher.pm,v 1.4 2002/09/09 12:46:09 dtown Exp $
+# $Id: Dispatcher.pm,v 1.5 2003/05/06 11:00:46 dtown Exp $
 
 # Object the dispatches SNMP messages and handles the scheduling of events.
 
-# Copyright (c) 2001-2002 David M. Town <dtown@cpan.org>
+# Copyright (c) 2001-2003 David M. Town <dtown@cpan.org>
 # All rights reserved.
 
 # This program is free software; you may redistribute it and/or modify it
@@ -22,7 +22,7 @@ use Net::SNMP::Message qw(TRUE FALSE);
 
 ## Version of the Net::SNMP::Dispatcher module
 
-our $VERSION = v1.0.3;
+our $VERSION = v1.0.4;
 
 ## Package variables
 
@@ -100,6 +100,8 @@ sub one_event
 
    # Flag the Dispatcher as not active
    $this->{_active} = FALSE;
+
+   defined($this->{_event_queue_h}) ? TRUE : FALSE; 
 }
 
 sub send_pdu

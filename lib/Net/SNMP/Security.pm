@@ -3,11 +3,11 @@
 
 package Net::SNMP::Security;
 
-# $Id: Security.pm,v 1.3 2002/01/01 14:03:44 dtown Exp $
+# $Id: Security.pm,v 1.4 2003/05/06 11:00:46 dtown Exp $
 
 # Base object that implements the Net::SNMP Security Models.
 
-# Copyright (c) 2001-2002 David M. Town <dtown@cpan.org>
+# Copyright (c) 2001-2003 David M. Town <dtown@cpan.org>
 # All rights reserved.
 
 # This program is free software; you may redistribute it and/or modify it
@@ -21,7 +21,7 @@ use Net::SNMP::Message qw(:versions SECURITY_MODEL_ANY TRUE FALSE);
 
 ## Version of the Net::SNMP::Security module
 
-our $VERSION = v1.0.1;
+our $VERSION = v1.0.2;
 
 ## Package variables
 
@@ -30,6 +30,8 @@ our $DEBUG = FALSE;  # Debug flag
 our $AUTOLOAD;       # Used by the AUTOLOAD method
 
 our $NO_V3_SUPPORT;  # String to indicate SNMPv3 support
+
+#perl2exe_include    Net::SNMP::Security::USM
 
 sub BEGIN 
 {
@@ -45,7 +47,7 @@ sub BEGIN
       if ($@ =~ /(\S+\.pm)/) {
          $NO_V3_SUPPORT .= sprintf(' (Required module %s not found)', $1);
       } else {
-         $NO_V3_SUPPORT .= sprint(' (%s)', $@);
+         $NO_V3_SUPPORT .= sprintf(' (%s)', $@);
       } 
    }
 }
@@ -98,7 +100,7 @@ sub discovered
 
 sub security_model
 {
-   # RFC 2571 - SnmpSecurityModel::=TEXTUAL-CONVENTION
+   # RFC 3411 - SnmpSecurityModel::=TEXTUAL-CONVENTION
 
    SECURITY_MODEL_ANY; 
 }

@@ -1,5 +1,5 @@
 
-                       Net::SNMP, version 4.0.3 
+                       Net::SNMP, version 4.1.0 
 
 NAME
 
@@ -47,6 +47,9 @@ REQUIREMENTS
     The non-core modules Crypt::DES, Digest::MD5, Digest::SHA1, and 
     Digest::HMAC are needed to support SNMPv3.
 
+    In order to support the AES Cipher Algorithm as a SNMPv3 privacy 
+    protocol, the non-core module Crypt::Rijndael is needed.
+
 DOCUMENTATION
 
     Documentation is included as part of the Net::SNMP module in 
@@ -58,11 +61,11 @@ AUTHOR
 
 COPYRIGHT
 
-    Copyright (c) 1998-2002 David M. Town. All rights reserved. This
+    Copyright (c) 1998-2003 David M. Town. All rights reserved. This
     program is free software; you may redistribute it and/or modify
     it under the same terms as Perl itself.
 
 RCS
 
-    $Id: README,v 4.5 2002/09/09 12:46:09 dtown Exp $
+    $Id: README,v 4.6 2003/05/06 11:00:46 dtown Exp $
 

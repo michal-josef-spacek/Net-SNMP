@@ -1,5 +1,25 @@
                            Net::SNMP Changes
 
+RELEASE 4.1.0 MAY-06-2003
+
+- Working in conjunction with the Extended Security Options Consortium
+  (http://www.snmp.com/eso), support for additional privacy protocols 
+  has been added to the SNMPv3 User-based Security Model.
+  "Extension to the USM to Support Triple-DES EDE in 'Outside' CBC Mode"
+  Reeder and Gudmunsson; October 1999, expired April 2000
+  http://www.snmp.com/eso/draft-reeder-snmpv3-usm-3desede-00.txt
+  "The AES Cipher Algorithm in the SNMP's User-based Security Model"
+  Blumenthal, Maino, and McCloghrie; October 2002, expired April 2003 
+  http://www.snmp.com/eso/draft-blumenthal-aes-usm-04.txt
+- A new method called get_entries() was added to allow the retrieval
+  of columns of a table entry using get-next-requests or get-bulk-requests.
+- The argument "-maxrepetitions" was added to the get_table() method.
+- Responses to SNMPv3 messages with non-default contextEngineIDs or
+  contextNames are now properly processed.
+- The method var_bind_names() was added to retrieve an array of the 
+  ObjectNames in the VarBindList in the order in which they were 
+  received in the GetResponse-PDU. 
+ 
 RELEASE 4.0.3 SEP-09-2002
 
 - Net::SNMP objects are now destroyed as expected when they are no
@@ -189,4 +209,4 @@ RELEASE 1.00 SEP-09-1998
 
 RCS
 
-    $Id: Changes,v 4.4 2002/09/09 12:46:09 dtown Exp $
+    $Id: Changes,v 4.5 2003/05/06 11:00:46 dtown Exp $

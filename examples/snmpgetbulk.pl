@@ -6,9 +6,9 @@ if 0;
 
 # ============================================================================
 
-# $Id: snmpgetbulk.pl,v 2.0 2001/10/15 13:20:34 dtown Exp $
+# $Id: snmpgetbulk.pl,v 2.1 2003/05/06 11:00:46 dtown Exp $
 
-# Copyright (c) 2000-2001 David M. Town <dtown@cpan.org>
+# Copyright (c) 2000-2003 David M. Town <dtown@cpan.org>
 # All rights reserved.
 
 # This program is free software; you may redistribute it and/or modify it
@@ -16,17 +16,17 @@ if 0;
 
 # ============================================================================
 
-use Net::SNMP qw(oid_lex_sort DEBUG_ALL);
+use Net::SNMP 4.1.0 qw(DEBUG_ALL);
 use Getopt::Std;
 
 use strict; 
 use vars qw($SCRIPT $VERSION %OPTS);
 
 $SCRIPT  = 'snmpgetbulk';
-$VERSION = '2.0.0';
+$VERSION = '2.1.0';
 
 # Validate the command line options
-if (!getopts('a:A:c:dE:m:n:p:r:t:u:v:X:', \%OPTS)) { 
+if (!getopts('a:A:c:dE:m:n:p:r:t:u:v:x:X:', \%OPTS)) { 
    _usage();
 } 
 
@@ -48,6 +48,7 @@ my ($s, $e) = Net::SNMP->session(
    exists($OPTS{t}) ? (-timeout      =>  $OPTS{t}) : (),
    exists($OPTS{u}) ? (-username     =>  $OPTS{u}) : (),
    exists($OPTS{v}) ? (-version      =>  $OPTS{v}) : (-version => 'snmpv2c'),
+   exists($OPTS{x}) ? (-privprotocol =>  $OPTS{x}) : (),
    exists($OPTS{X}) ? (-privpassword =>  $OPTS{X}) : ()
 );
 
@@ -70,7 +71,7 @@ if (!defined($s->get_bulk_request(@args))) {
 }
 
 # Print the results
-foreach (oid_lex_sort(keys(%{$s->var_bind_list()}))) {
+foreach ($s->var_bind_names()) {
    printf("%s => %s\n", $_, $s->var_bind_list()->{$_});
 }
 
@@ -89,34 +90,27 @@ sub _exit
 
 sub _usage
 {
-   printf("%s v%s\n", $SCRIPT, $VERSION);
-
-   printf(
-      "Usage: %s [options] <hostname> <non-repeaters> <max-repetitions> " .
-      "<oid> [...]\n", $SCRIPT 
-   );
-
-   
-   printf("Options: -v 2c|3        SNMP version\n");
-   printf("         -d             Enable debugging\n");
-
-   printf("   SNMPv2c:\n");
-   printf("         -c <community> Community name\n");
-
-   printf("   SNMPv3:\n");
-   printf("         -u <username>  Username (required)\n");
-   printf("         -E <engineid>  Context Engine ID\n");
-   printf("         -n <name>      Context Name\n");
-   printf("         -a md5|sha1    Authentication protocol\n");
-   printf("         -A <password>  Authentication password\n");
-   printf("         -X <password>  Privacy password\n");
-
-   printf("   Transport Layer:\n");
-   printf("         -m <octets>    Maximum message size\n");
-   printf("         -p <port>      Destination UDP port\n");
-   printf("         -r <attempts>  Number of retries\n");
-   printf("         -t <secs>      Timeout period\n");
-
+   print << "USAGE";
+$SCRIPT v$VERSION
+Usage: $SCRIPT [options] <hostname> <non-repeaters> <max-repetitions> <oid> [...] 
+Options: -v 2c|3        SNMP version
+         -d             Enable debugging
+   SNMPv2c:
+         -c <community> Community name
+   SNMPv3:
+         -u <username>  Username (required)
+         -E <engineid>  Context Engine ID
+         -n <name>      Context Name
+         -a <authproto> Authentication protocol <md5|sha>
+         -A <password>  Authentication password
+         -x <privproto> Privacy protocol <des|3des|aes128|aes192|aes256>
+         -X <password>  Privacy password
+   Transport Layer:
+         -m <octets>    Maximum message size
+         -p <port>      Destination UDP port
+         -r <attempts>  Number of retries
+         -t <secs>      Timeout period
+USAGE
    exit 1;
 }
 

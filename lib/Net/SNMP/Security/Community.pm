@@ -3,11 +3,11 @@
 
 package Net::SNMP::Security::Community;
 
-# $Id: Community.pm,v 1.2 2002/01/01 14:03:44 dtown Exp $
+# $Id: Community.pm,v 1.3 2003/05/06 11:00:46 dtown Exp $
 
 # Object that implements the SNMPv1/v2c Community-based Security Model.
 
-# Copyright (c) 2001-2002 David M. Town <dtown@cpan.org>
+# Copyright (c) 2001-2003 David M. Town <dtown@cpan.org>
 # All rights reserved.
 
 # This program is free software; you may redistribute it and/or modify it
@@ -26,7 +26,7 @@ use Net::SNMP::Message qw(
 
 ## Version of the Net::SNMP::Security::Community module
 
-our $VERSION = v1.0.1;
+our $VERSION = v1.0.2;
 
 ## Package variables
 
@@ -53,7 +53,9 @@ sub new
 
    foreach (keys %argv) {
       if (/^-?community$/i) {
-         $this->_community($argv{$_}); 
+         $this->_community($argv{$_});
+      } elsif (/^-?debug$/i) {
+         $this->debug($argv{$_}); 
       } elsif (/^-?version$/i) {
          $this->_version($argv{$_});
       } else {
@@ -94,12 +96,12 @@ sub generate_request_msg
 
    # version::=INTEGER
    if (!defined($msg->prepare(INTEGER, $this->{_version}))) {
-      return $_[0]->_error($msg->error);
+      return $this->_error($msg->error);
    }
 
    # message::=SEQUENCE
    if (!defined($msg->prepare(SEQUENCE, $msg->clear))) {
-      return $_[0]->_error($msg->error);
+      return $this->_error($msg->error);
    }
 
    # Return the message
@@ -116,7 +118,7 @@ sub process_incoming_msg
    return $this->_error('Required Message missing') unless (@_ == 2);
 
    if ($msg->community ne $this->{_community}) {
-      return $this->_error('Invalid community [%s]', $msg->community);
+      return $this->_error('Bad incoming community [%s]', $msg->community);
    }
 
    TRUE;
@@ -124,7 +126,7 @@ sub process_incoming_msg
 
 sub security_model
 {
-   # RFC 2571 - SnmpSecurityModel::=TEXTUAL-CONVENTION 
+   # RFC 3411 - SnmpSecurityModel::=TEXTUAL-CONVENTION 
 
    if ($_[0]->{_version} == SNMP_VERSION_2C) {
       SECURITY_MODEL_SNMPV2C;

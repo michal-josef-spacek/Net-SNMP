@@ -1,11 +1,11 @@
 # -*- mode: perl -*- 
 # ============================================================================
 
-# $Id: usm.t,v 4.1 2002/01/01 14:03:44 dtown Exp $
+# $Id: usm.t,v 4.2 2003/05/06 11:00:46 dtown Exp $
 
 # Test of the SNMPv3 User-based Security Model. 
 
-# Copyright (c) 2001-2002 David M. Town <dtown@cpan.org>.
+# Copyright (c) 2001-2003 David M. Town <dtown@cpan.org>.
 # All rights reserved.
 
 # This program is free software; you may redistribute it and/or modify it
@@ -23,7 +23,7 @@ BEGIN
    plan tests => 15
 }
 
-use Net::SNMP::Message qw(SEQUENCE);
+use Net::SNMP::Message qw(SEQUENCE OCTET_STRING);
 
 #
 # 1. Load the Net::SNMP::Security::USM module
@@ -43,12 +43,13 @@ eval
 { 
    ($u, $e) = Net::SNMP::Security::USM->new(
       -username     => 'dtown',
-      -authpassword => '5678ABCD',
-      -privpassword => 'efgh4321',
+      -authpassword => 'maplesyrup',
+      -privpassword => 'maplesyrup',
+      -privprotocol => 'des'
    );
 
    # "Perform" discovery...
-   $u->_engine_id_discovery(pack('x11H2', '01')) if defined($u);
+   $u->_engine_id_discovery(pack('x11H2', '02')) if defined($u);
 
    # ...and synchronization
    $u->_synchronize(10, time()) if defined($u); 
@@ -62,12 +63,12 @@ ok(($@ || $e), '', 'Failed to create Net::SNMP::Security::USM object');
 
 eval 
 { 
-   $e = unpack('H*', $u->_auth_key); 
+   $e = unpack('H*', $u->auth_key); 
 };
 
 ok(
    ($@ || $e), 
-   '24c807c13145d08362a705edc8f63a11', 
+   '526f5eed9fcce26f8964c2930787d82b', # RFC 2574 - A.3.1 
    'Invalid authKey calculated'
 );
 
@@ -77,12 +78,12 @@ ok(
 
 eval 
 { 
-   $e = unpack('H*', $u->_priv_key); 
+   $e = unpack('H*', $u->priv_key); 
 };
 
 ok(
    ($@ || $e), 
-   '03f2c3755a93e93f61f40cf6b78d285f', 
+   '526f5eed9fcce26f8964c2930787d82b', 
    'Invalid privKey calculated'
 );
 
@@ -95,7 +96,7 @@ my $m;
 eval 
 {
    ($m, $e) = Net::SNMP::Message->new;
-   $m->prepare(SEQUENCE, pack('H*', 'deadbeef')) if defined($m);
+   $m->prepare(SEQUENCE, pack('H*', 'deadbeef') x 8) if defined($m);
    $e = $m->error if defined($m);
 };
 
@@ -122,12 +123,12 @@ eval
 {
    my $salt;
    my $len = $m->length;
-   $m->append($u->_priv_encrypt_des($salt, $m->clear));
-   $m->append($u->_priv_decrypt_des($salt, $m->clear));
+   my $buff = $m->clear; 
+   $m->append($u->_encrypt_data($m, $salt, $buff));
+   $u->_decrypt_data($m, $salt, $m->process(OCTET_STRING));
    $e = $u->error;
-   # Remove padding
-   $len -= $m->length;
-   substr(${$m->reference}, $len, -$len, '');
+   # Remove padding if necessary
+   substr(${$m->reference}, $len, -$len, '') if ($len -= $m->length); 
 };
 
 ok(($@ || $e), '', 'Privacy failed');
@@ -153,13 +154,14 @@ eval
 { 
    ($u, $e) = Net::SNMP::Security::USM->new(
       -username     => 'dtown',
-      -authpassword => '123-wxyz',
+      -authpassword => 'maplesyrup',
       -authprotocol => 'sha1',
-      -privpassword => 'DAVE0987',
+      -privpassword => 'maplesyrup',
+      -privprotocol => 'des'
    );
 
    # "Perform" discovery...
-   $u->_engine_id_discovery(pack('x11H2', '01')) if defined($u);
+   $u->_engine_id_discovery(pack('x11H2', '02')) if defined($u);
 
    # ...and synchronization
    $u->_synchronize(10, time()) if defined($u);
@@ -173,12 +175,12 @@ ok(($@ || $e), '', 'Failed to create Net::SNMP::Security::USM object');
 
 eval 
 { 
-   $e = unpack('H*', $u->_auth_key); 
+   $e = unpack('H*', $u->auth_key); 
 };
 
 ok(
    ($@ || $e), 
-   '806a48c0ec611bb68834e583b3332f35f6d1b506', 
+   '6695febc9288e36282235fc7151f128497b38f3f', # RFC 2574 - A.3.2 
    'Invalid authKey calculated'
 );
 
@@ -188,12 +190,12 @@ ok(
 
 eval 
 { 
-   $e = unpack('H*', $u->_priv_key); 
+   $e = unpack('H*', $u->priv_key); 
 };
 
 ok(
    ($@ || $e), 
-   'b78d80e9a94a8a78cad331b31e5de4d83847e9b0', 
+   '6695febc9288e36282235fc7151f1284', 
    'Invalid privKey calculated'
 );
 
@@ -204,7 +206,7 @@ ok(
 eval 
 {
    ($m, $e) = Net::SNMP::Message->new;
-   $m->prepare(SEQUENCE, pack('H*', 'deadbeef')) if defined($m);
+   $m->prepare(SEQUENCE, pack('H*', 'deadbeef') x 8) if defined($m);
    $e = $m->error if defined($m);
 };
 
@@ -229,12 +231,12 @@ eval
 {
    my $salt;
    my $len = $m->length;
-   $m->append($u->_priv_encrypt_des($salt, $m->clear));
-   $m->append($u->_priv_decrypt_des($salt, $m->clear));
+   my $buff = $m->clear;
+   $m->append($u->_encrypt_data($m, $salt, $buff));
+   $u->_decrypt_data($m, $salt, $m->process(OCTET_STRING));
    $e = $u->error;
-   # Remove padding
-   $len -= $m->length;
-   substr(${$m->reference}, $len, -$len, '');
+   # Remove padding if necessary
+   substr(${$m->reference}, $len, -$len, '') if ($len -= $m->length);
 };
 
 ok(($@ || $e), '', 'Privacy failed');

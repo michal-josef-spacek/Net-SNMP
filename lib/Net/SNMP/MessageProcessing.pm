@@ -3,11 +3,11 @@
 
 package Net::SNMP::MessageProcessing;
 
-# $Id: MessageProcessing.pm,v 1.3 2002/01/01 14:03:44 dtown Exp $
+# $Id: MessageProcessing.pm,v 1.4 2003/05/06 11:00:46 dtown Exp $
 
 # Object that implements the Message Processing module.
 
-# Copyright (c) 2001-2002 David M. Town <dtown@cpan.org>
+# Copyright (c) 2001-2003 David M. Town <dtown@cpan.org>
 # All rights reserved.
 
 # This program is free software; you may redistribute it and/or modify it
@@ -22,7 +22,7 @@ use Net::SNMP::PDU();
 
 ## Version of the Net::SNMP::MessageProcessing module
 
-our $VERSION = v1.0.1;
+our $VERSION = v1.0.2;
 
 ## Package variables
 
@@ -72,6 +72,15 @@ sub prepare_outgoing_msg
       if (!defined($pdu->prepare_v3_scoped_pdu)) {
          return $this->_error($pdu->error);
       }
+
+      # Copy the contextEngineID and contextName to the request
+      # message so that they are available for comparision with
+      # the response message.
+  
+      if ($pdu->context_engine_id ne '') { 
+         $msg->context_engine_id($pdu->context_engine_id);   
+      }
+      $msg->context_name($pdu->context_name);
 
       # msgGlobalData::=SEQUENCE
       if (!defined($msg->prepare_v3_global_data($pdu))) {
@@ -168,7 +177,7 @@ sub prepare_data_elements
    # Compare the Security Models
    if ($msg->msg_security_model != $request->security->security_model) {
       $this->_error(
-         'Unknown securityModel [%d]', $msg->msg_security_model
+         'Unknown incoming securityModel [%d]', $msg->msg_security_model
       );
       return FALSE;
    }
@@ -216,11 +225,11 @@ sub prepare_data_elements
             );
             return FALSE;
          }
-      
+
          # Compare the contextEngineID
          if ($msg->context_engine_id ne $request->context_engine_id) {
             $this->_error(
-               'Unknown contextEngineID [%s]',
+               'Unknown incoming contextEngineID [%s]',
                unpack('H*', $msg->context_engine_id)
             );
             return FALSE;
@@ -229,14 +238,14 @@ sub prepare_data_elements
          # Compare the contextName
          if ($msg->context_name ne $request->context_name) {
             $this->_error(
-               'Unknown contextName [%s]', $msg->context_name
+               'Unknown incoming contextName [%s]', $msg->context_name
             );
             return FALSE;
          }
 
          # Check the request-id
          if ($msg->request_id != $request->msg_id) {
-            $this->_error('Invalid request-id [%d]', $msg->request_id);
+            $this->_error('Invalid incoming request-id [%d]', $msg->request_id);
             return FALSE;
          }
       }

@@ -3,9 +3,9 @@
 
 package Net::SNMP;
 
-# $Id: SNMP.pm,v 4.5 2002/09/09 12:46:09 dtown Exp $
+# $Id: SNMP.pm,v 4.6 2003/05/06 11:00:46 dtown Exp $
 
-# Copyright (c) 1998-2002 David M. Town <dtown@cpan.org>
+# Copyright (c) 1998-2003 David M. Town <dtown@cpan.org>
 # All rights reserved.
 
 # This program is free software; you may redistribute it and/or modify it
@@ -106,7 +106,7 @@ BEGIN
 
 ## Version of the Net::SNMP module
 
-our $VERSION = v4.0.3;
+our $VERSION = v4.1.0;
 
 ## Load our modules
 
@@ -260,7 +260,7 @@ must be set back to 0 seconds to disable the delay parameter.
 
 =item SNMPv3 Arguments
 
-RFC 2575 defines the View-based Access Control Model for SNMP which allows an
+RFC 3415 defines the View-based Access Control Model for SNMP which allows an
 administrator to restrict access to a specific MIB view.  Part of this access 
 control includes the contextEngineID and contextName which are part of a
 SNMPv3 scopedPDU.  All methods that generate a SNMP message optionally take
@@ -406,14 +406,15 @@ sub open
                            [-retries       => $count,]
                            [-maxmsgsize    => $octets,]
                            [-translate     => $translate,]
-                           [-debug         => $debugmask,]
+                           [-debug         => $bitmask,]
                            [-community     => $community,]   # v1/v2c  
                            [-username      => $username,]    # v3  
                            [-authkey       => $authkey,]     # v3  
                            [-authpassword  => $authpasswd,]  # v3  
-                           [-authprotocol  => $protocol,]    # v3  
+                           [-authprotocol  => $authproto,]   # v3  
                            [-privkey       => $privkey,]     # v3  
                            [-privpassword  => $privpasswd,]  # v3  
+                           [-privprotocol  => $privproto,]   # v3
                         );
 
 This is the constructor for Net::SNMP objects.  In scalar context, a
@@ -484,27 +485,27 @@ object with the version set to SNMPv3 will fail if the B<-username> argument
 is not present.  The B<-username> argument expects a string 1 to 32 octets
 in length.
 
-The SNMPv3 User-based Security model (USM) allows different levels of security
+The SNMPv3 User-based Security Model (USM) allows different levels of security
 which address authentication and privacy concerns.  A SNMPv3 Net::SNMP object
 will derive the security level (securityLevel) based on which of the following 
 arguments are specified.
 
 By default a securityLevel of 'noAuthNoPriv' is assumed.  If the B<-authkey> 
 or B<-authpassword> arguments are specified, the securityLevel becomes 
-'authNoPriv'.  The B<-authpassword> argument expects a string which is 1 to 
-32 bytes in length.  Optionally, the B<-authkey> argument can be used so that 
-a plain text password does not have to be specified in a script.  The 
+'authNoPriv'.  The B<-authpassword> argument expects a string which is at 
+least 1 octet in length.  Optionally, the B<-authkey> argument can be used so 
+that a plain text password does not have to be specified in a script.  The 
 B<-authkey> argument expects a hexadecimal string produced by localizing the 
 password with the authoritativeEngineID for the specific destination device.  
 The C<snmpkey> utility included with the distribution can be used to create 
 the hexadecimal string (see L<snmpkey>). 
 
 Two different hash algorithms are defined by SNMPv3 which can be used by the 
-Security Model for authentication.  These algorithms are MD5 (RFC 1321) and 
-SHA-1 (NIST FIPS PUB 180).  The default algorithm used by the module is MD5.
-This behavior can be changed by using the B<-authprotocol> argument.  This 
-argument expects either the string 'md5' or 'sha1' to be passed to modify the 
-hash algorithm.  
+Security Model for authentication.  These algorithms are HMAC-MD5-96 "MD5" 
+(RFC 1321) and HMAC-SHA-96 "SHA-1" (NIST FIPS PUB 180-1).   The default 
+algorithm used by the module is HMAC-MD5-96.  This behavior can be changed by 
+using the B<-authprotocol> argument.  This argument expects either the string 
+'md5' or 'sha' to be passed to modify the hash algorithm.
 
 By specifying the arguments B<-privkey> or B<-privpassword> the securityLevel
 associated with the object becomes 'authPriv'.  According to SNMPv3, privacy 
@@ -513,6 +514,22 @@ arguments are present and the B<-authkey> or B<-authpassword> arguments are
 missing, the creation of the object fails.  The B<-privkey> and 
 B<-privpassword> arguments expect the same input as the B<-authkey> and 
 B<-authpassword> arguments respectively.
+
+The User-based Security Model described in RFC 3414 defines a single encryption
+protocol to be used for privacy.  This protocol, CBC-DES "DES" (NIST FIPS PUB 
+46-1), is used by default or if the string 'des' is passed to the 
+B<-privprotocol> argument.  By working with the Extended Security Options 
+Consortium L<http://www.snmp.com/eso/>, the module also supports additional 
+protocols which have been defined in draft specifications.  The draft 
+L<http://www.snmp.com/eso/draft-reeder-snmpv3-usm-3desede-00.txt> 
+defines the support of CBC-3DES-EDE "Triple-DES" (NIST FIPS 46-3) in the
+User-based Security Model.  This protocol can be selected using the 
+B<-privprotocol> argument with the string '3desede'.  The draft 
+L<http://www.snmp.com/eso/draft-blumenthal-aes-usm-04.txt>  
+describes the use of CFB128-AES-128/192/256 "AES" (NIST FIPS PUB 197) in the
+USM. The three AES encryption protocols, differentiated by their key sizes,
+can be selected by passing 'aescfb128', 'aescfb192', or 'aescfb256' to the
+B<-privprotocol> argument.
 
 =back
 
@@ -550,7 +567,7 @@ send or receive SNMP messages.
 
 =cut
 
-sub close
+sub close : locked : method
 {
    $_[0]->_error_clear;
    $_[0]->{_pdu}       = undef;
@@ -569,7 +586,7 @@ exported as the stand alone function C<snmp_dispatcher()> by default
 
 =cut
 
-sub snmp_dispatcher()
+sub snmp_dispatcher() 
 {
    $DISPATCHER->activate;
 }
@@ -609,7 +626,7 @@ of the failure.
 
 =cut
 
-sub get_request
+sub get_request : locked : method
 {
    my $this = shift;
 
@@ -656,13 +673,13 @@ that it held in the original list.
 
 A reference to a hash is returned in blocking mode which contains the contents
 of the VarBindList.  In non-blocking mode, a true value is returned when no 
-error has occurred.  In either mode the undefined value is returned when an
+error has occurred.  In either mode, the undefined value is returned when an
 error has occurred.  The C<error()> method may be used to determine the cause
 of the failure.
 
 =cut
 
-sub get_next_request
+sub get_next_request : locked : method
 {
    my $this = shift;
 
@@ -705,20 +722,20 @@ with the Net::SNMP object using a SNMP set-request.  The message is built
 using a list of values consisting of groups of an OBJECT IDENTIFIER, an object 
 type, and the actual value to be set.  This list is passed to the method as 
 an array reference using the B<-varbindlist> argument.  The OBJECT IDENTIFIERs 
-in each trio are to be in dotted notation.  The object type is a byte 
+in each trio are to be in dotted notation.  The object type is an octet 
 corresponding to the ASN.1 type of value that is to be set.  Each of the 
 supported ASN.1 types have been defined and are exported by the package by 
 default (see L<"EXPORTS">). 
 
 A reference to a hash is returned in blocking mode which contains the contents
 of the VarBindList.  In non-blocking mode, a true value is returned when no
-error has occurred.  In either mode the undefined value is returned when an
+error has occurred.  In either mode, the undefined value is returned when an
 error has occurred.  The C<error()> method may be used to determine the cause
 of the failure.
 
 =cut
 
-sub set_request
+sub set_request : locked : method
 {
    my $this = shift;
 
@@ -802,7 +819,7 @@ The variable-bindings are expected to be in an array format consisting of
 groups of an OBJECT IDENTIFIER, an object type, and the actual value of the 
 object.  This is identical to the list expected by the C<set_request()> method.
 The OBJECT IDENTIFIERs in each trio are to be in dotted notation.  The object 
-type is a byte corresponding to the ASN.1 type for the value. Each of the 
+type is an octet corresponding to the ASN.1 type for the value. Each of the 
 supported types have been defined and are exported by default (see 
 L<"EXPORTS">).
 
@@ -822,7 +839,7 @@ SNMPv1.
 
 =cut
 
-sub trap
+sub trap : locked : method
 {
    my $this = shift;
 
@@ -861,8 +878,8 @@ sub trap
                           [-delay           => $seconds,]   # non-blocking 
                           [-contextengineid => $engine_id,] # v3 
                           [-contextname     => $name,]      # v3
-                          [-nonrepeaters    => $nonrep,]
-                          [-maxrepetitions  => $maxrep,]
+                          [-nonrepeaters    => $non_reps,]
+                          [-maxrepetitions  => $max_reps,]
                           -varbindlist      => \@oids,
                        );
 
@@ -896,7 +913,7 @@ list.
 
 A reference to a hash is returned in blocking mode which contains the contents
 of the VarBindList.  In non-blocking mode, a true value is returned when no
-error has occurred.  In either mode the undefined value is returned when an
+error has occurred.  In either mode, the undefined value is returned when an
 error has occurred.  The C<error()> method may be used to determine the cause
 of the failure.
 
@@ -905,7 +922,7 @@ SNMPv2c or SNMPv3.
 
 =cut
 
-sub get_bulk_request
+sub get_bulk_request : locked : method
 {
    my $this = shift;
 
@@ -951,7 +968,7 @@ built using a list of values consisting of groups of an OBJECT IDENTIFIER,
 an object type, and the actual value to be identified.  This list is passed 
 to the method as an array reference using the B<-varbindlist> argument.  The 
 OBJECT IDENTIFIERs in each trio are to be in dotted notation.  The object type 
-is a byte corresponding to the ASN.1 type of value that is to be identified.  
+is an octet corresponding to the ASN.1 type of value that is to be identified.  
 Each of the supported ASN.1 types have been defined and are exported by the 
 package by default (see L<"EXPORTS">). 
 
@@ -972,7 +989,7 @@ snmpTrapOID.0 - ('1.3.6.1.6.3.1.1.4.1.0', OBJECT_IDENTIFIER, $oid)
 
 A reference to a hash is returned in blocking mode which contains the contents
 of the VarBindList.  In non-blocking mode, a true value is returned when no
-error has occurred.  In either mode the undefined value is returned when an
+error has occurred.  In either mode, the undefined value is returned when an
 error has occurred.  The C<error()> method may be used to determine the cause
 of the failure.
 
@@ -981,7 +998,7 @@ SNMPv2c or SNMPv3.
 
 =cut
 
-sub inform_request
+sub inform_request : locked : method
 {
    my $this = shift;
 
@@ -1021,7 +1038,7 @@ Net::SNMP object.  The message is built using a list of values consisting of
 groups of an OBJECT IDENTIFIER, an object type, and the actual value to be 
 identified.  This list is passed to the method as an array reference using the 
 B<-varbindlist> argument.  The OBJECT IDENTIFIERs in each trio are to be in 
-dotted notation.  The object type is a byte corresponding to the ASN.1 type 
+dotted notation.  The object type is an octet corresponding to the ASN.1 type 
 of value that is to be identified.  Each of the supported ASN.1 types have 
 been defined and are exported by the package by default (see L<"EXPORTS">). 
 
@@ -1056,7 +1073,7 @@ by the Net::SNMP module.
 
 =cut
 
-sub snmpv2_trap
+sub snmpv2_trap : locked : method
 {
    my $this = shift;
 
@@ -1091,6 +1108,7 @@ sub snmpv2_trap
                           [-contextengineid => $engine_id,] # v3 
                           [-contextname     => $name,]      # v3
                           -baseoid          => $oid,
+                          [-maxrepetitions  => $max_reps,]  # v2c/v3
                        );
 
 This method performs repeated SNMP get-next-request or get-bulk-request 
@@ -1101,9 +1119,14 @@ by the B<-baseoid> argument.   Repeated SNMP requests are issued until the
 OBJECT IDENTIFER in the response is no longer a child of the base OBJECT 
 IDENTIFIER.
 
+The B<-maxrepetitions> argument can be used to specify the max-repetitions
+value that is passed to the get-bulk-requests when using SNMPv2c or SNMPv3.  
+If this argument is not present, a value is calculated based on the maximum 
+message size for the Net::SNMP object.
+
 A reference to a hash is returned in blocking mode which contains the contents
 of the VarBindList.  In non-blocking mode, a true value is returned when no
-error has occurred.  In either mode the undefined value is returned when an
+error has occurred.  In either mode, the undefined value is returned when an
 error has occurred.  The C<error()> method may be used to determine the cause
 of the failure.
 
@@ -1112,9 +1135,7 @@ OBJECT IDENTIFIER is close to the root of the SNMP MIB tree.
 
 =cut
 
-sub GET_TABLE_MAX_REPETITIONS() { 25 }  # Constant for get_table()
-
-sub get_table
+sub get_table : locked : method
 {
    my $this = shift;
 
@@ -1134,7 +1155,8 @@ sub get_table
                                           -delay
                                           -contextengineid
                                           -contextname 
-                                          -baseoid         )], \@_, \@argv))) 
+                                          -baseoid         
+                                          -maxrepetitions  )], \@_, \@argv))) 
    {
       return $this->_error;
    }
@@ -1155,7 +1177,7 @@ sub get_table
 
    my %argv = (
       'base_oid'   => $argv[0], 
-      'callback'   => $this->_callback_closure,
+      'callback'   => $this->{_pdu}->callback,
       'repeat_cnt' => 0,
       'table'      => undef,
    );
@@ -1174,15 +1196,239 @@ sub get_table
    # on the SNMP version.
 
    if ($this->version == SNMP_VERSION_1) {
+
+      if (defined($argv[1])) {
+         return $this->_error(
+            'A max-repetitions value is not applicable when using SNMPv1'
+         );
+      }
+
+      # Set max_reps to be used as a limit for loop detection.
+      $argv{max_reps} = 5;
+
       if (!defined($this->{_pdu}->prepare_get_next_request([$argv[0]]))) {
          return $this->_error($this->{_pdu}->error);
       }
+
    } else {
+
+      # Store the max-repetitions value to be used.
+
+      if (defined($argv[1])) {
+         $argv{max_reps} = $argv[1];
+      } else {
+         $argv{max_reps} = $this->_msg_size_max_reps;
+      }
+
       if (!defined(
             $this->{_pdu}->prepare_get_bulk_request(
-                0, GET_TABLE_MAX_REPETITIONS, [$argv[0]]
+                0, $argv{max_reps}, [$argv[0]]
             )
          )) 
+      {
+         return $this->_error($this->{_pdu}->error);
+      }
+   }
+
+   $this->_send_pdu;
+}
+
+=head2 get_entries() - retrieve table entries from the remote agent
+
+   $result = $session->get_entries(
+                          [-callback        => sub {},]     # non-blocking
+                          [-delay           => $seconds,]   # non-blocking
+                          [-contextengineid => $engine_id,] # v3
+                          [-contextname     => $name,]      # v3
+                          -entryoid         => $oid,
+                          -columns          => \@columns,
+                          [-startindex      => $start,]
+                          [-endindex        => $end,]
+                          [-maxrepetitions  => $max_reps,]  # v2c/v3
+                       );
+
+This method performs repeated SNMP get-next-request or get-bulk-request
+(when using SNMPv2c or SNMPv3) queries to gather data from the remote agent
+on the host associated with the Net::SNMP object.  Each message specifically
+requests data for each column specified in the B<-columns> array combined
+with the OBJECT IDENTIFIER defined by the B<-entryoid> argument.  The optional
+B<-startindex> and B<-endindex> arguments may be specified to limit the query
+to specific rows in the table.
+
+The B<-startindex> can be specified as a single decimal value or in dotted
+notation if the index associated with the entry so requires.  If the
+B<-startindex> is specified, it will be include as part of the query results.
+If no B<-startindex> is specified, the first request message will be sent
+without an index.  To insure that the B<-startindex> is included, the last
+subidentifier in the index is decremented by one.  If the last subidentifier 
+has a value of zero, the subidentifier is removed from the index. 
+
+The optional B<-endindex> argument can be specified as a single decimal value
+or in dotted notation.  If the B<-endindex> is specified, it will include as
+part of the query results.  If no B<-endindex> is specified, repeated SNMP
+requests are issued until the response is no longer part of the table specified
+by the B<-entryoid> argument.
+
+The B<-maxrepetitions> argument can be used to specify the max-repetitions
+value that is passed to the get-bulk-requests when using SNMPv2c or SNMPv3. 
+If this argument is not present, a value is calculated based on the maximum 
+message size of the object and the number of columns specified in the 
+B<-columns> array. 
+
+A reference to a hash is returned in blocking mode which contains the contents
+of the VarBindList.  In non-blocking mode, a true value is returned when no
+error has occurred.  In either mode, the undefined value is returned when an
+error has occurred.  The C<error()> method may be used to determine the cause
+of the failure.
+
+=cut
+
+sub get_entries : locked : method
+{
+   my $this = shift;
+
+   $this->_error_clear;
+
+   my @argv;
+
+   # Validate the passed arguments.
+
+   if (!defined($this->_prepare_argv([qw( -callback
+                                          -delay
+                                          -contextengineid
+                                          -contextname
+                                          -entryoid
+                                          -columns
+                                          -startindex
+                                          -endindex        
+                                          -maxrepetitions   )], \@_, \@argv)))
+   {
+      return $this->_error;
+   }
+
+   if ($argv[0] !~ /^\.?\d+\.\d+(?:\.\d+)*$/) {
+      return $this->_error(
+         'Expected entry OBJECT IDENTIFIER in dotted notation'
+      );
+   }
+
+   if (ref($argv[1]) ne 'ARRAY') {
+      return $this->_error('Expected array reference for column list');
+   }
+
+   if (!scalar(@{$argv[1]})) {
+      return $this->_error('Empty column list specified');
+   }
+
+   my $columns = {};
+
+   for (@{$argv[1]}) {
+      if (!/^\d+$/) {
+         return $this->_error(
+            'Expected positive numeric value in column list [%s]', $_
+         );
+      }
+      if (exists($columns->{$_})) {
+         return $this->_error('Duplicate entry in column list [%s]', $_);
+      } else {
+          $columns->{$_} = $_;
+      }
+   }
+
+   my $start_index = '';
+
+   if (defined($argv[2])) {
+      if ($argv[2] !~ /^\d+(?:\.\d+)*$/) {
+         return $this->_error('Expected start index in dotted notation');
+      }
+      my @subids = split('\.', $argv[2]);
+      if ($subids[-1] > 0) {
+         $subids[-1]--;
+      } else {
+         pop(@subids);
+      }
+      $start_index = (@subids) ? join('.', @subids) : '';
+   }
+
+   if (defined($argv[3])) {
+      if ($argv[3] !~ /^\d+(?:\.\d+)*$/) {
+         return $this->_error('Expected end index in dotted notation');
+      }
+      if (defined($argv[2])) {
+         if (_index_cmp($argv[2], $argv[3]) > 0) {
+            return $this->_error('End index cannot be less than start index');
+         }
+      }
+   }
+
+   # Create a new PDU
+   if (!defined($this->_create_pdu)) {
+      return $this->_error;
+   }
+
+   # Create table of values that need passed along with the
+   # callbacks.  This just prevents a big argument list.
+
+   my %argv = (
+      callback     => $this->{_pdu}->callback,
+      columns      => [ sort { $a <=> $b } (keys(%{$columns})) ],
+      columns_hash => $columns,
+      end_index    => $argv[3],
+      entries      => undef,
+      entry_oid    => $argv[0],
+      last_column  => 0,
+      last_index   => '0',
+      match        => qr($argv[0]\.(\d+)\.(\d+(:?\.\d+)*)$),
+      start_index  => defined($argv[2]) ? $argv[2] : '0'
+   );
+
+   # Override the callback now that we have stored it
+   $this->{_pdu}->callback(
+      sub {
+         $this->{_pdu} = $_[0];
+         $this->_error_clear;
+         $this->_error($this->{_pdu}->error) if $this->{_pdu}->error;
+         $this->_get_entries_cb(\%argv);
+      }
+   );
+
+   # Create the varBindList by indexing the entry OBJECT IDENTIFIER
+   # with each of the columns and the start index.
+
+   my $vbl = [
+      map { join('.', $argv[0], $_, $start_index) } @{$argv{columns}}
+   ];
+
+   # Create a get-next-request or get-bulk-request PDU depending
+   # on the SNMP version.
+
+   if ($this->version == SNMP_VERSION_1) {
+
+      if (defined($argv[4])) {
+         return $this->_error(
+            'A max-repetitions value is not applicable when using SNMPv1' 
+         );
+      }
+
+      if (!defined($this->{_pdu}->prepare_get_next_request($vbl))) {
+         return $this->_error($this->{_pdu}->error);
+      }
+
+   } else {
+
+      # Store the max-repetitions value to be used.
+
+      if (defined($argv[4])) {
+         $argv{max_reps} = $argv[4];
+      } else {
+         # Scale the max-repetitions based on the number of columns.
+         $argv{max_reps} = 
+            int($this->_msg_size_max_reps / @{$argv{columns}}) + 1;
+      }
+
+      if (!defined(
+            $this->{_pdu}->prepare_get_bulk_request(0, $argv{max_reps}, $vbl)
+         ))
       {
          return $this->_error($this->{_pdu}->error);
       }
@@ -1203,7 +1449,7 @@ be exported by request (see L<"EXPORTS">).
 
 =cut
 
-sub version
+sub version : locked : method
 {
    return $_[0]->_error('SNMP version is not modifiable') if (@_ == 2);
 
@@ -1219,7 +1465,7 @@ An empty string is returned if no error has occurred.
 
 =cut
 
-sub error
+sub error : locked : method
 {
    $_[0]->{_error} || '';
 }
@@ -1233,7 +1479,7 @@ as it was passed to the C<session()> constructor.
 
 =cut
 
-sub hostname
+sub hostname : locked : method
 {
    $_[0]->{_hostname};
 }
@@ -1247,7 +1493,7 @@ last SNMP GetResponse-PDU received by the object.
 
 =cut
 
-sub error_status
+sub error_status : locked : method
 {
    defined($_[0]->{_pdu}) ? $_[0]->{_pdu}->error_status : 0;
 }
@@ -1261,7 +1507,7 @@ last SNMP GetResponse-PDU received by the object.
 
 =cut
 
-sub error_index
+sub error_index : locked : method
 {
    defined($_[0]->{_pdu}) ? $_[0]->{_pdu}->error_index : 0;
 }
@@ -1283,9 +1529,29 @@ the reason.
 
 =cut
 
-sub var_bind_list
+sub var_bind_list : locked : method
 {
    defined($_[0]->{_pdu}) ? $_[0]->{_pdu}->var_bind_list : undef;
+}
+
+=head2 var_bind_names() - get the array of the ObjectNames in the last response
+
+   @names = $session->var_bind_names;
+
+This method returns an array containing the OBJECT IDENTIFIERs corresponding
+to the ObjectNames in the VarBindList in the order that they were received
+in the last SNMP GetResponse-PDU.  The entries in the array will map directly
+to the keys in the hash reference returned by the methods that perform SNMP
+message exchanges and by the C<var_bind_list()> method.  The array returned for
+the convenience methods C<get_table()> and C<get_entries()> will be in
+lexicographical order.  An empty array is returned if there has been a failure
+and the C<error()> method may be used to determine reason.
+
+=cut
+
+sub var_bind_names : locked : method
+{
+   defined($_[0]->{_pdu}) ? @{$_[0]->{_pdu}->var_bind_names} : ();
 }
 
 =head2 timeout() - set or get the current timeout period for the object 
@@ -1304,7 +1570,7 @@ the cause.
 
 =cut
 
-sub timeout
+sub timeout : locked : method
 {
    my $this = shift;
 
@@ -1332,7 +1598,7 @@ the cause.
 
 =cut
 
-sub retries
+sub retries : locked : method
 {
    my $this = shift;
 
@@ -1366,7 +1632,7 @@ lower value.
 
 =cut
 
-sub max_msg_size
+sub max_msg_size : locked : method
 {
    my $this = shift;
 
@@ -1476,7 +1742,7 @@ the cause.
 
 =cut
 
-sub translate
+sub translate : locked : method
 {
    if (@_ == 2) {
 
@@ -1492,30 +1758,31 @@ sub translate
          # mask is defined.
 
          my @argv = @{$_[1]};
+         my $arg;
 
-         while (defined($_ = shift(@argv))) {
-            if (/^-?all$/i) {
+         while (defined($arg = shift(@argv))) {
+            if ($arg =~ /^-?all$/i) {
                $_[0]->_translate_mask(shift(@argv), TRANSLATE_ALL);
-            } elsif (/^-?none$/i) {
+            } elsif ($arg =~ /^-?none$/i) {
                $_[0]->_translate_mask(shift(@argv), TRANSLATE_NONE);
-            } elsif (/^-?octet_?string$/i) {
+            } elsif ($arg =~ /^-?octet_?string$/i) {
                $_[0]->_translate_mask(shift(@argv), TRANSLATE_OCTET_STRING);
-            } elsif (/^-?null$/i) {
+            } elsif ($arg =~ /^-?null$/i) {
                $_[0]->_translate_mask(shift(@argv), TRANSLATE_NULL);
-            } elsif (/^-?timeticks$/i) {
+            } elsif ($arg =~ /^-?timeticks$/i) {
                $_[0]->_translate_mask(shift(@argv), TRANSLATE_TIMETICKS);
-            } elsif (/^-?opaque$/i) {
+            } elsif ($arg =~ /^-?opaque$/i) {
                $_[0]->_translate_mask(shift(@argv), TRANSLATE_OPAQUE);
-            } elsif (/^-?nosuchobject$/i) {
+            } elsif ($arg =~ /^-?nosuchobject$/i) {
                $_[0]->_translate_mask(shift(@argv), TRANSLATE_NOSUCHOBJECT);
-            } elsif (/^-?nosuchinstance$/i) {
+            } elsif ($arg =~ /^-?nosuchinstance$/i) {
                $_[0]->_translate_mask(shift(@argv), TRANSLATE_NOSUCHINSTANCE);
-            } elsif (/^-?endofmibview$/i) {
+            } elsif ($arg =~ /^-?endofmibview$/i) {
                $_[0]->_translate_mask(shift(@argv), TRANSLATE_ENDOFMIBVIEW);
-            } elsif (/^-?unsigned$/i) {
+            } elsif ($arg =~ /^-?unsigned$/i) {
                $_[0]->_translate_mask(shift(@argv), TRANSLATE_UNSIGNED);
             } else {
-               return $_[0]->_error("Invalid translate argument '%s'", $_);
+               return $_[0]->_error("Invalid translate argument '%s'", $arg);
             }
          }
 
@@ -1596,6 +1863,16 @@ sub snmp_debug($)
    debug(undef, $_[0]);
 }
 
+sub security : locked : method
+{
+   $_[0]->{_security};
+}
+
+sub transport : locked : method
+{
+   $_[0]->{_transport};
+}
+
 =head1 FUNCTIONS
 
 =head2 oid_base_match() - determine if an OID has a specified OID base 
@@ -1674,12 +1951,14 @@ sub ticks_to_time($)
 sub VERSION
 {
    # Provide our own VERSION method so that the version returns 
-   # a dotted string instead of a v-string.
+   # as a floating point number instead of a v-string.
 
-   my $version = eval { sprintf('%vd', shift->UNIVERSAL::VERSION(@_)); };
+   my $version = eval { 
+      sprintf('%d.%03d%03d', unpack('C3', shift->UNIVERSAL::VERSION(@_))); 
+   };
 
    if ($@) {
-      $_ = $@;
+      local $_ = $@;
       s/at(.*)/sprintf("at %s line %s\n", (caller(0))[1], (caller(0))[2])/es;
       die $_;
    } 
@@ -1724,7 +2003,7 @@ sub _send_pdu
 
    # Activate the dispatcher if we are blocking
    snmp_dispatcher() unless ($this->{_nonblocking});
-  
+
    # Return according to blocking mode 
    ($this->{_nonblocking}) ? TRUE : $this->var_bind_list;
 }
@@ -1735,14 +2014,14 @@ sub _create_pdu
 
    # Create the new PDU
    ($this->{_pdu}, $this->{_error}) = Net::SNMP::PDU->new(
-      -version   => $this->version,
+      -version   => $this->{_version},
       -security  => $this->{_security},
       -transport => $this->{_transport},
       -translate => $this->{_translate},
       -callback  => $this->_callback_closure,
       defined($this->{_context_engine_id}) ? 
          (-contextengineid => $this->{_context_engine_id}) : (),
-      defined($_[0]->{_context_name}) ?
+      defined($this->{_context_name}) ?
          (-contextname     => $this->{_context_name})      : (),
    );
 
@@ -1778,6 +2057,9 @@ sub _version
 
    if (@_ == 2) {
       my @match = grep(/^\Q$_[1]/i, keys(%{$supported})); 
+      if (@match > 1) {
+         return $_[0]->_error('Ambiguous SNMP version [%s]', $_[1]);
+      }
       if (@match != 1) {
          return $_[0]->_error('Unknown or invalid SNMP version [%s]', $_[1]);
       }
@@ -1860,7 +2142,7 @@ sub _callback
    my @argv;
 
    if (!defined($callback)) {
-      $_[0]->{_callback} = undef;
+      $this->{_callback} = undef;
       return TRUE;
    } elsif ((ref($callback) eq 'ARRAY') && (ref($callback->[0]) eq 'CODE')) {
       @argv = @{$callback};
@@ -1941,7 +2223,7 @@ sub _context_name
 
    if (length($context_name) > 32) {
       return $this->_error(
-         'Invalid contextName length [%d]', length($context_name)
+         'Invalid contextName length [%d octets]', length($context_name) 
       );
    }
 
@@ -1959,7 +2241,7 @@ sub _delay
    }
 
    if ($delay !~ /^\d+(?:\.\d+)?$/) {
-      return $_[0]->_error('Invalid delay value [%s]', $delay);
+      return $this->_error('Invalid delay value [%s]', $delay);
    }
 
    $this->{_delay} = $delay;
@@ -2002,9 +2284,9 @@ sub _discovery
 
    return TRUE if ($this->{_security}->discovered);
 
-   # RFC 2274 - Section 4: "Discovery... ...may be accomplished by
+   # RFC 3414 - Section 4: "Discovery... ...may be accomplished by
    # generating a Request message with a securityLevel of noAuthNoPriv,
-   # a msgUserName of "initial", a msgAuthoritativeEngineID value of
+   # a msgUserName of zero-length, a msgAuthoritativeEngineID value of
    # zero length, and the varBindList left empty."
 
    # Create a new PDU
@@ -2056,9 +2338,9 @@ sub _discovery_engine_id_cb
       $this->{_transport} = undef;
 
       # Upcall any pending messages with the current error
-      while ($_ = shift(@{$this->{_discovery_queue}})) {
-         $_->[0]->error($this->{_error});
-         $_->[0]->callback_execute;
+      while (my $q = shift(@{$this->{_discovery_queue}})) {
+         $q->[0]->error($this->{_error});
+         $q->[0]->callback_execute;
       }
 
       return $this->_error;
@@ -2077,8 +2359,8 @@ sub _discovery_engine_id_cb
       DEBUG_INFO('discovery complete');
 
       # Discovery is complete, send any pending messages
-      while ($_ = shift(@{$this->{_discovery_queue}})) {
-         $DISPATCHER->send_pdu(@{$_});
+      while (my $q = shift(@{$this->{_discovery_queue}})) {
+         $DISPATCHER->send_pdu(@{$q});
       }
 
       return TRUE;
@@ -2137,8 +2419,8 @@ sub _discovery_synchronization_cb
       DEBUG_INFO('discovery and synchronization complete');
 
       # Discovery is complete, send any pending messages
-      while ($_ = shift(@{$this->{_discovery_queue}})) {
-         $DISPATCHER->send_pdu(@{$_});
+      while (my $q = shift(@{$this->{_discovery_queue}})) {
+         $DISPATCHER->send_pdu(@{$q});
       }
 
       return TRUE;
@@ -2162,9 +2444,9 @@ sub _discovery_synchronization_cb
    $this->{_transport} = undef;
 
    # Upcall any pending messages with the current error
-   while ($_ = shift(@{$this->{_discovery_queue}})) {
-      $_->[0]->error($this->{_error});
-      $_->[0]->callback_execute;
+   while (my $q = shift(@{$this->{_discovery_queue}})) {
+      $q->[0]->error($this->{_error});
+      $q->[0]->callback_execute;
    }
 
    $this->_error;
@@ -2189,6 +2471,23 @@ sub _translate_mask
    }
 }
 
+sub _msg_size_max_reps
+{
+   my ($this) = @_;
+
+   # Use the maxMsgSize of the object to produce a max-repetitions
+   # value.  This is an attempt to avoid exceeding the maxMsgSize
+   # in the responses to get-bulk-requests.  The scaling factor
+   # of 0.017 produces a value of 25 with the default maxMsgSize of
+   # 1472. This was the old hardcoded value used by get_table().
+ 
+   if (defined($this->{_transport})) {
+      int($this->{_transport}->max_msg_size * 0.017);
+   } else {
+      25;
+   }
+}
+
 sub _get_table_cb
 {
    my ($this, $argv) = @_;
@@ -2209,7 +2508,7 @@ sub _get_table_cb
       my @oids = oid_lex_sort(keys(%{$result}));
       my ($next_oid, $end_of_table) = (undef, FALSE);
 
-      do {
+      while (@oids) { 
 
          $next_oid = shift(@oids);
 
@@ -2231,7 +2530,7 @@ sub _get_table_cb
             # Check to make sure that the remote host does not respond
             # incorrectly causing the requests to loop forever.
 
-            if ($argv->{repeat_cnt} > GET_TABLE_MAX_REPETITIONS) {
+            if ($argv->{repeat_cnt} > $argv->{max_reps}) {
                $this->{_pdu}->var_bind_list(undef);
                $this->{_pdu}->error('Loop detected with table on remote host');
                return $this->{_pdu}->callback_execute;
@@ -2241,7 +2540,7 @@ sub _get_table_cb
             $end_of_table = TRUE;
          }
 
-      } while (@oids);
+      } 
 
       # Queue the next request if we are not at the end of the table.
 
@@ -2274,7 +2573,7 @@ sub _get_table_cb
          } else {
             if (!defined(
                   $this->{_pdu}->prepare_get_bulk_request(
-                     0, GET_TABLE_MAX_REPETITIONS, [$next_oid]
+                     0, $argv->{max_reps}, [$next_oid]
                   )
                ))
             {
@@ -2308,9 +2607,220 @@ sub _get_table_cb
    $this->{_pdu}->callback_execute;
 }
 
+sub _get_entries_cb
+{
+   my ($this, $argv) = @_;
+
+   # Assign the "real" callback to the PDU
+   $this->{_pdu}->callback($argv->{callback});
+
+   # Check to see if the var_bind_list is defined (was there an error?)
+
+   if (defined(my $result = $this->var_bind_list)) {
+
+      my @oids = oid_lex_sort(keys(%{$result}));
+      my ($column, $index) = (0, '');
+      my $max_column = $argv->{last_column};
+      my $max_index  = $argv->{last_index};
+      my $last_entry = FALSE;
+
+      while (@oids) {
+
+         my $oid = shift(@oids);
+
+         # See if the OBJECT IDENTIFIER is a part of the entry and
+         # at the same time extract the current column and index.
+
+         if ($oid =~ /$argv->{match}/) {
+
+            $column = $1;
+            $index = $2;
+
+            DEBUG_INFO("column = %s, index = %s", $column, $index);
+
+            # If the end index is set, make sure we have not passed it.
+
+            if ((!defined($argv->{end_index})) ||
+                (_index_cmp($index, $argv->{end_index}) <= 0))
+            {
+
+               # Check if this column was requested.
+
+               if (exists($argv->{columns_hash}->{$column})) {
+
+                  # Make sure that we are not before the start index
+
+                  if (_index_cmp($index, $argv->{start_index}) >= 0) {
+
+                     # Do not add duplicate entries.
+
+                     if (!exists($argv->{entries}->{$oid})) {
+
+                        $argv->{entries}->{$oid} = $result->{$oid};
+
+                        if (_index_cmp($index, $max_index) >= 0) {
+                           $max_index = $index;
+                           $max_column = $column;
+                        }
+                     } else {
+                        DEBUG_INFO('not adding duplicate');
+                     }
+
+                  } else {
+                     DEBUG_INFO('not past start entry');
+                  }
+
+               } elsif (($column > $argv->{columns}->[-1]) &&
+                        (_index_cmp($index, $max_index) >= 0))
+               {
+
+                  # We are done if the current column is greater
+                  # than than highest column requested and the
+                  # current index is greater the the maximum
+                  # index found.
+
+                  DEBUG_INFO('last_entry: past last column and max index');
+                  $last_entry = TRUE;
+
+               } else {
+                  DEBUG_INFO('column not requested, but not greater than ' .
+                             'max requested or max index');
+               }
+
+            } elsif ($column >= $argv->{columns}->[-1]) {
+
+               # If we are past the end index and the last
+               # column has been found, we are done.
+
+               DEBUG_INFO('last_entry: past end index');
+               $last_entry = TRUE;
+
+            } else {
+               DEBUG_INFO('past end index, but not column');
+            }
+
+         } elsif (!oid_base_match($argv->{entry_oid}, $oid)) {
+
+            # If the OBJECT IDENTIFIER is no longer in
+            # the entry and the last column has been found
+            # we are done.
+
+            if ($max_column >= $argv->{columns}->[-1]) {
+               DEBUG_INFO('last_entry: into next table');
+               $last_entry = TRUE;
+            } else {
+               DEBUG_INFO('not in base entry, but not past column');
+            }
+
+         } else {
+            DEBUG_INFO('still in entry');
+         }
+
+      }
+
+      DEBUG_INFO(
+         'last_index = %s, max_index = %s, last_column = %d, max_column = %d',
+         $argv->{last_index}, $max_index, $argv->{last_column}, $max_column
+      );
+
+      if ((!$last_entry) &&
+          (!_index_cmp($max_index, $argv->{last_index})) &&
+          ($max_column == $argv->{last_column}))
+      {
+         DEBUG_INFO('last_entry: repeat entries');
+         $last_entry = TRUE;
+      }
+
+      # If we have not reached the last requested entry,
+      # generate another request message.
+
+      if (!$last_entry) {
+
+         $argv->{last_index} = $max_index;
+         $argv->{last_column} = $max_column;
+
+         # Create a new PDU
+         if (!defined($this->_create_pdu)) {
+            $this->{_pdu}->var_bind_list(undef);
+            return $this->{_pdu}->callback_execute;
+         }
+
+         # Override the callback
+         $this->{_pdu}->callback(
+            sub {
+               $this->{_pdu} = $_[0];
+               $this->_error_clear;
+               $this->_error($this->{_pdu}->error) if $this->{_pdu}->error;
+               $this->_get_entries_cb($argv);
+            }
+         );
+
+         # Create the varBindList by indexing the entry OBJECT
+         # IDENTIFIER with the columns and maximum index found.
+
+         my $vbl = [
+            map {
+               join('.', $argv->{entry_oid}, $_, $max_index)
+            } @{$argv->{columns}}
+         ];
+
+         if ($this->version == SNMP_VERSION_1) {
+            if (!defined($this->{_pdu}->prepare_get_next_request($vbl))) {
+               $this->{_pdu}->var_bind_list(undef);
+               return $this->{_pdu}->callback_execute;
+            }
+         } else {
+            if (!defined(
+                  $this->{_pdu}->prepare_get_bulk_request(
+                     0, $argv->{max_reps}, $vbl
+                  )
+               ))
+            {
+               $this->{_pdu}->var_bind_list(undef);
+               return $this->{_pdu}->callback_execute;
+            }
+         }
+
+         # Send the next PDU with no delay
+         return $DISPATCHER->send_pdu($this->{_pdu}, 0) ? TRUE : $this->_error;
+
+      }
+
+      # Copy the rows to the var_bind_list
+      $this->{_pdu}->var_bind_list($argv->{entries});
+
+   }
+
+   # Check for noSuchName(2) error
+   if ($this->error_status == 2) {
+      $this->{_pdu}->error(undef);
+      $this->{_pdu}->var_bind_list($argv->{entries});
+   }
+
+   if (!defined($argv->{entries}) && (!$this->{_pdu}->error)) {
+      $this->{_pdu}->error('Requested entries are empty or do not exist');
+   }
+
+   # Invoke the user defined callback.
+   $this->{_pdu}->callback_execute;
+}
+
+sub _index_cmp($$)
+{
+   pack('N*', split('\.', $_[0])) cmp pack('N*', split('\.', $_[1]));
+}
+
 sub _error
 {
    my $this = shift;
+
+   # If the PDU callback is still defined when an error occurs, it
+   # needs to be cleared to prevent the closure from holding up the
+   # reference count of the object that created the closure.
+
+   if (defined($this->{_pdu}) && defined($this->{_pdu}->callback)) {
+      $this->{_pdu}->callback(undef);
+   }
 
    if (!defined($this->{_error})) {
       $this->{_error} = sprintf(shift(@_), @_);
@@ -2348,7 +2858,7 @@ sub require_version
    my $version = eval { $pkg->UNIVERSAL::VERSION($wanted); };
 
    if ($@) {
-      $_ = $@;
+      local $_ = $@;
       s/at(.*)/sprintf("at %s line %s\n", (caller(2))[1], (caller(2))[2])/es;
       die $_;
    }
@@ -2757,6 +3267,11 @@ earlier than v5.6.0.
 The non-core modules F<Crypt::DES>, F<Digest::MD5>, F<Digest::SHA1>, and 
 F<Digest::HMAC> are required to support SNMPv3. 
 
+=item *
+
+In order to support the AES Cipher Algorithm as a SNMPv3 privacy protocol, the
+non-core module F<Crypt::Rijndael> is needed.
+
 =back
 
 =head1 AUTHOR
@@ -2775,7 +3290,7 @@ All rights reserved.
 
 =head1 COPYRIGHT
 
-Copyright (c) 1998-2002 David M. Town.  All rights reserved.  This program 
+Copyright (c) 1998-2003 David M. Town.  All rights reserved.  This program 
 is free software; you may redistribute it and/or modify it under the same
 terms as Perl itself.
 
