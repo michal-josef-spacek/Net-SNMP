@@ -3,7 +3,7 @@
 
 package Net::SNMP;
 
-# $Id: SNMP.pm,v 3.5 2000/05/06 04:19:26 dtown Exp $
+# $Id: SNMP.pm,v 3.6 2000/09/09 14:32:46 dtown Exp $
 # $Source: /us/dtown/Projects/Net-SNMP/SNMP.pm,v $
 
 # The module Net::SNMP implements an object oriented interface to the Simple
@@ -14,7 +14,7 @@ package Net::SNMP;
 # understanding of the Simple Network Management Protocol and related 
 # network management concepts.
 
-# Copyright (c) 1998-2000 David M. Town <dtown@fore.com>.
+# Copyright (c) 1998-2000 David M. Town <david.town@marconi.com>.
 # All rights reserved.
 
 # This program is free software; you may redistribute it and/or modify it
@@ -26,12 +26,12 @@ package Net::SNMP;
 
 use vars qw(
    @ISA @EXPORT @EXPORT_OK %EXPORT_TAGS @ASN1 @ASN1_PDU @GENERICTRAP @SNMP 
-   $DEBUG $FSM $REQUEST_ID $SOCKET $VERSION  
+   @TRANSLATE $DEBUG $FSM $REQUEST_ID $SOCKET $VERSION  
 );
 
 ## Version of Net::SNMP module
 
-$Net::SNMP::VERSION = 3.50;
+$Net::SNMP::VERSION = 3.60;
 
 use strict;
 
@@ -66,13 +66,22 @@ use Exporter();
    oid_context_match oid_lex_sort ticks_to_time 
 );
 
+@TRANSLATE = qw(
+   TRANSLATE_NONE TRANSLATE_OCTET_STRING TRANSLATE_NULL TRANSLATE_TIMETICKS
+   TRANSLATE_OPAQUE TRANSLATE_NOSUCHOBJECT TRANSLATE_NOSUCHINSTANCE
+   TRANSLATE_ENDOFMIBVIEW TRANSLATE_ALL
+);
+
 @EXPORT    = (@ASN1, 'snmp_event_loop');
-@EXPORT_OK = (@ASN1_PDU, @GENERICTRAP, @SNMP, 'SEQUENCE', 'snmp_one_event');
+@EXPORT_OK = (
+   @ASN1_PDU, @GENERICTRAP, @SNMP, @TRANSLATE, 'SEQUENCE', 'snmp_one_event'
+);
 
 %EXPORT_TAGS = (
    asn1        => [@ASN1, @ASN1_PDU, 'SEQUENCE'],
    generictrap => [@GENERICTRAP], 
    snmp        => [@SNMP, 'snmp_event_loop'],
+   translate   => [@TRANSLATE],
    ALL         => [@EXPORT, @EXPORT_OK]
 );
 
@@ -131,6 +140,18 @@ sub AUTHENTICATION_FAILURE() { 4 }  # authenticationFailure(4)
 sub EGP_NEIGHBOR_LOSS()      { 5 }  # egpNeighborLoss(5)
 sub ENTERPRISE_SPECIFIC()    { 6 }  # enterpriseSpecific(6)
 
+## Translation masks
+
+sub TRANSLATE_NONE()           { 0x00 }  # Bit masks used to determine
+sub TRANSLATE_OCTET_STRING()   { 0x01 }  # if a specific ASN.1 type is
+sub TRANSLATE_NULL()           { 0x02 }  # translated into a "human
+sub TRANSLATE_TIMETICKS()      { 0x04 }  # readable" form.
+sub TRANSLATE_OPAQUE()         { 0x08 }
+sub TRANSLATE_NOSUCHOBJECT()   { 0x10 }
+sub TRANSLATE_NOSUCHINSTANCE() { 0x20 }
+sub TRANSLATE_ENDOFMIBVIEW()   { 0x40 }
+sub TRANSLATE_ALL()            { 0xff }
+
 ## Default, minimum, and maximum values 
 
 sub DEFAULT_HOSTNAME()    { 'localhost' }
@@ -148,8 +169,12 @@ sub MAXIMUM_MTU()         { 65535 }
 sub MAXIMUM_TIMEOUT()     {  60.0 }   
 sub MAXIMUM_RETRIES()     {    20 }
 
-sub TRUE()                  { 0x1 }
-sub FALSE()                 { 0x0 }
+## Internal constants 
+
+sub TRUE()                     { 0x01 }  # Truth values
+sub FALSE()                    { 0x00 }
+
+sub GET_TABLE_MAX_REPETITIONS() {  10 }  # Constant for get_table() 
 
 ## Intialize global variables
 
@@ -190,7 +215,7 @@ sub new
         '_socket'         =>  undef,
         '_type'           =>  undef,
         '_timeout'        =>  DEFAULT_TIMEOUT,
-        '_translate'      =>  TRUE,
+        '_translate'      =>  TRANSLATE_ALL,
         '_var_bind_list'  =>  undef,
         '_version'        =>  SNMP_VERSION_1
    }, $class;
@@ -250,7 +275,7 @@ sub new
          if (!defined($FSM = Net::SNMP::FSM->new())) {
             # You should never see this error!
             $this->_object_error(
-               "Unable to create Net::SNMP Finite State Machine object"
+               'Unable to create Net::SNMP Finite State Machine object'
             );
             return wantarray ? (undef, $this->{'_error'}) : undef;
          }
@@ -840,8 +865,6 @@ sub snmpv2_trap
    }
 }
 
-sub GET_TABLE_MAX_REPETITIONS() { 10 }
-
 sub get_table
 {
    my $this = shift;
@@ -1043,86 +1066,145 @@ sub var_bind_list
 
 sub timeout
 {
-   my ($this, $timeout) = @_;
-
    # Clear any previous error message
-   $this->_object_clear_error;
+   $_[0]->_object_clear_error;
 
    if (@_ == 2) {
-      if (($timeout >= MINIMUM_TIMEOUT) && ($timeout <= MAXIMUM_TIMEOUT)) { 
-         $this->{'_timeout'} = $timeout; 
+      if ($_[1] =~ /^\d+(\.\d+)?$/) {
+         if (($_[1] >= MINIMUM_TIMEOUT) && ($_[1] <= MAXIMUM_TIMEOUT)) { 
+            $_[0]->{'_timeout'} = $_[1]; 
+         } else {
+            return $_[0]->_object_encode_error(
+               "Timeout out of range [%03.01f - %03.01f seconds]",
+               MINIMUM_TIMEOUT, MAXIMUM_TIMEOUT
+            );
+         }
       } else {
-         return $this->_object_encode_error(
-            "Timeout out of range [%03.01f - %03.01f seconds]",
-            MINIMUM_TIMEOUT, MAXIMUM_TIMEOUT
+         return $_[0]->_object_encode_error(
+            'Expected positive numeric timeout value'
          );
       } 
    }
 
-   $this->{'_timeout'};
+   $_[0]->{'_timeout'};
 }
 
 sub retries 
 {
-   my ($this, $retries) = @_;
-
    # Clear any previous error message
-   $this->_object_clear_error;
+   $_[0]->_object_clear_error;
 
    if (@_ == 2) {
-      if (($retries >= MINIMUM_RETRIES) && ($retries <= MAXIMUM_RETRIES)) { 
-         $this->{'_retries'} = $retries; 
+      if ($_[1] =~ /^\d+$/) {
+         if (($_[1] >= MINIMUM_RETRIES) && ($_[1] <= MAXIMUM_RETRIES)) { 
+            $_[0]->{'_retries'} = $_[1]; 
+         } else {
+            return $_[0]->_object_encode_error(
+               "Retries out of range [%d - %d]", 
+               MINIMUM_RETRIES, MAXIMUM_RETRIES
+            );
+         }
       } else {
-         return $this->_object_encode_error(
-            "Retries out of range [%d - %d]", MINIMUM_RETRIES, MAXIMUM_RETRIES
+         return $_[0]->_object_encode_error(
+            'Expected positive numeric retries value'
          );
       }
    }
 
-   $this->{'_retries'};
+   $_[0]->{'_retries'};
 }
 
 sub mtu 
 {
-   my ($this, $mtu) = @_;
-
    # Clear any previous error message
-   $this->_object_clear_error;
+   $_[0]->_object_clear_error;
 
    if (@_ == 2) {
-      if (($mtu >= MINIMUM_MTU) && ($mtu <= MAXIMUM_MTU )) { 
-         $this->{'_mtu'} = $mtu; 
+      if ($_[1] =~ /^\d+$/) {
+         if (($_[1] >= MINIMUM_MTU) && ($_[1] <= MAXIMUM_MTU )) { 
+            $_[0]->{'_mtu'} = $_[1]; 
+         } else {
+            return $_[0]->_object_encode_error(
+               "MTU out of range [%d - %d octets]", MINIMUM_MTU, MAXIMUM_MTU
+            );
+         }
       } else {
-         return $this->_object_encode_error(
-            "MTU out of range [%d - %d octets]", MINIMUM_MTU, MAXIMUM_MTU
+         return $_[0]->_object_encode_error(
+            'Expected positive numeric MTU value'
          );
       }
    }
 
-   $this->{'_mtu'};
+   $_[0]->{'_mtu'};
 }
 
 sub translate
 {
-   my ($this, $flag) = @_;
+   # Clear any previous error message
+   $_[0]->_object_clear_error;
  
    if (@_ == 2) {
-      if ($flag) {
-         $this->{'_translate'} = TRUE;
+
+      if (ref($_[1]) ne 'ARRAY') {
+ 
+         # Behave like we did before, do (not) translate everything
+         $_[0]->_object_translate_mask($_[1], TRANSLATE_ALL);
+
       } else {
-         $this->{'_translate'} = FALSE;
+
+         # Allow the user to turn off and on specific translations.  An
+         # array is used so the order of the arguments controls how the
+         # mask is defined.
+
+         my @argv = @{$_[1]};
+         my $type;
+
+         while (defined($type = shift(@argv))) {
+            if ($type =~ /^-?all$/i) {
+               $_[0]->_object_translate_mask(shift(@argv), TRANSLATE_ALL);
+            } elsif ($type =~ /^-?none$/i) {
+               $_[0]->_object_translate_mask(shift(@argv), TRANSLATE_NONE);
+            } elsif ($type =~ /^-?octet_?string$/i) {
+               $_[0]->_object_translate_mask(
+                  shift(@argv), TRANSLATE_OCTET_STRING
+               );
+            } elsif ($type =~ /^-?null$/i) {
+               $_[0]->_object_translate_mask(shift(@argv), TRANSLATE_NULL);
+            } elsif ($type =~ /^-?timeticks$/i) {
+               $_[0]->_object_translate_mask(shift(@argv), TRANSLATE_TIMETICKS);
+            } elsif ($type =~ /^-?opaque$/i) {
+               $_[0]->_object_translate_mask(shift(@argv), TRANSLATE_OPAQUE);
+            } elsif ($type =~ /^-?nosuchobject$/i) {
+               $_[0]->_object_translate_mask(
+                  shift(@argv), TRANSLATE_NOSUCHOBJECT
+               );
+            } elsif ($type =~ /^-?nosuchinstance$/i) {
+               $_[0]->_object_translate_mask(
+                  shift(@argv), TRANSLATE_NOSUCHINSTANCE
+               ); 
+            } elsif ($type =~ /^-?endofmibview$/i) {
+               $_[0]->_object_translate_mask(
+                  shift(@argv), TRANSLATE_ENDOFMIBVIEW
+               );
+            } else {
+               return $_[0]->_object_error( 
+                  "Invalid translate argument '%s'", $type
+               );
+            }
+         }
+
       }
+
+      DEBUG_INFO("translate = 0x%02x", $_[0]->{'_translate'});
    }
 
-   $this->{'_translate'};
+   $_[0]->{'_translate'};
 }
 
 sub debug
 {
-   my ($this, $flag) = @_;
-
    if (@_ == 2) {
-      if ($flag) {
+      if ($_[1]) {
          $Net::SNMP::DEBUG = TRUE;
       } else {
          $Net::SNMP::DEBUG = FALSE;
@@ -1749,7 +1831,7 @@ sub _snmp_send_and_validate
    my ($rout, $rin, $value, $buffer) = ('', '', undef, undef);
 
    # Make sure the socket is still open
-   if (!fileno($this->{'_socket'})) {
+   if (!defined($this->{'_socket'})) {
       return $this->_udp_error('Session is closed');
    }
 
@@ -2564,9 +2646,11 @@ sub _asn1_decode_octet_string
       return $this->_asn1_decode_error;
    }
 
+   my $mask = ($type == OPAQUE) ? TRANSLATE_OPAQUE : TRANSLATE_OCTET_STRING;
+
    if (defined($string = $this->_object_get_buffer($length))) {
       if (($string =~ /[\x01-\x08\x0b\x0e-\x1f\x7f-\xff]/g) && 
-          ($this->translate)) 
+          ($this->{'_translate'} & $mask)) 
       {
          DEBUG_INFO(
             "translating %s to printable hex string", _asn1_itoa($type)
@@ -2593,7 +2677,7 @@ sub _asn1_decode_null
       return $this->_asn1_decode_error('NULL length not equal to zero');
    }
 
-   if ($this->translate) {
+   if ($this->{'_translate'} & TRANSLATE_NULL) {
       DEBUG_INFO("translating NULL to 'NULL' string");
       'NULL';
    } else {
@@ -2698,7 +2782,7 @@ sub _asn1_decode_timeticks
    my $ticks = undef;
 
    if (defined($ticks = $this->_asn1_decode_integer32(TIMETICKS))) {
-      if ($this->translate) {
+      if ($this->{'_translate'} & TRANSLATE_TIMETICKS) {
          DEBUG_INFO("translating %u TimeTicks to time\n", $ticks);
          return _asn1_ticks_to_time($ticks);
       } else {
@@ -2804,7 +2888,7 @@ sub _asn1_decode_nosuchobject
       return $this->_asn1_decode_error('noSuchObject length not equal to zero');
    }
 
-   if ($this->translate) {
+   if ($this->{'_translate'} & TRANSLATE_NOSUCHOBJECT) {
       DEBUG_INFO("translating noSuchObject to 'noSuchObject' string");
       'noSuchObject';
    } else {
@@ -2834,7 +2918,7 @@ sub _asn1_decode_nosuchinstance
       );
    }
 
-   if ($this->translate) {
+   if ($this->{'_translate'} & TRANSLATE_NOSUCHINSTANCE) {
       DEBUG_INFO("translating noSuchInstance to 'noSuchInstance' string");
       'noSuchInstance';
    } else {
@@ -2862,7 +2946,7 @@ sub _asn1_decode_endofmibview
       return $this->_asn1_decode_error('endOfMibView length not equal to zero');
    }
 
-   if ($this->translate) {
+   if ($this->{'_translate'} & TRANSLATE_ENDOFMIBVIEW) {
       DEBUG_INFO("translating endOfMibView to 'endOfMibView' string");
       'endOfMibView';
    } else {
@@ -3087,7 +3171,7 @@ sub _udp_send_message
    my ($retries, $rout, $rin, $late) = (0, '', '', 0);
 
    # Make sure the socket is still open
-   if (!fileno($this->{'_socket'})) {
+   if (!defined($this->{'_socket'})) {
       return $this->_udp_error('Session is closed');
    }
 
@@ -3119,7 +3203,7 @@ sub _udp_send_buffer
    my ($length, $host_port, $host_addr) = (0, undef, undef);
 
    # Make sure the socket is still open
-   if (!fileno($this->{'_socket'})) {
+   if (!defined($this->{'_socket'})) {
       return $this->_udp_error('Session is closed');
    }
 
@@ -3145,7 +3229,7 @@ sub _udp_recv_buffer
    my $sockaddr = undef;
 
    # Make sure the socket is still open
-   if (!fileno($this->{'_socket'})) {
+   if (!defined($this->{'_socket'})) {
       return $this->_udp_error('Session is closed');
    }
 
@@ -3245,7 +3329,7 @@ sub _object_queue_message
       );
    }
 
-   if (!fileno($this->{'_socket'})) {
+   if (!defined($this->{'_socket'})) {
       return $this->_object_encode_error('Session is closed');
    }
 
@@ -3506,6 +3590,22 @@ sub _object_buffer_length
    length $_[0]->{'_buffer'}; 
 }
 
+sub _object_translate_mask
+{
+   # Define the translate bitmask for the object based on the
+   # passed truth value and mask.
+
+   if (@_ != 3) {
+      return $_[0]->{'_translate'};
+   }
+
+   if ($_[1]) {
+      $_[0]->{'_translate'} |= $_[2];  # Enable 
+   } else {
+      $_[0]->{'_translate'} &= ~$_[2]; # Disable 
+   }
+}
+
 sub _object_encode_error
 {
    my $this = shift;
@@ -3533,7 +3633,8 @@ sub _object_error
    if (!defined($this->{'_error'})) {
       $this->{'_error'} = sprintf $format, @message;
       if ($this->debug) {
-         my $index = caller(3) ? 1 : 0; 
+         my $index = (caller(1))[3] =~ /error/ ? 1 : 0;
+#         my $index = caller(3) ? 1 : 0; 
          printf("error: [%d] %s(): %s\n", 
             (caller($index))[2], (caller($index + 1))[3], $this->{'_error'} 
          );
@@ -3595,12 +3696,12 @@ sub _debug_dump_buffer
 
 package Net::SNMP::FSM;
 
-# $Id: FSM.pm,v 2.0 2000/05/06 04:14:24 dtown Exp $
+# $Id: FSM.pm,v 2.1 2000/09/09 14:22:03 dtown Exp $
 # $Source: /us/dtown/Projects/Net-SNMP/FSM.pm,v $
 
 # Finite State Machine for the Net::SNMP event loop.
 
-# Copyright (c) 1999-2000 David M. Town <dtown@fore.com>.
+# Copyright (c) 1999-2000 David M. Town <david.town@marconi.com>.
 # All rights reserved.
 
 # This program is free software; you may redistribute it and/or modify it
@@ -3610,7 +3711,7 @@ package Net::SNMP::FSM;
 
 ## Version of Net::SNMP::FSM module
 
-$Net::SNMP::FSM::VERSION = 2.00;
+$Net::SNMP::FSM::VERSION = 2.10;
 
 ## Import and initialize global symbols
 
@@ -3676,7 +3777,7 @@ sub one_event
 { 
    $_[0]->{'_active'}   = TRUE;
    $_[0]->{'_blocking'} = FALSE;
-   $_[0]->_event_handle; 
+   if (defined($_[0]->{'_event_queue_h'})) { $_[0]->_event_handle; } 
    $_[0]->{'_active'}   = FALSE;
 }
 
@@ -3697,14 +3798,13 @@ sub _event_handle
 
    my $event = $this->{'_event_queue_h'}; 
 
-   # First see if the event needs initialized
-   if ($event->state == STATE_INIT) {
-      return $this->_action_init($event); 
+   # Calculate a timeout based on the current time and the lowest 
+   # event time (if the event does not need initialized).
+   
+   my $timeout = 0;
+   if ($event->state != STATE_INIT) {
+      $timeout = $event->time - time();
    }
-
-   # Calculate a timeout based on the current time and the lowest event time
-
-   my $timeout = $event->time - time();
 
    # If the timeout is less than 0, we are running late.
    if ($timeout >= 0) {
@@ -3728,8 +3828,10 @@ sub _event_handle
   
    # If we made it here, no data was received during the poll cycle, so 
    # we take action on the object at the head of the queue.
- 
-   if ($event->state == STATE_PENDING) {
+
+   if ($event->state == STATE_INIT) {
+      return $this->_action_init($event); 
+   } elsif ($event->state == STATE_PENDING) {
       return $this->_action_send($event);
    } elsif ($event->state == STATE_WAITING) {
       return $this->_action_timeout($event);
@@ -3819,7 +3921,10 @@ sub _action_read_data
 {
    my ($this, $socket) = @_;
 
-   if (!fileno($socket)) { return $this->_object_error('Invalid socket'); } 
+   # Validate the passed socket
+   if ((!defined($socket)) || (!fileno($socket))) { 
+      return $this->_object_error('Invalid socket'); 
+   } 
 
    my $object = $this->{'_decode_object'};
 
@@ -3867,7 +3972,7 @@ sub _action_read_data
 
       } else {
 
-         # We received a reponse for a request-id that was not
+         # We received a response for a request-id that was not
          # waiting for a response?  
  
          DEBUG_INFO("unexpected response, request-id = %d, state = %s",
@@ -3889,7 +3994,7 @@ sub _action_queue
    }
 
    # Validate the socket status
-   if (!fileno($message->_socket)) {
+   if ((!defined($message->_socket)) || (!fileno($message->_socket))) {
       return $this->_object_error('Socket is invalid');
    }
 
@@ -4036,12 +4141,12 @@ sub _object_error
 
 package Net::SNMP::FSM::Event;
 
-# $Id: Event.pm,v 1.0 2000/05/06 04:13:01 dtown Exp $
+# $Id: Event.pm,v 1.0.1.1 2000/09/09 14:18:26 dtown Exp $
 # $Source: /us/dtown/Projects/Net-SNMP/Event.pm,v $
 
 # Event object used by the Net::SNMP Finite State Machine
 
-# Copyright (c) 2000 David M. Town <dtown@fore.com>.
+# Copyright (c) 2000 David M. Town <david.town@marconi.com>.
 # All rights reserved.
 
 # This program is free software; you may redistribute it and/or modify it
@@ -4051,7 +4156,7 @@ package Net::SNMP::FSM::Event;
 
 ## Version of Net::SNMP::FSM::Event module
 
-$Net::SNMP::FSM::Event::VERSION = 1.00;
+$Net::SNMP::FSM::Event::VERSION = 1.01;
 
 ## Import debug function
 
@@ -4268,7 +4373,7 @@ __DATA__
 ###
 ## POD formatted documentation for Perl module Net::SNMP.
 ##
-## $Id: Net-SNMP.pod,v 3.5 2000/05/06 04:17:44 dtown Exp $
+## $Id: Net-SNMP.pod,v 3.6 2000/09/09 14:26:51 dtown Exp $
 ## $Source: /us/dtown/Projects/Net-SNMP/Net-SNMP.pod,v $
 ##
 ###
@@ -4936,7 +5041,23 @@ the cause.
 
 =head2 translate() - enable or disable the translation mode for the object
 
-   $mode = $session->translate([$mode]);
+   $mask = $session->translate([$mode]);
+
+   or
+
+   $mask = $session->translate([ 
+                        [ # Perl anonymous ARRAY reference 
+                           ['-all'            => $mode1,]
+                           ['-octetstring     => $mode2,]
+                           ['-null'           => $mode3,]
+                           ['-timeticks'      => $mode4,]
+                           ['-opaque'         => $mode5,]
+                           ['-nosuchobject'   => $mode6,] 
+                           ['-nosuchinstance' => $mode7,]
+                           ['-endofmibview'   => $mode8]  
+                        ]
+                     ]);
+   
 
 When the object decodes the GetResponse-PDU that is returned in response to
 a SNMP message, certain values are translated into a more "human readable"
@@ -4946,8 +5067,8 @@ form.  By default the following translations occur:
 
 =item *
 
-OCTET STRINGs containing non-printable characters are converted into a 
-hexadecimal representation prefixed with "0x".
+OCTET STRINGs and Opaques containing non-printable characters are converted 
+into a hexadecimal representation prefixed with "0x". 
 
 =item *
 
@@ -4980,11 +5101,29 @@ L<"EXPORTS">).
 
 =back
 
-If a parameter is specified, the translation mode is set to either enabled
-or disabled depending on the value of the passed parameter.  Any value that
-Perl would treat as a true value will set the mode to be enabled, while a
-false value will disable translation.  The current state of the translation 
-mode is returned by the method.
+The C<translate()> method can be invoked with two different types of arguments.
+
+If the argument passed is any Perl variable type except an array reference,
+the translation mode for all ASN.1 type is set to either enabled or disabled 
+depending on the value of the passed parameter.  Any value that Perl would 
+treat as a true value will set the mode to be enabled for all types, while a 
+false value will disable translation for all types.
+
+A reference to an array can be passed to the C<translate()> method in order to
+defined the translation mode on a per ASN.1 type basis.  The array is expected
+to contain a list of named argument pairs for each ASN.1 type that is to
+be modified.  The arguments in the list are applied in the order that they
+are passed in via the array.  Arguments at the end of the list supercede 
+those passed earlier in the list.  The argument "-all" can be used to specify
+that the mode is to apply to all ASN.1 types.  Only the arguments for the 
+ASN.1 types that are to be modified need to be included in the list.
+
+The C<translate()> method returns a bit mask indicating which ASN.1 types
+are to be translated.  Definitions of the bit to ASN.1 type mappings can be
+exported using the ":translate" tag (see L<"EXPORTS">).  The undefined value 
+is returned upon an error and the C<error()> method may be used to determine 
+the cause.
+
 
 =head2 debug() - set or get the debug mode for the module 
 
@@ -5048,7 +5187,10 @@ GET_NEXT_REQUEST, GET_RESPONSE, SET_REQUEST, TRAP, GET_BULK_REQUEST,
 INFORM_REQUEST, SNMPV2_TRAP, COLD_START, WARM_START, LINK_DOWN, LINK_UP, 
 AUTHENTICATION_FAILURE, EGP_NEIGHBOR_LOSS, ENTERPRISE_SPECIFIC, 
 SNMP_VERSION_1, SNMP_VERSION_2C, SNMP_PORT, SNMP_TRAP_PORT, snmp_debug, 
-snmp_event_loop, oid_context_match, oid_lex_sort,  ticks_to_time
+snmp_event_loop, oid_context_match, oid_lex_sort, ticks_to_time,
+TRANSLATE_NONE, TRANSLATE_OCTET_STRING, TRANSLATE_NULL, TRANSLATE_TIMETICKS,
+TRANSLATE_OPAQUE, TRANSLATE_NOSUCHOBJECT, TRANSLATE_NOSUCHINSTANCE,
+TRANSLATE_ENDOFMIBVIEW, TRANSLATE_ALL
 
 =item Tags
 
@@ -5072,6 +5214,12 @@ EGP_NEIGHBOR_LOSS, ENTERPRISE_SPECIFIC
 SNMP_VERSION_1, SNMP_VERSION_2C, SNMP_PORT, SNMP_TRAP_PORT, snmp_debug, 
 snmp_event_loop, oid_context_match, oid_lex_sort, ticks_to_time
 
+=item :translate
+
+TRANSLATE_NONE, TRANSLATE_OCTET_STRING, TRANSLATE_NULL, TRANSLATE_TIMETICKS,
+TRANSLATE_OPAQUE, TRANSLATE_NOSUCHOBJECT, TRANSLATE_NOSUCHINSTANCE, 
+TRANSLATE_ENDOFMIBVIEW, TRANSLATE_ALL
+
 =item :ALL
 
 All of the above exportable items.
@@ -5089,18 +5237,14 @@ This example gets the sysUpTime from a remote host:
    #! /usr/local/bin/perl
 
    use strict;
-   use vars qw($hostname $community $port $session $error $response);
+   use vars qw($session $error $response);
 
    use Net::SNMP;
 
-   $hostname  = shift || 'localhost';
-   $community = shift || 'public';
-   $port      = shift || 161;
-
    ($session, $error) = Net::SNMP->session(
-      -hostname  => $hostname,
-      -community => $community,
-      -port      => $port
+      -hostname  => shift || 'localhost',
+      -community => shift || 'public',
+      -port      => shift || 161 
    );
 
    if (!defined($session)) {
@@ -5111,17 +5255,17 @@ This example gets the sysUpTime from a remote host:
    my $sysUpTime = '1.3.6.1.2.1.1.3.0';
 
    if (!defined($response = $session->get_request($sysUpTime))) {
-      printf("ERROR: %s.\n", $session->error);
-      $session->close;
+      printf("ERROR: %s.\n", $session->error());
+      $session->close();
       exit 1;
    }
 
    printf("sysUpTime for host '%s' is %s\n", 
-      $hostname, 
+      $session->hostname(), 
       $response->{$sysUpTime}
    );
 
-   $session->close;
+   $session->close();
 
    exit 0;
 
@@ -5132,18 +5276,14 @@ This example sets the sysContact information on the remote host to "Help Desk":
    #! /usr/local/bin/perl
 
    use strict;
-   use vars qw($hostname $community $port $session $error $response);
+   use vars qw($session $error $response);
 
    use Net::SNMP;
 
-   $hostname  = shift || 'localhost';
-   $community = shift || 'private';
-   $port      = shift || 161;
-
    ($session, $error) = Net::SNMP->session(
-      -hostname  => $hostname,
-      -community => $community,
-      -port      => $port
+      -hostname  => shift || 'localhost',
+      -community => shift || 'private',
+      -port      => shift || 161
    );
 
    if (!defined($session)) {
@@ -5157,17 +5297,17 @@ This example sets the sysContact information on the remote host to "Help Desk":
    $response = $session->set_request($sysContact, OCTET_STRING, $contact);
 
    if (!defined($response)) {
-      printf("ERROR: %s.\n", $session->error);
-      $session->close;
+      printf("ERROR: %s.\n", $session->error());
+      $session->close();
       exit 1;
    }
 
    printf("sysContact for host '%s' set to '%s'\n", 
-      $hostname,
+      $session->hostname(),
       $response->{$sysContact}
    );
 
-   $session->close;
+   $session->close();
 
    exit 0;
 
@@ -5198,17 +5338,20 @@ the last poll:
    foreach (@hosts) {
       my ($session, $error) = Net::SNMP->session(
          -hostname    => $_,
-         -nonblocking => 0x1,  # Create non-blocking objects
-         -translate   => 0x0   # Turn off so sysUpTime is numeric
+         -nonblocking => 0x1,   # Create non-blocking objects
+         -translate   => [
+            -timeticks => 0x0   # Turn off so sysUpTime is numeric
+         ]   
       );
       if (!defined($session)) {
          printf("ERROR: %s.\n", $error);
-         foreach (@sessions) { $_->[0]->close; }
+         foreach (@sessions) { $_->[0]->close(); }
          exit 1;
       }
 
-      # Create an array of arrays which contain the new object, 
-      # and the last sysUpTime.
+      # Create an array of arrays which contain the new 
+      # object and the last sysUpTime.
+
       push(@sessions, [$session, 0]);
    }
 
@@ -5238,7 +5381,7 @@ the last poll:
    }
 
    # Not necessary, but it is nice to clean up after yourself
-   foreach (@sessions) { $_->[0]->close; }
+   foreach (@sessions) { $_->[0]->close(); }
 
    exit 0;
 
@@ -5246,19 +5389,19 @@ the last poll:
    {
       my ($this, $last_uptime) = @_;
 
-      if (!defined($this->var_bind_list)) {
-         printf("%-15s  ERROR: %s\n", $this->hostname, $this->error);
+      if (!defined($this->var_bind_list())) {
+         printf("%-15s  ERROR: %s\n", $this->hostname(), $this->error());
       } else {
-         my $uptime = $this->var_bind_list->{$sysUpTime};
+         my $uptime = $this->var_bind_list()->{$sysUpTime};
          if ($uptime < ${$last_uptime}) {
             printf("%-15s  WARNING: %s is less than %s\n",
-               $this->hostname, 
+               $this->hostname(), 
                ticks_to_time($uptime), 
                ticks_to_time(${$last_uptime})
             );
          } else {
             printf("%-15s  Ok (%s)\n", 
-               $this->hostname, 
+               $this->hostname(), 
                ticks_to_time($uptime)
             );
          }
@@ -5266,13 +5409,13 @@ the last poll:
          ${$last_uptime} = $uptime;
       }
 
-      $this->error_status;
+      $this->error_status();
    }
 
 
 =head1 AUTHOR
 
-David M. Town <dtown@fore.com>
+David M. Town <david.town@marconi.com>
 
 =head1 ACKNOWLEDGMENTS
 

@@ -1,12 +1,12 @@
 # -*- mode: perl -*-
 # ============================================================================
 
-# $Id: socket.t,v 1.2 2000/01/01 17:52:25 dtown Exp $
+# $Id: socket.t,v 1.3 2000/09/09 14:29:47 dtown Exp $
 # $Source: /us/dtown/Projects/Net-SNMP/socket.t,v $
 
 # Socket test for Perl module Net::SNMP.
 
-# Copyright (c) 1999-2000 David M. Town <dtown@fore.com>.
+# Copyright (c) 1999-2000 David M. Town <david.town@marconi.com>.
 # All rights reserved.
 
 # This program is free software; you may redistribute it and/or modify it

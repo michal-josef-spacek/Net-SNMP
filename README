@@ -1,5 +1,5 @@
 
-                       Net::SNMP, version 3.50 
+                       Net::SNMP, version 3.60 
 
 NAME
 
@@ -38,7 +38,7 @@ DOCUMENTATION
 
 AUTHOR
 
-    David M. Town <dtown@fore.com>
+    David M. Town <david.town@marconi.com>
 
 COPYRIGHT
 
@@ -48,5 +48,5 @@ COPYRIGHT
 
 RCS
 
-    $Id: README,v 3.5 2000/05/06 04:18:55 dtown Exp $
+    $Id: README,v 3.6 2000/09/09 14:28:49 dtown Exp $
 

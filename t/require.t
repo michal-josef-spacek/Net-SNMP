@@ -1,12 +1,12 @@
 # -*- mode: perl -*-
 # ============================================================================
 
-# $Id: require.t,v 2.1 2000/01/01 17:52:10 dtown Exp $
+# $Id: require.t,v 2.2 2000/09/09 14:29:28 dtown Exp $
 # $Source: /us/dtown/Projects/Net-SNMP/require.t,v $
 
 # Required module test for Perl module Net::SNMP.
 
-# Copyright (c) 1999-2000 David M. Town <dtown@fore.com>.
+# Copyright (c) 1999-2000 David M. Town <david.town@marconi.com>.
 # All rights reserved.
 
 # This program is free software; you may redistribute it and/or modify it

@@ -1,5 +1,12 @@
                             Net::SNMP Changes
 
+RELEASE 3.60 SEP-09-2000
+
+- Translation can now be enabled or disabled on a per ASN.1 type basis.
+- The Net::SNMP::FSM "event loop" now prioritizes processing SNMP responses
+  over other actions.
+- A set of example scripts is now included with the distribution.
+
 RELEASE 3.50 MAY-06-2000
 
 - The methods that expect a SNMP GetResponse-PDU in "blocking" mode now ignore
@@ -11,7 +18,7 @@ RELEASE 3.50 MAY-06-2000
   the Net::SNMP timeout has expired.
 - A new argument "-delay" was added to all methods that can function in "non-
   blocking" mode.
-- The Net::SNMP:FSM "event loop" sub-module was completely rewritten to more
+- The Net::SNMP::FSM "event loop" sub-module was completely rewritten to more
   logically handle events.
 - The get_table() method now uses get-bulk-requests instead of
   get-next-requests when the calling object's version is SNMPv2c.
@@ -107,4 +114,4 @@ RELEASE 1.00 SEP-09-1998
 
 RCS
 
-    $Id: Changes,v 3.5 2000/05/06 04:11:20 dtown Exp $
+    $Id: Changes,v 3.60 2000/09/09 14:14:06 dtown Exp $
