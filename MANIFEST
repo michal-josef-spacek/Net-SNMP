@@ -5,3 +5,4 @@ Makefile.PL
 README
 t/require.t
 t/socket.t
+t/using.t

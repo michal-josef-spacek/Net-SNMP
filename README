@@ -1,5 +1,5 @@
 
-                       Net::SNMP, version 1.40
+                       Net::SNMP, version 2.00
 
 NAME
 
@@ -8,13 +8,14 @@ NAME
 DESCRIPTION
 
     The module Net::SNMP implements an object oriented interface to
-    the Simple Network Management Protocol version-1. The module
-    allows a Perl application to retrieve or update information on a
-    remote host using the SNMP protocol. The module is implemented 
-    completely in Perl, requires no compiling, and uses only standard 
-    Perl modules. The Net::SNMP module assumes a basic understanding 
-    of the Simple Network Management Protocol and related network 
-    management concepts.
+    the Simple Network Management Protocol.  Perl applications can
+    use the module to retrieve or update information on a remote
+    host using the SNMP protocol.  Net::SNMP is implemented completely
+    in Perl, requires no compiling, and uses only standard Perl 
+    modules.  Both SNMPv1 and SNMPv2c (Community-Based SNMPv2) are
+    supported by the module.  The Net::SNMP module assumes that the
+    user has a basic understanding of the Simple Network Management 
+    Protocol and related network management concepts.
 
 INSTALLATION
 
@@ -47,5 +48,5 @@ COPYRIGHT
 
 RCS
 
-    $Id: README,v 1.4 1999/04/26 13:11:47 dtown Exp $
+    $Id: README,v 2.0 1999/05/06 16:04:28 dtown Exp $
 

@@ -1,5 +1,13 @@
                             Net::SNMP Changes
 
+RELEASE 2.00 MAY-06-1999
+
+- Added support for SNMPv2c (Community-Based SNMPv2).
+- Modified the ASN.1 encode routine for INTEGERs to correctly handle 
+  positive values greater than 8388607.
+- Added an installation test to verify basic usage of the module, 
+  including verification of basic encode and decode methods.
+
 RELEASE 1.40 APR-26-1999
 
 - All parameters for the object that used to be only configurable via an 
@@ -17,7 +25,7 @@ RELEASE 1.40 APR-26-1999
 RELEASE 1.30 MAR-17-1999
 
 - Modified the OBJECT INDENTIFIER decode method to return a leading dot
-  on all indentifiers if there was a leading dot on any OBJECT IDENTIFIER
+  on all identifiers if there was a leading dot on any OBJECT IDENTIFIER
   passed to the encode method. 
 - Changed the address comparison used when receiving an UDP packet to just 
   include the port and address information in order to work around an AIX 
@@ -50,4 +58,4 @@ RELEASE 1.00 SEP-09-1998
 
 RCS
 
-    $Id: Changes,v 1.4 1999/04/26 13:08:20 dtown Exp $
+    $Id: Changes,v 2.0 1999/05/06 16:01:41 dtown Exp $

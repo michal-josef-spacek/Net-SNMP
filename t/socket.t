@@ -1,6 +1,7 @@
+# -*- mode: perl -*-
 # ============================================================================
 
-# $Id: socket.t,v 1.0 1999/04/26 13:16:48 dtown Exp $
+# $Id: socket.t,v 1.1 1999/05/06 16:07:27 dtown Exp $
 # $Source: /home/dtown/Projects/Net-SNMP/socket.t,v $
 
 # Socket test for Perl module Net::SNMP.

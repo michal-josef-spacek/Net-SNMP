@@ -1,6 +1,7 @@
+# -*- mode: perl -*-
 # ============================================================================
 
-# $Id: require.t,v 1.0 1999/04/26 13:16:14 dtown Exp $
+# $Id: require.t,v 2.0 1999/05/06 16:06:04 dtown Exp $
 # $Source: /home/dtown/Projects/Net-SNMP/require.t,v $
 
 # Required module test for Perl module Net::SNMP.
@@ -18,7 +19,7 @@ BEGIN { $|=1; $^W=1; }
 use strict;
 use Test;
 
-BEGIN { plan tests => 4 };
+BEGIN { plan tests => 5 };
 
 # Exporter.pm
 eval { require Exporter; };
@@ -35,5 +36,9 @@ ok($@, '', 'Required module Symbol missing');
 # Sys::Hostname.pm
 eval { require Sys::Hostname; };
 ok($@, '', 'Required module Sys::Hostname missing');
+
+# Math::BigInt.pm
+eval { require Math::BigInt; };
+ok($@, '', 'Required module Math::BigInt missing');
 
 # ============================================================================
