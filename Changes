@@ -1,5 +1,26 @@
                             Net::SNMP Changes
 
+RELEASE 3.50 MAY-06-2000
+
+- The methods that expect a SNMP GetResponse-PDU in "blocking" mode now ignore
+  messages with request-ids that do not match the current request-id.  This
+  change addresses a common occurrence of the "Received request-id xxxx is
+  not equal to transmitted request-id xxxx" error.  The manifestation of this
+  error that has been corrected occurs when a remote agent is too busy to
+  respond immediately, buffers the request, and responds to the request after
+  the Net::SNMP timeout has expired.
+- A new argument "-delay" was added to all methods that can function in "non-
+  blocking" mode.
+- The Net::SNMP:FSM "event loop" sub-module was completely rewritten to more
+  logically handle events.
+- The get_table() method now uses get-bulk-requests instead of
+  get-next-requests when the calling object's version is SNMPv2c.
+- When a duplicate OBJECT IDENTIFIER is received in the VarBindList of a
+  GetResponse-PDU, the duplicate is now padded with an appropriate number of
+  spaces to make it an unique key in the HASH reference returned by the object.
+- The default Maximum Transport Unit was changed from 484 to 1500.  The
+  minimum allow MTU is now 484.
+
 RELEASE 3.01 JAN-01-2000
 
 - Performance enhancements were made to the most heavily used methods.
@@ -86,4 +107,4 @@ RELEASE 1.00 SEP-09-1998
 
 RCS
 
-    $Id: Changes,v 3.0.1.1 2000/01/01 17:57:12 dtown Exp $
+    $Id: Changes,v 3.5 2000/05/06 04:11:20 dtown Exp $

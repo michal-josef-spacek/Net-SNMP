@@ -1,7 +1,7 @@
 # -*- mode: perl -*-
 # ============================================================================
 
-# $Id: Makefile.PL,v 1.4 2000/01/01 17:54:38 dtown Exp $
+# $Id: Makefile.PL,v 2.0 2000/05/06 04:16:30 dtown Exp $
 # $Source: /us/dtown/Projects/Net-SNMP/Makefile.PL,v $
 
 # Makefile for Perl module Net::SNMP.
@@ -17,10 +17,14 @@
 use ExtUtils::MakeMaker qw(WriteMakefile);
 
 WriteMakefile(
-   NAME         => 'Net::SNMP',
-   DISTNAME     => 'Net-SNMP',
-   VERSION_FROM => 'lib/Net/SNMP.pm',
-   dist         => { COMPRESS => 'gzip', SUFFIX => 'gz' },
+   NAME          => 'Net::SNMP',
+   DISTNAME      => 'Net-SNMP',
+   VERSION_FROM  => 'lib/Net/SNMP.pm',
+   dist          => { COMPRESS => 'gzip', SUFFIX => 'gz' },
+   ($] ge '5.005') ? (
+      'AUTHOR'   => 'David M. Town <dtown@fore.com>',
+      'ABSTRACT' => 'Object oriented interface to SNMP',
+   ) : (),
 );
 
 exit 0;
