@@ -1,5 +1,21 @@
                             Net::SNMP Changes
 
+RELEASE 3.00 AUG-xx-1999
+
+- Added event loop based "non-blocking" support.
+- Deprecated the verify_ip() method because verification of the received
+  IP address and port number is no longer done.
+- The "null" character (\000) no longer triggers an OCTET STRING in a
+  GetResponse-PDU to be converted to a hexadecimal representation if
+  translation is enabled.
+- A single socket is now used for all Net:SNMP objects.
+- Corrected an error where a blocking session would send one too many 
+  retries and fail to listen for the last message sent.
+- Added a new export tag ":snmp" used to define SNMP related symbols.
+- New utility functions oid_context_match(), oid_lex_sort(), and 
+  ticks_to_time() were added to provide support for commonly requested 
+  tasks.
+
 RELEASE 2.00 MAY-06-1999
 
 - Added support for SNMPv2c (Community-Based SNMPv2).

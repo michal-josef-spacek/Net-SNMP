@@ -17,14 +17,33 @@ package Net::SNMP;
 # Copyright (c) 1998-1999 David M. Town <dtown@fore.com>.
 # All rights reserved.
 
+##############################################################################
+#                                                                            #
+#    ** THIS IS AN ALPHA VERSION OF THIS MODULE RELEASED FOR TESTING. **     # 
+#                                                                            #
+#        ** THE INTERFACE MAY CHANGE BEFORE THE FINAL RELEASE. **            #
+#                                                                            #
+#                      ** USE AT YOUR OWN RISK. **                           #
+#                                                                            #
+##############################################################################
+
 # This program is free software; you may redistribute it and/or modify it
-# under the same terms as Perl itself. 
+# under the same terms as Perl itself.
 
 # ============================================================================
 
+## Global variables 
+
+use vars qw(
+   @ISA @EXPORT @EXPORT_OK %EXPORT_TAGS @ASN1 @ASN1_PDU @GENERICTRAP @SNMP 
+   $DEBUG $FSM $REQUEST_ID $SOCKET $VERSION 
+);
+
 ## Version of Net::SNMP module
 
-$Net::SNMP::VERSION = 2.00;
+$Net::SNMP::VERSION = 2.99;
+
+use strict;
 
 ## Required version of Perl
 
@@ -34,36 +53,44 @@ require 5.003;
 
 use Exporter();
 
-use vars qw(@ISA @EXPORT @EXPORT_OK %EXPORT_TAGS);
+@ISA = qw(Exporter);
 
-@ISA         = qw(Exporter);
-@EXPORT      = qw(
-                  INTEGER INTEGER32 OCTET_STRING NULL OBJECT_IDENTIFIER 
-                  IPADDRESS COUNTER COUNTER32 GAUGE GAUGE32 UNSIGNED32
-                  TIMETICKS OPAQUE COUNTER64 NOSUCHOBJECT NOSUCHINSTANCE
-                  ENDOFMIBVIEW
-               );
-@EXPORT_OK   = qw(
-                  COLD_START WARM_START LINK_DOWN LINK_UP 
-                  AUTHENTICATION_FAILURE EGP_NEIGHBOR_LOSS 
-                  ENTERPRISE_SPECIFIC
-               );
+@ASN1 = qw(
+   INTEGER INTEGER32 OCTET_STRING NULL OBJECT_IDENTIFIER IPADDRESS  
+   COUNTER COUNTER32 GAUGE GAUGE32 UNSIGNED32 TIMETICKS OPAQUE 
+   COUNTER64 NOSUCHOBJECT NOSUCHINSTANCE ENDOFMIBVIEW 
+);
+
+@ASN1_PDU = qw(
+   GET_REQUEST GET_NEXT_REQUEST GET_RESPONSE SET_REQUEST TRAP
+   GET_BULK_REQUEST INFORM_REQUEST SNMPV2_TRAP
+);
+
+@GENERICTRAP = qw(
+   COLD_START WARM_START LINK_DOWN LINK_UP AUTHENTICATION_FAILURE 
+   EGP_NEIGHBOR_LOSS ENTERPRISE_SPECIFIC 
+);
+
+@SNMP = qw(
+   SNMP_VERSION_1 SNMP_VERSION_2C SNMP_PORT SNMP_TRAP_PORT snmp_debug 
+   oid_context_match oid_lex_sort ticks_to_time
+);
+
+@EXPORT    = (@ASN1, 'snmp_event_loop');
+@EXPORT_OK = (@ASN1_PDU, @GENERICTRAP, @SNMP, 'snmp_one_event');
 
 %EXPORT_TAGS = (
-                  asn1        => [@EXPORT],
-                  generictrap => [@EXPORT_OK], 
-                  ALL         => [@EXPORT, @EXPORT_OK]
-               );
+   asn1        => [@ASN1, @ASN1_PDU],
+   generictrap => [@GENERICTRAP], 
+   snmp        => [@SNMP, 'snmp_event_loop'],
+   ALL         => [@EXPORT, @EXPORT_OK]
+);
 
 ## Import socket() defines and structure manipulators
 
 use Socket qw(PF_INET SOCK_DGRAM inet_aton inet_ntoa sockaddr_in);
 
 sub IPPROTO_UDP         {   17 }
-
-## Import symbol generating function
-
-use Symbol qw(gensym);
 
 ## ASN.1 Basic Encoding Rules type definitions
 
@@ -121,7 +148,7 @@ sub DEFAULT_COMMUNITY   {    'public' }
 
 sub DEFAULT_MTU         {   484 } # RFC 1157 maximum size in octets
 sub DEFAULT_TIMEOUT	{   2.0 } # Timeout period for UDP in seconds
-sub DEFAULT_RETRIES	{     5 } # Number of retransmissions 
+sub DEFAULT_RETRIES	{     4 } # Number of retransmissions 
 
 sub MINIMUM_MTU         {    30 }    
 sub MINIMUM_TIMEOUT     {   1.0 }   
@@ -134,40 +161,56 @@ sub MAXIMUM_RETRIES     {    20 }
 sub TRUE                  { 0x1 }
 sub FALSE                 { 0x0 }
 
+## Intialize global variables
+
+sub BEGIN
+{
+   # Import symbol generating function
+   use Symbol qw(gensym);
+
+   $DEBUG      = &Net::SNMP::FALSE;
+   $FSM        = undef;
+   $REQUEST_ID = int(rand 0xff) + (time() & 0xff);
+   $SOCKET     = gensym();
+}
+
 # [public methods] -----------------------------------------------------------
 
-sub session
+sub new
 {
    my ($class, %argv) = @_;
-   my ($port, $host_addr, $proto) = (SNMP_PORT, undef, undef);
-   
+
    # Create a new data structure for the object
    my $this = bless {
         '_buffer',        =>  "\0" x DEFAULT_MTU,
+        '_callback'       =>  undef,
         '_community'      =>  DEFAULT_COMMUNITY,
-        '_debug'          =>  FALSE,
         '_error'          =>  undef,
         '_error_index'    =>  0,
         '_error_status'   =>  0,
+        '_fsm'            =>  undef,
         '_hostname'       =>  DEFAULT_HOSTNAME,
         '_leading_dot'    =>  FALSE,
         '_mtu'            =>  DEFAULT_MTU,
-        '_request_id'     =>  (int(rand 0xff) + 1),
+        '_nonblocking'    =>  FALSE,
+        '_port'           =>  SNMP_PORT,
+        '_request_id'     =>  $REQUEST_ID++,
         '_retries'        =>  DEFAULT_RETRIES,
         '_sockaddr'       =>  undef,
-        '_socket'         =>  gensym(),
+        '_socket'         =>  undef,
+        '_type'           =>  undef,
         '_timeout'        =>  DEFAULT_TIMEOUT,
         '_translate'      =>  TRUE,
         '_var_bind_list'  =>  undef,
-        '_verify_ip'      =>  TRUE,
+#       '_verify_ip'      =>  TRUE,               # Deprecated v3.0.0
         '_version'        =>  SNMP_VERSION_1
    }, $class;
 
-   # Validate the passed arguments 
+   # Validate the passed arguments
    foreach (keys %argv) {
       if (/^-?community$/i) {
          if ($argv{$_} eq '') {
-            $this->{'_error'} = 'Empty community specified';
+            $this->_object_error('Empty community specified');
          } else {
             $this->{'_community'} = $argv{$_};
          }
@@ -175,17 +218,23 @@ sub session
          $this->debug($argv{$_});
       } elsif (/^-?hostname$/i) {
          if ($argv{$_} eq '') {
-            $this->{'_error'} = 'Empty hostname specified';
-         } else { 
-            $this->{'_hostname'} = $argv{$_}; 
+            $this->_object_error('Empty hostname specified');
+         } else {
+            $this->{'_hostname'} = $argv{$_};
          }
       } elsif (/^-?mtu$/i) {
          $this->mtu($argv{$_});
+      } elsif (/^-?nonblocking$/i) {
+         if ($argv{$_}) {
+            $this->{'_nonblocking'} = TRUE;
+         } else {
+            $this->{'_nonblocking'} = FALSE;
+         }
       } elsif (/^-?port$/i) {
          if ($argv{$_} !~ /^\d+$/) {
-            $this->{'_error'} = 'Expected numeric port number'; 
-         } else { 
-            $port = $argv{$_}; 
+            $this->_object_error('Expected numeric port number');
+         } else {
+            $this->{'_port'} = $argv{$_};
          }
       } elsif (/^-?retries$/i) {
          $this->retries($argv{$_});
@@ -194,121 +243,264 @@ sub session
       } elsif (/^-?translate$/i) {
          $this->translate($argv{$_});
       } elsif (/^-?verifyip$/i) {
-         $this->verify_ip($argv{$_});
+         $this->verify_ip($argv{$_});  # Deprecated v3.0.0
       } elsif (/^-?version$/i) {
          $this->version($argv{$_});
       } else {
-         $this->{'_error'} = sprintf("Invalid argument '%s'", $_);  
+         $this->_object_error("Invalid argument '%s'", $_);
       }
       if (defined($this->{'_error'})) {
-         if (wantarray) {
-            return (undef, $this->{'_error'});
-         } else {
-            return undef;
-         }
-      }
-   }    
-  
-   # Resolve the hostname to an IP address
-   if (!defined($host_addr = inet_aton($this->{'_hostname'}))) {
-      $this->{'_error'} = sprintf(
-         "Unable to resolve hostname '%s'", $this->{'_hostname'}
-      );
-      if (wantarray) {
-         return (undef, $this->{'_error'});
-      } else {
-         return undef;
+         return wantarray ? (undef, $this->{'_error'}) : undef;
       }
    }
 
+   # Create a global Net:SNMP::FSM object (if not created) when the 
+   # object has the "non-blocking" flag set, and store a reference
+   # to the Finite State Machine (FSM) within the object. 
+
+   if ($this->{'_nonblocking'}) {
+      if ((!defined($FSM)) || (ref($FSM) ne 'Net::SNMP::FSM')) {
+         if (!defined($FSM = Net::SNMP::FSM->new())) {
+            # You should never see this error!
+            $this->_object_error(
+               "Unable to create Net::SNMP Finite State Machine object"
+            );
+            return wantarray ? (undef, $this->{'_error'}) : undef;
+         }
+      }
+      $this->{'_fsm'} = $FSM;
+   }
+
+   # Return the object and empty error message (in list context)
+   wantarray ? ($this, '') : $this;
+}
+
+sub open 
+{
+   my $this = shift;
+   my ($host_addr, $proto) = (undef, undef);
+   
+   # Resolve the hostname to an IP address
+   if (!defined($host_addr = inet_aton($this->hostname))) {
+      return $this->_object_error(
+         "Unable to resolve hostname '%s'", $this->hostname
+      );
+   }
+
    # Pack the address and port information
-   $this->{'_sockaddr'} = sockaddr_in($port, $host_addr);
+   $this->{'_sockaddr'} = sockaddr_in($this->{'_port'}, $host_addr);
 
    # Get the protocol number for UDP
    if (!defined($proto = scalar(getprotobyname('udp')))) { 
       $proto = IPPROTO_UDP;
    } 
 
-   # Open an UDP socket for the object
-   if (!socket($this->{'_socket'}, PF_INET, SOCK_DGRAM, $proto)) {
-      $this->{'_error'} = sprintf("socket(): %s", $!);
-      if (wantarray) {
-         return (undef, $this->{'_error'});
-      } else {
-         return undef;
+   # Open a global UDP socket for the package (if not open), and store
+   # a reference to the socket within the object.
+ 
+   if (!fileno($SOCKET)) {
+      if (!socket($SOCKET, PF_INET, SOCK_DGRAM, $proto)) {
+         return $this->_object_error("socket(): %s", $!);
       }
    }
+   $this->{'_socket'} = $SOCKET;
 
-   # Return the object and empty error message (in list context) 
-   if (wantarray) {
-      return ($this, '');
-   } else {
-      return $this;
-   }
+   TRUE;
 }
 
 sub close
 {
-   my ($this) = @_;
+   my $this = shift;
    
    # Clear all of the buffers and errors
    $this->_object_clear_buffer;
    $this->_object_clear_var_bind_list;
    $this->_object_clear_error;
 
-   # Close the UDP socket and clear the variable name so that
-   # we can tell that the socket has been closed elsewhere.
-
-   if (defined($this->{'_socket'})) { 
-      if (fileno($this->{'_socket'})) { close($this->{'_socket'}); }
-   }
+   # Clear the socket refence so that we can tell that this particular
+   # object has been closed.
 
    $this->{'_socket'} = undef;
+
+   TRUE;
+}
+
+sub session
+{
+   my $class = shift;
+
+   # This is a convenience method (also present for backwards compatiblity),
+   # that just combines the new() and the open() methods into one method.
+
+   my ($this, $error) = $class->new(@_);
+
+   if (defined($this)) { 
+      if (!defined($this->open)) { 
+         return wantarray ? (undef, $this->error) : undef; 
+      }
+   }
+
+   wantarray ? ($this, $error) : $this; 
+}
+
+sub snmp_event_loop 
+{ 
+   ref($FSM) eq 'Net::SNMP::FSM' ? $FSM->event_loop : undef;
+}
+
+sub snmp_one_event
+{ 
+   ref($FSM) eq 'Net::SNMP::FSM' ? $FSM->one_event : undef;
 }
 
 sub get_request
 {
-   my ($this, @oids) = @_;
+   my $this = shift;
 
-   if (!defined($this->_snmp_encode_get_request(@oids))) { 
-      return $this->_object_encode_error; 
-   }
+   # Handle passed arguments according to "blocking" mode
 
-   if (!defined($this->_udp_send_message)) { 
-      return $this->_object_decode_error; 
+   if ($this->{'_nonblocking'}) {
+
+      my %argv = @_;
+      my @var_bind_list = ();
+
+      # Validate the passed arguments
+      foreach (keys %argv) {
+         if (/^-?callback$/i) {
+            if (!defined($this->_object_add_callback($argv{$_}))) {
+               return $this->_object_error;
+            }
+         } elsif (/^-?varbindlist$/i) {
+            if (ref($argv{$_}) ne 'ARRAY') {
+               return $this->_object_error(
+                  'Expected array reference for variable-bindings'
+               );
+            } else {
+               @var_bind_list = @{$argv{$_}};
+            }
+         } else {
+            return $this->_object_error("Invalid argument '%s'", $_);
+         }
+      }
+
+      # Encode and queue the message
+      if (!defined($this->_snmp_encode_get_request(@var_bind_list))) {
+         return $this->_object_encode_error;
+      }
+      $this->_object_queue_message;
+
+   } else {
+
+      # Encode, send and wait, and decode the message
+      if (!defined($this->_snmp_encode_get_request(@_))) { 
+         return $this->_object_encode_error; 
+      }
+      if (!defined($this->_udp_send_message)) { 
+         return $this->_object_decode_error; 
+      }
+      $this->_snmp_validate_get_response; 
+
    }
-  
-   $this->_snmp_decode_get_reponse;
 }
 
 sub get_next_request
 {
-   my ($this, @oids) = @_;
+   my $this = shift;
 
-   if (!defined($this->_snmp_encode_get_next_request(@oids))) {
-      return $this->_object_encode_error;
+   # Handle passed arguments according to "blocking" mode
+
+   if ($this->{'_nonblocking'}) {
+
+      my %argv = @_;
+      my @var_bind_list = ();
+
+      # Validate the passed arguments
+      foreach (keys %argv) {
+         if (/^-?callback$/i) {
+            if (!defined($this->_object_add_callback($argv{$_}))) {
+               return $this->_object_error;
+            }
+         } elsif (/^-?varbindlist$/i) {
+            if (ref($argv{$_}) ne 'ARRAY') {
+               return $this->_object_error(
+                  'Expected array reference for variable-bindings'
+               );
+            } else {
+               @var_bind_list = @{$argv{$_}};
+            }
+         } else {
+            return $this->_object_error("Invalid argument '%s'", $_);
+         }
+      }
+
+      # Encode and queue the message
+      if (!defined($this->_snmp_encode_get_next_request(@var_bind_list))) {
+         return $this->_object_encode_error;
+      }
+      $this->_object_queue_message;
+
+   } else {
+
+      # Encode, send and wait, and decode the message
+      if (!defined($this->_snmp_encode_get_next_request(@_))) {
+         return $this->_object_encode_error;
+      }
+      if (!defined($this->_udp_send_message)) {
+         return $this->_object_decode_error;
+      }
+      $this->_snmp_validate_get_response;
+
    }
-
-   if (!defined($this->_udp_send_message)) {
-      return $this->_object_decode_error;
-   }
-
-   $this->_snmp_decode_get_reponse;
 }
 
 sub set_request
 {
-   my ($this, @pairs) = @_;
+   my $this = shift;
 
-   if (!defined($this->_snmp_encode_set_request(@pairs))) {
-      return $this->_object_encode_error;
+   # Handle passed arguments according to "blocking" mode
+
+   if ($this->{'_nonblocking'}) {
+
+      my %argv = @_;
+      my @var_bind_list = ();
+
+      # Validate the passed arguments
+      foreach (keys %argv) {
+         if (/^-?callback$/i) {
+            if (!defined($this->_object_add_callback($argv{$_}))) {
+               return $this->_object_error;
+            }
+         } elsif (/^-?varbindlist$/i) {
+            if (ref($argv{$_}) ne 'ARRAY') {
+               return $this->_object_error(
+                  'Expected array reference for variable-bindings'
+               );
+            } else {
+               @var_bind_list = @{$argv{$_}};
+            }
+         } else {
+            return $this->_object_error("Invalid argument '%s'", $_);
+         }
+      }
+
+      # Encode and queue the message
+      if (!defined($this->_snmp_encode_set_request(@var_bind_list))) {
+         return $this->_object_encode_error;
+      }
+      $this->_object_queue_message;
+
+   } else {
+
+      # Encode, send and wait, and decode the message
+      if (!defined($this->_snmp_encode_set_request(@_))) {
+         return $this->_object_encode_error;
+      }
+      if (!defined($this->_udp_send_message)) {
+         return $this->_object_decode_error;
+      }
+      $this->_snmp_validate_get_response;
+
    }
-
-   if (!defined($this->_udp_send_message)) {
-      return $this->_object_decode_error;
-   }
-
-   $this->_snmp_decode_get_reponse;
 }
 
 sub trap
@@ -321,7 +513,7 @@ sub trap
    # Use Sys:Hostname to determine the IP address of the client sending
    # the trap.  Only require the module for Trap-PDUs.
 
-   use Sys::Hostname;
+   use Sys::Hostname();
 
    # Setup default values for the Trap-PDU by creating new entries in 
    # the Net::SNMP object.
@@ -329,8 +521,9 @@ sub trap
    # Use iso.org.dod.internet.private.enterprises for the default enterprise. 
    $this->{'_enterprise'} = '1.3.6.1.4.1';  
 
-   # Get the address of the client sending the trap. 
-   $this->{'_agent_addr'} = inet_ntoa(scalar(gethostbyname(hostname())));
+   # Create an entry for the agent-addr (we will fill it in below if
+   # if the user does not specify an address)
+   $this->{'_agent_addr'} = undef;
 
    # Use enterpriseSpecific(6) for the generic-trap type.
    $this->{'_generic_trap'} = ENTERPRISE_SPECIFIC;
@@ -349,7 +542,7 @@ sub trap
    foreach (keys %argv) {
       if (/^-?enterprise$/i) {
          if ($argv{$_} !~ /^\.?\d+\.\d+(\.\d+)*/) {
-            return $this->_snmp_encode_error(
+            return $this->_object_error(
                'Expected enterprise as OBJECT IDENTIFIER in dotted notation' 
             );
          } else {
@@ -357,7 +550,7 @@ sub trap
          }
       } elsif (/^-?agentaddr$/i) {
          if ($argv{$_} !~ /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/) {
-            return $this->_snmp_encode_error(
+            return $this->_object_error(
                'Expected agent-addr in dotted notation'     
             );
          } else {
@@ -365,7 +558,7 @@ sub trap
          }
       } elsif (/^-?generictrap$/i) {
          if ($argv{$_} !~ /^\d+$/) {
-            return $this->_snmp_encode_error(
+            return $this->_object_error(
                'Expected numeric generic-trap type'
             );
          } else {
@@ -373,7 +566,7 @@ sub trap
          }
       } elsif (/^-?specifictrap$/i) {
          if ($argv{$_} !~ /^\d+$/) {
-            return $this->_snmp_encode_error(
+            return $this->_object_error(
                'Expected numeric specific-trap type'
             );
          } else {
@@ -381,20 +574,36 @@ sub trap
          }
       } elsif (/^-?timestamp$/i) {
          if ($argv{$_} !~ /^\d+$/) {
-            return $this->_snmp_encode_error('Expected numeric time-stamp');
+            return $this->_object_error('Expected numeric time-stamp');
          } else {
             $this->{'_time_stamp'} = $argv{$_};
          }
       } elsif (/^-?varbindlist$/i) {
          if (ref($argv{$_}) ne 'ARRAY') {
-            return $this->_snmp_encode_error(
+            return $this->_object_error(
                'Expected array reference for variable-bindings'
             );
          } else {
             @var_bind_list = @{$argv{$_}}; 
          }   
       } else {
-         return $this->_snmp_encode_error("Invalid argument '%s'", $_);
+         return $this->_object_error("Invalid argument '%s'", $_);
+      }
+   }
+
+   # If the user did not specify the agent-addr, get local the address 
+   # of the client sending the trap. 
+
+   if (!defined($this->{'_agent_addr'})) {
+      eval {
+         $this->{'_agent_addr'} = inet_ntoa(
+            scalar(gethostbyname(&Sys::Hostname::hostname()))
+         );
+      };
+      if ($@ ne '') {
+         return $this->_object_encode_error(
+            'Unable to resolve local agent-addr'
+         );
       }
    }
 
@@ -402,7 +611,13 @@ sub trap
       return $this->_object_encode_error;
    }
 
-   $this->_udp_send_buffer;
+   # Handle the sending of the message according to "blocking" mode
+
+   if ($this->{'_nonblocking'}) {
+      $this->_object_queue_message;
+   } else {
+      $this->_udp_send_buffer;
+   }
 }
 
 sub get_bulk_request
@@ -417,8 +632,8 @@ sub get_bulk_request
 
    # Validate the SNMP version
    if ($this->version != SNMP_VERSION_2C) {
-      return $this->_asn1_encode_error(
-         'get_bulk_request() only supported with SNMPv2c'
+      return $this->_object_error(
+         'GetBulkRequest-PDU only supported with SNMPv2c'
       );
    }
 
@@ -429,11 +644,11 @@ sub get_bulk_request
    foreach (keys %argv) {
       if (/^-?nonrepeaters$/i) {
          if ($argv{$_} !~ /^\d+$/) {
-            return $this->_snmp_encode_error(
+            return $this->_object_error(
                'Expected numeric non-repeaters value'
             );
          } elsif ($argv{$_} > 2147483647) {
-            return $this->_snmp_encode_error(
+            return $this->_object_error(
                'Exceeded maximum non-repeaters value [2147483647]'
             );
          } else {
@@ -442,11 +657,11 @@ sub get_bulk_request
          }
       } elsif (/^-?maxrepetitions$/i) {
          if ($argv{$_} !~ /^\d+$/) {
-            return $this->_snmp_encode_error(
+            return $this->_object_error(
                'Expected numeric max-repetitions value'
             );
          } elsif ($argv{$_} > 2147483647) {
-            return $this->_snmp_encode_error(
+            return $this->_object_error(
                'Exceeded maximum max-repetitions value [2147483647]'
             );
          } else {
@@ -455,19 +670,23 @@ sub get_bulk_request
          }
       } elsif (/^-?varbindlist$/i) {
          if (ref($argv{$_}) ne 'ARRAY') {
-            return $this->_snmp_encode_error(
+            return $this->_object_error(
                'Expected array reference for variable-bindings'
             );
          } else {
             @var_bind_list = @{$argv{$_}};
          }
+      } elsif ((/^-?callback$/i) && ($this->{'_nonblocking'})) {
+         if (!defined($this->_object_add_callback($argv{$_}))) {
+            return $this->_object_error;
+         }
       } else {
-         return $this->_snmp_encode_error("Invalid argument '%s'", $_);
+         return $this->_object_error("Invalid argument '%s'", $_);
       }
    }
 
    if ($this->{'_error_status'} > scalar(@var_bind_list)) {
-      return $this->_snmp_encode_error(
+      return $this->_object_error(
          'Non-repeaters greater than the number of variable-bindings'
       );
    }
@@ -475,7 +694,7 @@ sub get_bulk_request
    if (($this->{'_error_status'} == scalar(@var_bind_list)) &&
        ($this->{'_error_index'} != 0))
    {
-      return $this->_snmp_encode_error(
+      return $this->_object_error(
          'Non-repeaters equals the number of variable-bindings and ' .
          'max-repetitions is not equal to zero'
       );
@@ -485,65 +704,115 @@ sub get_bulk_request
       return $this->_object_encode_error;
    }
 
-   if (!defined($this->_udp_send_message)) {
-      return $this->_object_decode_error;
-   }
+   # Handle the sending of the message according to "blocking" mode
 
-   $this->_snmp_decode_get_reponse; 
+   if ($this->{'_nonblocking'}) {
+
+      $this->_object_queue_message;
+
+   } else {
+
+      if (!defined($this->_udp_send_message)) {
+         return $this->_object_decode_error;
+      }
+      $this->_snmp_validate_get_response;
+
+   }
 }
 
 sub inform_request
 {
-   my ($this, @pairs) = @_;
+   my $this = shift;
   
    # Clear any previous error message
    $this->_object_clear_error;
 
    # Validate the SNMP version
    if ($this->version != SNMP_VERSION_2C) {
-      return $this->_asn1_encode_error(
-         'inform_request() only supported with SNMPv2c'
+      return $this->_object_error(
+         'InformRequest-PDU only supported with SNMPv2c'
       );
    }
  
-   if (!defined($this->_snmp_encode_inform_request(@pairs))) {
-      return $this->_object_encode_error;
-   }
+   # Handle passed arguments according to "blocking" mode
 
-   if (!defined($this->_udp_send_message)) {
-      return $this->_object_decode_error;
-   }
+   if ($this->{'_nonblocking'}) {
 
-   $this->_snmp_decode_get_reponse;
+      my %argv = @_;
+      my @var_bind_list = ();
+
+      # Validate the passed arguments
+      foreach (keys %argv) {
+         if (/^-?callback$/i) {
+            if (!defined($this->_object_add_callback($argv{$_}))) {
+               return $this->_object_error;
+            }
+         } elsif (/^-?varbindlist$/i) {
+            if (ref($argv{$_}) ne 'ARRAY') {
+               return $this->_object_error(
+                  'Expected array reference for variable-bindings'
+               );
+            } else {
+               @var_bind_list = @{$argv{$_}};
+            }
+         } else {
+            return $this->_object_error("Invalid argument '%s'", $_);
+         }
+      }
+
+      # Encode and queue the message
+      if (!defined($this->_snmp_encode_inform_request(@var_bind_list))) {
+         return $this->_object_error;
+      }
+      $this->_object_queue_message;
+
+   } else {
+
+      # Encode, send/wait, and decode the message
+      if (!defined($this->_snmp_encode_inform_request(@_))) {
+         return $this->_object_encode_error;
+      }
+      if (!defined($this->_udp_send_message)) {
+         return $this->_object_decode_error;
+      }
+      $this->_snmp_validate_get_response;
+
+   }
 }
 
 sub snmpv2_trap 
 {
-   my ($this, @pairs) = @_;
+   my $this = shift;
 
    # Clear any previous error message
    $this->_object_clear_error;
 
    # Validate the SNMP version
    if ($this->version != SNMP_VERSION_2C) {
-      return $this->_asn1_encode_error(
-         'snmpv2_trap() only supported with SNMPv2c'
+      return $this->_object_error(
+         'SNMPv2-Trap-PDU only supported with SNMPv2c'
       );
    }
 
-   if (!defined($this->_snmp_encode_v2_trap(@pairs))) {
+   # Encode the message
+   if (!defined($this->_snmp_encode_v2_trap(@_))) {
       return $this->_object_encode_error;
    }
 
-   $this->_udp_send_buffer;
+   if ($this->{'_nonblocking'}) {
+      # Queue the message
+      $this->_object_queue_message;
+   } else {
+      # Send the message
+      $this->_udp_send_buffer;
+   }
 }
 
 sub get_table
 {
-   my ($this, $base_oid) = @_;
-   my ($repeat_cnt, $table, $result, $next_oid) = (0, undef, undef, undef);
-
-   $next_oid = $base_oid;
+   my $this = shift;
+   my ($base_oid, $repeat_cnt, $table) = (undef, 0, undef, undef);
+   my ($result, $next_oid) = (undef, undef);
 
    # Use get-next-requests until the response is not a subtree of the
    # base OBJECT IDENTIFIER.  Return the table only if there are no
@@ -551,58 +820,136 @@ sub get_table
    # be at the end of the tree.  Also return the table when the value
    # of the OID equals endOfMibView(2) when using SNMPv2c.
 
-   do {
-      if (defined($result)) {
-         if (!exists($table->{$next_oid})) {
-            $table->{$next_oid} = $result->{$next_oid};
-         } elsif ((($result->{$next_oid} eq 'endOfMibView') ||   # translate
-                  ($this->{'_error_status'} == ENDOFMIBVIEW)) && # !translate 
-                  ($this->version == SNMP_VERSION_2C))
-         {
-            return ($this->{'_var_bind_list'} = $table);
+   # Handle passed argument according to "blocking" mode
+
+   if ($this->{'_nonblocking'}) {
+
+      my %argv = @_;
+
+      # Validate the passed arguments
+      foreach (keys %argv) {
+         if (/^-?callback$/i) {
+            if (!defined($this->_object_add_callback($argv{$_}))) {
+               return $this->_object_error;
+            }
+         } elsif (/^-?baseoid$/i) {
+            if ($argv{$_} !~ /^\.?\d+\.\d+(\.\d+)*/) {
+               return $this->_object_error(
+                  'Expected base OBJECT IDENTIFIER in dotted notation'
+               );
+            } else {
+               $base_oid = $argv{$_};
+            }
          } else {
-            $repeat_cnt++;
+            return $this->_object_error("Invalid argument '%s'", $_);
          }
       }
-      # Check to make sure that the remote host does not respond
-      # incorrectly causing the get-next-requests to loop forever.
-      if ($repeat_cnt > 5) {
-         return $this->_object_decode_error(
-            'Loop detected with table on remote host'
+
+      # Create table of values that need passed along with the
+      # callbacks.  This just prevents a big argument list.
+
+      %argv = (
+         'base_oid'   => $base_oid,
+         'callback'   => $this->{'_callback'},
+         'repeat_cnt' => 0,
+         'table'      => undef,
+      );
+
+      # Queue up the get-next-request, overriding the user-specified
+      # callback.  We have the original in the arguments. 
+
+      $this->get_next_request(
+         -callback    => [\&_object_get_table_cb, \%argv],
+         -varbindlist => [$base_oid]
+      );
+
+   } else {
+
+      $next_oid = $base_oid = shift(@_);
+
+      do {
+         if (defined($result)) {
+            if (!exists($table->{$next_oid})) {
+               $table->{$next_oid} = $result->{$next_oid};
+            } elsif ((($result->{$next_oid} eq 'endOfMibView') ||  # translate
+                     ($this->error_status == ENDOFMIBVIEW)) &&     # !translate 
+                     ($this->version == SNMP_VERSION_2C))
+            {
+               if (!defined($table)) {
+                  $this->_object_decode_error('Requested table is empty');
+               }
+               return ($this->{'_var_bind_list'} = $table);
+            } else {
+               $repeat_cnt++;
+            }
+         }
+         # Check to make sure that the remote host does not respond
+         # incorrectly causing the get-next-requests to loop forever.
+         if ($repeat_cnt > 5) {
+            return $this->_object_decode_error(
+               'Loop detected with table on remote host'
+            );
+         }
+         if (!defined($result = $this->get_next_request($next_oid))) {
+            # Check for noSuchName(2) error 
+            if ($this->error_status == 2) { 
+               if (!defined($table)) {
+                  $this->_object_decode_error('Requested table is empty');
+               }   
+               return ($this->{'_var_bind_list'} = $table);
+            } else {
+               return $this->_object_decode_error;
+            }
+         }
+         ($next_oid) = keys(%{$result});
+      } while (_asn1_oid_context_match($base_oid, $next_oid));
+
+      if (!defined($table)) {
+         $this->_object_decode_error('Requested table is empty');
+      }
+
+      $this->{'_var_bind_list'} = $table;
+   }
+}
+
+sub error { defined($_[0]->{'_error'}) ? $_[0]->{'_error'} : ''; }
+
+sub version
+{
+   my ($this, $version) = @_;
+
+   # Clear any previous error message
+   $this->_object_clear_error;
+
+   # Allow the user some flexability
+   my $supported = {
+      '1'       => SNMP_VERSION_1,
+      'v1'      => SNMP_VERSION_1,
+      'snmpv1'  => SNMP_VERSION_1,
+      '2'       => SNMP_VERSION_2C,
+      '2c'      => SNMP_VERSION_2C,
+      'v2'      => SNMP_VERSION_2C,
+      'v2c'     => SNMP_VERSION_2C,
+      'snmpv2'  => SNMP_VERSION_2C,
+      'snmpv2c' => SNMP_VERSION_2C
+   };
+
+   if (@_ == 2) {
+      if (exists($supported->{lc($version)})) {
+         $this->{'_version'} = $supported->{lc($version)};
+      } else {
+         return $this->_object_error(
+            "Unknown or invalid SNMP version [%s]", $version
          );
       }
-      if (!defined($this->_snmp_encode_get_next_request($next_oid))) {
-         return $this->_object_encode_error;
-      }
-      if (!defined($this->_udp_send_message)) {
-         return $this->_object_decode_error;
-      }
-      if (!defined($result = $this->_snmp_decode_get_reponse)) {
-         # Check for noSuchName(2) error 
-         if ($this->{'_error_status'} == 2) { 
-            return ($this->{'_var_bind_list'} = $table);
-         } else {
-            return $this->_object_decode_error;
-         }
-      }
-      ($next_oid) = keys(%{$result});
-   } while (_asn1_oid_subtree($base_oid, $next_oid));
-
-   if (!defined($table)) {
-      $this->_object_decode_error('Requested table is empty');
    }
 
-   $this->{'_var_bind_list'} = $table;
+   $this->{'_version'};
 }
 
-sub error
-{
-   my ($this) = @_;
+sub hostname      { $_[0]->{'_hostname'};      } 
 
-   if (!defined($this->{'_error'})) { return ''; }
-  
-   $this->{'_error'};
-}
+sub _request_id   { $_[0]->{'_request_id'};    } # Semi-private method
 
 sub error_status  { $_[0]->{'_error_status'};  }
 
@@ -629,39 +976,6 @@ sub timeout
    }
 
    $this->{'_timeout'};
-}
-
-sub version
-{
-   my ($this, $version) = @_;
-
-   # Clear any previous error message
-   $this->_object_clear_error;
-
-   # Allow the user some flexability 
-   my $supported = {
-      '1'       => SNMP_VERSION_1,
-      'v1'      => SNMP_VERSION_1,
-      'snmpv1'  => SNMP_VERSION_1,
-      '2'       => SNMP_VERSION_2C,
-      '2c'      => SNMP_VERSION_2C,
-      'v2'      => SNMP_VERSION_2C,
-      'v2c'     => SNMP_VERSION_2C,
-      'snmpv2'  => SNMP_VERSION_2C,
-      'snmpv2c' => SNMP_VERSION_2C
-   };
-
-   if (@_ == 2) {
-      if (exists($supported->{lc($version)})) {
-         $this->{'_version'} = $supported->{lc($version)};
-      } else {
-         return $this->_object_encode_error(
-            "Unknown or invalid SNMP version [%s]", $version
-         );
-      }
-   }
-
-   $this->{'_version'};
 }
 
 sub retries 
@@ -721,17 +1035,15 @@ sub translate
 
 sub verify_ip
 {
-   my ($this, $flag) = @_;
+   # This method was deprecated in v3.0.0.  There are enough "sanity
+   # checks" on the get-response packet that the verification of the IP
+   # address and socket was over-kill.
 
-   if (@_ == 2) {
-      if ($flag) {
-         $this->{'_verify_ip'} = TRUE;
-      } else {
-         $this->{'_verify_ip'} = FALSE;
-      }
-   }
- 
-   $this->{'_verify_ip'};
+   printf(STDERR 
+      "%s::verify_ip(): This method has been deprecated.\n", ref($_[0])
+   );
+
+   undef;
 }
 
 sub debug
@@ -740,16 +1052,31 @@ sub debug
 
    if (@_ == 2) {
       if ($flag) {
-         $this->{'_debug'} = TRUE;
+         $Net::SNMP::DEBUG = TRUE;
       } else {
-         $this->{'_debug'} = FALSE;
+         $Net::SNMP::DEBUG = FALSE;
       }
    }
 
-   $this->{'_debug'};  
+   $Net::SNMP::DEBUG;  
 }
 
-sub DESTROY { $_[0]->close; } 
+sub END 
+{
+   if (defined($SOCKET)) { if (fileno($SOCKET)) { CORE::close($SOCKET); } }
+}
+
+
+## Utility functions
+
+sub snmp_debug        { &Net::SNMP::debug(undef, $_[0]);         }
+
+sub oid_context_match { &Net::SNMP::_asn1_oid_context_match(@_); }
+
+sub oid_lex_sort      { &Net::SNMP::_asn1_oid_lex_sort(@_);      }
+
+sub ticks_to_time     { &Net::SNMP::_asn1_ticks_to_time($_[0]);  }
+
 
 # [private methods] ----------------------------------------------------------
 
@@ -760,31 +1087,39 @@ sub DESTROY { $_[0]->close; }
 
 sub _snmp_encode_get_request
 {
-   my ($this, @oids) = @_;
+   my $this = shift;
 
    # Clear any previous error message
    $this->_object_clear_error;
 
-   $this->_snmp_encode_message(
-      GET_REQUEST, $this->_snmp_create_oid_null_pairs(@oids)
-   ); 
+   # Check for a valid VarBindList
+   if (@_ < 1) { return $this->_snmp_encode_error('VarBindList is empty'); }  
+
+   # Define the message type
+   $this->{'_type'} = GET_REQUEST;
+
+   $this->_snmp_encode($this->_snmp_create_oid_null_pairs(@_));
 }
 
 sub _snmp_encode_get_next_request
 {
-   my ($this, @oids) = @_;
+   my $this = shift;
 
    # Clear any previous error message
    $this->_object_clear_error;
 
-   $this->_snmp_encode_message(
-      GET_NEXT_REQUEST, $this->_snmp_create_oid_null_pairs(@oids)
-   );
+   # Check for a valid VarBindList
+   if (@_ < 1) { return $this->_snmp_encode_error('VarBindList is empty'); }
+
+   # Define the message type
+   $this->{'_type'} = GET_NEXT_REQUEST;
+
+   $this->_snmp_encode($this->_snmp_create_oid_null_pairs(@_));
 }
 
 sub _snmp_encode_get_response
 {
-   my ($this) = @_;
+   my $this = shift;
 
    # Clear any previous error message
    $this->_object_clear_error;
@@ -795,98 +1130,128 @@ sub _snmp_encode_get_response
 
 sub _snmp_encode_set_request
 {
-   my ($this, @oid_values) = @_;
+   my $this = shift;
 
    # Clear any previous error message
    $this->_object_clear_error;
 
-   $this->_snmp_encode_message(
-      SET_REQUEST, $this->_snmp_create_oid_value_pairs(@oid_values)
-   );
+   # Check for a valid VarBindList
+   if (@_ < 1) { return $this->_snmp_encode_error('VarBindList is empty'); }
+
+   # Define the message type
+   $this->{'_type'} = SET_REQUEST;
+
+   $this->_snmp_encode($this->_snmp_create_oid_value_pairs(@_));
 }
 
 sub _snmp_encode_trap
 {
-   my ($this, @oid_values) = @_;
+   my $this = shift;
 
    # Clear any previous error message
    $this->_object_clear_error;
 
-   $this->_snmp_encode_message(
-      TRAP, $this->_snmp_create_oid_value_pairs(@oid_values)
-   );
+   # Define the message type
+   $this->{'_type'} = TRAP;
+
+   $this->_snmp_encode($this->_snmp_create_oid_value_pairs(@_));
 }
 
 sub _snmp_encode_get_bulk_request
 {
-   my ($this, @oids) = @_;
+   my $this = shift;
 
    # DO NOT clear any previous error message or the non-repeaters
-   # and the max-repetitions will be reset! 
+   # and the max-repetitions will be reset!
 
-   $this->_snmp_encode_message(
-      GET_BULK_REQUEST, $this->_snmp_create_oid_null_pairs(@oids)
-   );
+   # Check for a valid VarBindList
+   if (@_ < 1) { return $this->_snmp_encode_error('VarBindList is empty'); } 
+
+   # Define the message type
+   $this->{'_type'} = GET_BULK_REQUEST;
+
+   $this->_snmp_encode($this->_snmp_create_oid_null_pairs(@_));
 }
 
 sub _snmp_encode_inform_request
 {
-   my ($this, @oid_values) = @_;
+   my $this = shift;
 
    # Clear any previous error message
    $this->_object_clear_error;
 
-   $this->_snmp_encode_message(
-      INFORM_REQUEST, $this->_snmp_create_oid_value_pairs(@oid_values)
-   );
+   # Check for a valid VarBindList
+   if (@_ < 1) { return $this->_snmp_encode_error('VarBindList is empty'); }
+
+   # Define the message type
+   $this->{'_type'} = INFORM_REQUEST;
+
+   $this->_snmp_encode($this->_snmp_create_oid_value_pairs(@_));
 }
 
 sub _snmp_encode_v2_trap
 {
-   my ($this, @oid_values) = @_;
+   my $this = shift;
 
    # Clear any previous error message
    $this->_object_clear_error;
 
-   $this->_snmp_encode_message(
-      SNMPV2_TRAP, $this->_snmp_create_oid_value_pairs(@oid_values)
-   );
+   # Check for a valid VarBindList (or is that legal with a snmpV2-trap?)
+   if (@_ < 1) { return $this->_snmp_encode_error('VarBindList is empty'); }
+
+   # Define the message type
+   $this->{'_type'} = SNMPV2_TRAP;
+
+   $this->_snmp_encode($this->_snmp_create_oid_value_pairs(@_));
 } 
 
-sub _snmp_encode_message
+sub _snmp_encode
 {
-   my ($this, $type, @var_bind) = @_;
-
+   my $this = shift;
+   
    # Do not do anything if there has already been an error
    if (defined($this->{'_error'})) { return $this->_snmp_encode_error; }
 
-   if (!defined($type)) { 
+   if (!defined($this->{'_type'})) {
       return $this->_snmp_encode_error('No SNMP PDU type defined');
    }
 
-   # We need to reset the buffer that might have been defined 
-   # from a previous message and clear the var_bind_list. 
+   # We need to reset the buffer that might have been defined
+   # from a previous message and clear the var_bind_list.
 
    $this->_object_clear_buffer;
    $this->_object_clear_var_bind_list;
    $this->_object_clear_leading_dot;
+    
+   # Encode the variable-bindings
+   if (!defined($this->_snmp_encode_var_bind_list(@_))) {
+      return $this->_snmp_encode_error;
+   }
 
-   # We need to encode the message in reverse order so everything
-   # ends up in the correct place.
-  
    # Encode the PDU or Trap-PDU
-   if ($type == TRAP) { 
-      if (!defined($this->_snmp_encode_trap_pdu(@var_bind))) {
+   if ($this->{'_type'} == TRAP) {
+      if (!defined($this->_snmp_encode_trap_pdu)) {
          return $this->_snmp_encode_error;
       }
    } else {
-      if (!defined($this->_snmp_encode_pdu(@var_bind))) {
+      if (!defined($this->_snmp_encode_pdu)) {
          return $this->_snmp_encode_error;
       }
-   }
+   } 
+
+   # Now wrap the message
+   $this->_snmp_encode_message;
+}
+
+sub _snmp_encode_message
+{
+   my $this = shift;
+
+   # We need to encode eveything in reverse order so the
+   # objects end up in the correct place.
 
    # Encode the PDU type
-   if (!defined($this->_asn1_encode($type))) { 
+   if (!defined($this->_asn1_encode($this->{'_type'}))) { 
       return $this->_snmp_encode_error; 
    }
 
@@ -911,15 +1276,10 @@ sub _snmp_encode_message
  
 sub _snmp_encode_pdu
 {
-   my ($this, @var_bind) = @_;
+   my $this = shift;
 
    # We need to encode eveything in reverse order so the 
    # objects end up in the correct place.
-
-   # Encode the variable-bindings 
-   if (!defined($this->_snmp_encode_var_bind_list(@var_bind))) {
-      return $this->_snmp_encode_error;
-   } 
 
    # Encode the error-index or max-repetitions (GetBulkRequest-PDU)  
    if (!defined($this->_asn1_encode(INTEGER, $this->{'_error_index'}))) {
@@ -931,8 +1291,11 @@ sub _snmp_encode_pdu
       return $this->_snmp_encode_error;
    }
 
-   # Encode the request-id, after incrementing by one
-   if (!defined($this->_asn1_encode(INTEGER, ++$this->{'_request_id'}))) {
+   # Encode the request-id after storing the value and incrementing 
+   # the global value by one.
+
+   $this->{'_request_id'} = $REQUEST_ID++;
+   if (!defined($this->_asn1_encode(INTEGER, $this->{'_request_id'}))) {
       return $this->_snmp_encode_error;
    }
  
@@ -942,15 +1305,10 @@ sub _snmp_encode_pdu
 
 sub _snmp_encode_trap_pdu
 {
-   my ($this, @var_bind) = @_;
+   my $this = shift;
 
    # We need to encode eveything in reverse order so the
    # objects end up in the correct place.
-
-   # Encode the variable-bindings
-   if (!defined($this->_snmp_encode_var_bind_list(@var_bind))) {
-      return $this->_snmp_encode_error;
-   }
 
    # Encode the time-stamp
    if (!defined($this->_asn1_encode(TIMETICKS, $this->{'_time_stamp'}))) {
@@ -1082,12 +1440,12 @@ sub _snmp_create_oid_value_pairs
 
 sub _snmp_encode_error
 {
-   my ($this, @error) = @_;
+   my $this = shift;
 
    # Clear the buffer
    $this->_object_clear_buffer;
 
-   $this->_object_error(@error);
+   $this->_object_error(@_);
 }
 
 
@@ -1097,58 +1455,91 @@ sub _snmp_encode_error
 
 sub _snmp_decode_get_request
 {
-   $_[0]->_snmp_decode_error('GetRequest-PDU not supported');
+   $_[0]->{'_type'} = GET_REQUEST;
+   $_[0]->_snmp_decode;
 }
 
 sub _snmp_decode_get_next_request
 {
-   $_[0]->_snmp_decode_error('GetNextRequest-PDU not supported');
+   $_[0]->{'_type'} = GET_NEXT_REQUEST;
+   $_[0]->_snmp_decode;
 }
 
-sub _snmp_decode_get_reponse
+sub _snmp_decode_get_response
 {
-   $_[0]->_snmp_decode_message(GET_RESPONSE);
+   $_[0]->{'_type'} = GET_RESPONSE;
+   $_[0]->_snmp_decode;
 }
 
 sub _snmp_decode_set_request
 {
-   $_[0]->_snmp_decode_error('SetRequest-PDU not supported');
+   $_[0]->{'_type'} = SET_REQUEST;
+   $_[0]->_snmp_decode;
 }
 
 sub _snmp_decode_trap
 {
-   $_[0]->_snmp_decode_error('Trap-PDU not supported');
+   $_[0]->{'_type'} = TRAP;
+   $_[0]->_snmp_decode;
 }
 
 sub _snmp_decode_get_bulk_request
 {
-   $_[0]->_snmp_decode_error('GetBulkRequest-PDU not supported');
+   $_[0]->{'_type'} = GET_BULK_REQUEST; 
+   $_[0]->_snmp_decode;
 }
 
 sub _snmp_decode_inform_request
 {
-   $_[0]->_snmp_decode_error('InformRequest-PDU not supported');
+   $_[0]->{'_type'} = INFORM_REQUEST;
+   $_[0]->_snmp_decode;
 }
 
 sub _snmp_decode_v2_trap
 {
-   $_[0]->_snmp_decode_error('SNMPv2-Trap-PDU not supported');
+   $_[0]->{'_type'} = SNMPV2_TRAP;
+   $_[0]->_snmp_decode;
 }
 
-sub _snmp_decode_message
+sub _snmp_decode
 {
-   my ($this, $type) = @_;
-   my $value = undef;
+   my $this = shift;
 
    # First we need to reset the var_bind_list and errors that
    # might have been set from a previous message.
 
+   $this->_object_clear_snmp_message;
    $this->_object_clear_var_bind_list;
    $this->_object_clear_error;
 
-   if (!defined($type)) {
+   if (!defined($this->{'_type'})) {
       return $this->_snmp_decode_error('SNMP PDU type not defined');
    }
+
+   # Decode the message
+   if (!defined($this->_snmp_decode_message)) {
+      return $this->_snmp_decode_error;
+   }
+
+   # Decode the PDU
+   if ($this->{'_type'} != TRAP) {
+      if (!defined($this->_snmp_decode_pdu)) { 
+         return $this->_snmp_decode_error;
+      }
+   } else {
+      if (!defined($this->_snmp_decode_trap_pdu)) { 
+         return $this->_snmp_decode_error;
+      }
+   }
+
+   # Decode the VarBindList
+   $this->_snmp_decode_var_bind_list;
+}
+
+sub _snmp_decode_message
+{
+   my $this = shift;
+   my $value = undef;
 
    # Decode the message SEQUENCE
    if (!defined($value = $this->_asn1_decode(SEQUENCE))) {
@@ -1161,73 +1552,32 @@ sub _snmp_decode_message
    }
 
    # Decode the version
-   if (!defined($value = $this->_asn1_decode(INTEGER))) {
+   if (!defined($this->{'_version'} = $this->_asn1_decode(INTEGER))) {
       return $this->_snmp_decode_error;
    } 
-   if ($value != $this->{'_version'}) {
-      return $this->_snmp_decode_error(
-         "Received version [0x%02x] is not equal to transmitted version " .
-         "[0x%02x]", $value, $this->{'_version'}
-      );
-   }
 
    # Decode the community
-   if (!defined($value = $this->_asn1_decode(OCTET_STRING))) {
+   if (!defined($this->{'_community'} = $this->_asn1_decode(OCTET_STRING))) {
       return $this->_snmp_decode_error;
    }
-   if ($value ne $this->{'_community'}) {
-      return $this->_snmp_decode_error(
-         "Received community [%s] is not equal to transmitted community [%s]",  
-         $value, $this->{'_community'}
-      );
-   } 
 
    # Decode the PDU type
-   if (!defined($value = $this->_asn1_decode($type))) {
+   if (!defined($this->_asn1_decode($this->{'_type'}))) {
       return $this->_snmp_decode_error;
    }
 
-   # Decode the PDU
-   $this->_snmp_decode_pdu;
+   # Return the remaining buffer
+   $this->{'_buffer'};
 }
 
 sub _snmp_decode_pdu
 {
-   my ($this) = @_;
-   my $value = undef;
-
-   my @error_status = qw(
-	 noError 
-	 tooBig 
-	 noSuchName 
-	 badValue
-	 readOnly
-	 genError
-         noAccess
-         wrongType
-         wrongLength
-         wrongEncoding
-         wrongValue
-         noCreation
-         inconsistentValue
-         resourceUnavailable
-         commitFailed
-         undoFailed
-         authorizationError
-         notWritable
-         inconsistentName
-      );
+   my $this = shift;
 
    # Decode the request-id
-   if (!defined($value = $this->_asn1_decode(INTEGER))) {
+   if (!defined($this->{'_request_id'} = $this->_asn1_decode(INTEGER))) {
       return $this->_snmp_decode_error;
    }
-   if ($value != $this->{'_request_id'}) {
-      return $this->_snmp_decode_error(
-         "Received request-id [%s] is not equal to transmitted request-id [%s]",
-         $value, $this->{'_request_id'} 
-      );
-   }   
 
    # Decode the error-status and error-index 
    if (!defined($this->{'_error_status'} = $this->_asn1_decode(INTEGER))) {
@@ -1238,21 +1588,49 @@ sub _snmp_decode_pdu
       $this->{'_error_index'} = 0;
       return $this->_snmp_decode_error;
    }
-   if (($this->{'_error_status'} != 0) || ($this->{'_error_index'} != 0)) {
-      return $this->_snmp_decode_error(
-         "Received SNMP %s(%s) error-status at error-index %s",
-         $error_status[$this->{'_error_status'}], $this->{'_error_status'}, 
-         $this->{'_error_index'}
-      );
-   } 
 
-   # Decode the VarBindList
-   $this->_snmp_decode_var_bind_list;
+   # Return the remaining buffer 
+   $this->{'_buffer'};
+}
+
+sub _snmp_decode_trap_pdu
+{
+   my $this = shift;
+
+   # Decode the enterprise 
+   if (!defined($this->{'_enterprise'} = 
+         $this->_asn1_decode(OBJECT_IDENTIFIER))) 
+   {
+      return $this->_snmp_decode_error;
+   }
+
+   # Decode the agent-addr
+   if (!defined($this->{'_agent_addr'} = $this->_asn1_decode(IPADDRESS))) {
+      return $this->_snmp_decode_error;
+   }
+
+   # Decode the generic-trap type
+   if (!defined($this->{'_generic_trap'} = $this->_asn1_decode(INTEGER))) {
+      return $this->_snmp_decode_error;
+   }
+
+   # Decode the specific-trap type
+   if (!defined($this->{'_specific_trap'} = $this->_asn1_decode(INTEGER))) {
+      return $this->_snmp_decode_error;
+   }
+
+   # Decode the time-stamp
+   if (!defined($this->{'_time_stamp'} = $this->_asn1_decode(TIMETICKS))) {
+      return $this->_snmp_decode_error;
+   }
+
+   # Return the remaining buffer
+   $this->{'_buffer'};
 }
 
 sub _snmp_decode_var_bind_list
 {
-   my ($this) = @_;
+   my $this = shift;
    my ($value, $oid) = (undef, undef);
 
    # Decode the VarBindList SEQUENCE
@@ -1282,7 +1660,7 @@ sub _snmp_decode_var_bind_list
       }
       # Create a hash consisting of the OBJECT IDENTIFIER as a
       # key and the ObjectSyntax as the value.
-      $this->_debug_message("{ %s => %s }\n", $oid, $value);
+      DEBUG_INFO("{ %s => %s }", $oid, $value);
       $this->{'_var_bind_list'}->{$oid} = $value;
    }
 
@@ -1290,14 +1668,183 @@ sub _snmp_decode_var_bind_list
    $this->{'_var_bind_list'};
 }
 
+sub _snmp_validate_get_response
+{
+   my $this = shift;
+   my $value = undef;
+
+   # First we need to reset the var_bind_list and errors that
+   # might have been set from a previous message.
+
+   $this->_object_clear_var_bind_list;
+   $this->_object_clear_error;
+
+   $this->{'_type'} = GET_RESPONSE;
+
+   # Decode the message SEQUENCE
+   if (!defined($value = $this->_asn1_decode(SEQUENCE))) {
+      return $this->_snmp_decode_error;
+   }
+   if ($value != $this->_object_buffer_length) {
+      return $this->_snmp_decode_error(
+         'Encoded message length not equal to remaining data length'
+      );
+   }
+
+   # Decode and validate the version
+   if (!defined($value = $this->_asn1_decode(INTEGER))) {
+      return $this->_snmp_decode_error;
+   }
+   if ($value != $this->{'_version'}) {
+      return $this->_snmp_decode_error(
+         "Received version [0x%02x] is not equal to transmitted version " .
+         "[0x%02x]", $value, $this->{'_version'}
+      );
+   }
+
+   # Decode and validate the community
+   if (!defined($value = $this->_asn1_decode(OCTET_STRING))) {
+      return $this->_snmp_decode_error;
+   }
+   if ($value ne $this->{'_community'}) {
+      return $this->_snmp_decode_error(
+         "Received community [%s] is not equal to transmitted community [%s]",
+         $value, $this->{'_community'}
+      );
+   }
+
+   # Decode the PDU type
+   if (!defined($this->_asn1_decode($this->{'_type'}))) {
+      return $this->_snmp_decode_error;
+   }
+
+   # Decode the request-id
+   if (!defined($value = $this->_asn1_decode(INTEGER))) {
+      return $this->_snmp_decode_error;
+   }
+   if ($value != $this->{'_request_id'}) {
+      return $this->_snmp_decode_error(
+         "Received request-id [%s] is not equal to transmitted request-id [%s]",
+         $value, $this->{'_request_id'}
+      );
+   }
+
+   # Decode and validate the error-status and error-index
+   if (!defined($this->{'_error_status'} = $this->_asn1_decode(INTEGER))) {
+      $this->{'_error_status'} = 0;
+      return $this->_snmp_decode_error;
+   }
+   if (!defined($this->{'_error_index'} = $this->_asn1_decode(INTEGER))) {
+      $this->{'_error_index'} = 0;
+      return $this->_snmp_decode_error;
+   }
+   if (($this->{'_error_status'} != 0) || ($this->{'_error_index'} != 0)) {
+      return $this->_snmp_decode_error(
+         "Received SNMP %s error-status at error-index %s",
+         _snmp_error_status_itoa($this->{'_error_status'}), 
+         $this->{'_error_index'}
+      );
+   }
+
+   # Decode the VarBindList
+   $this->_snmp_decode_var_bind_list;
+}
+
+sub _snmp_compare_get_response
+{
+   my ($this, $response) = @_;
+
+   if (ref($response) ne ref($this)) {
+      $this->_snmp_decode_error('Invalid object reference');
+   }
+
+   # Validate the version
+   if ($this->{'_version'} != $response->{'_version'}) {
+      return $this->_snmp_decode_error(
+         "Received version [0x%02x] is not equal to transmitted version " .
+         "[0x%02x]", $response->{'_version'}, $this->{'_version'}
+      );
+   }
+
+   # Validate the community
+   if ($this->{'_community'} ne $response->{'_community'}) {
+      return $this->_snmp_decode_error(
+         "Received community [%s] is not equal to transmitted community [%s]",
+         $response->{'_community'}, $this->{'_community'}
+      );
+   }
+
+   # Validate the request-id
+   if ($this->{'_request_id'} != $response->{'_request_id'}) {
+      return $this->_snmp_decode_error(
+         "Received request-id [%s] is not equal to transmitted request-id [%s]",
+         $response->{'_request_id'}, $this->{'_request_id'}
+      );
+   }
+
+   # Validate the error-status and error-index field.
+   if (($response->{'_error_status'} != 0) ||
+       ($response->{'_error_index'} != 0))
+   {
+      # Set the "source" error-status and error-index
+      $this->{'_error_status'} = $response->{'_error_status'};
+      $this->{'_error_index'}  = $response->{'_error_index'};
+      return $this->_snmp_decode_error(
+         "Received SNMP %s error-status at error-index %s",
+         _snmp_error_status_itoa($response->{'_error_status'}),
+         $response->{'_error_index'}
+      );
+   }
+
+   TRUE;
+}
+
 sub _snmp_decode_error
 {
-   my ($this, @error) = @_;
+   my $this = shift;
 
    # Clear var_bind_list
    $this->_object_clear_var_bind_list;
 
-   $this->_object_error(@error);
+   $this->_object_error(@_);
+}
+
+###
+## Simple Network Management Protocol (SNMP) utilties
+###
+
+sub _snmp_error_status_itoa
+{
+   my $error = shift;
+
+   my @error_status = qw(
+      noError
+      tooBig
+      noSuchName
+      badValue
+      readOnly
+      genError
+      noAccess
+      wrongType    
+      wrongLength
+      wrongEncoding
+      wrongValue
+      noCreation
+      inconsistentValue
+      resourceUnavailable
+      commitFailed
+      undoFailed
+      authorizationError
+      notWritable
+      inconsistentName
+   ); 
+
+   if (!defined($error)) { return '??'; }
+   if (($error > $#error_status) || ($error < 0)) { 
+      return sprintf("??(%d)", $error); 
+   }
+
+   sprintf("%s(%d)", $error_status[$error], $error);
 }
 
 
@@ -1311,28 +1858,28 @@ sub _asn1_encode
    my ($method) = (undef);
 
    my $encode = {
-        INTEGER,            '_asn1_encode_integer',
-        OCTET_STRING,       '_asn1_encode_octet_string',
-        NULL,               '_asn1_encode_null',
-        OBJECT_IDENTIFIER,  '_asn1_encode_object_identifier',
-        SEQUENCE,           '_asn1_encode_sequence',
-        IPADDRESS,          '_asn1_encode_ipaddress',
-        COUNTER,            '_asn1_encode_counter',
-        GAUGE,              '_asn1_encode_gauge',
-        TIMETICKS,          '_asn1_encode_timeticks',
-        OPAQUE,             '_asn1_encode_opaque',
-        COUNTER64,          '_asn1_encode_counter64',
-        NOSUCHOBJECT,       '_asn1_encode_nosuchobject',
-        NOSUCHINSTANCE,     '_asn1_encode_nosuchinstance',
-        ENDOFMIBVIEW,       '_asn1_encode_endofmibview',
-        GET_REQUEST,        '_asn1_encode_get_request',
-        GET_NEXT_REQUEST,   '_asn1_encode_get_next_request',
-        GET_RESPONSE,       '_asn1_encode_get_response',
-        SET_REQUEST,        '_asn1_encode_set_request',
-        TRAP,               '_asn1_encode_trap',
-        GET_BULK_REQUEST,   '_asn1_encode_get_bulk_request',
-        INFORM_REQUEST,     '_asn1_encode_inform_request',
-        SNMPV2_TRAP,        '_asn1_encode_v2_trap'
+      INTEGER,            '_asn1_encode_integer',
+      OCTET_STRING,       '_asn1_encode_octet_string',
+      NULL,               '_asn1_encode_null',
+      OBJECT_IDENTIFIER,  '_asn1_encode_object_identifier',
+      SEQUENCE,           '_asn1_encode_sequence',
+      IPADDRESS,          '_asn1_encode_ipaddress',
+      COUNTER,            '_asn1_encode_counter',
+      GAUGE,              '_asn1_encode_gauge',
+      TIMETICKS,          '_asn1_encode_timeticks',
+      OPAQUE,             '_asn1_encode_opaque',
+      COUNTER64,          '_asn1_encode_counter64',
+      NOSUCHOBJECT,       '_asn1_encode_nosuchobject',
+      NOSUCHINSTANCE,     '_asn1_encode_nosuchinstance',
+      ENDOFMIBVIEW,       '_asn1_encode_endofmibview',
+      GET_REQUEST,        '_asn1_encode_get_request',
+      GET_NEXT_REQUEST,   '_asn1_encode_get_next_request',
+      GET_RESPONSE,       '_asn1_encode_get_response',
+      SET_REQUEST,        '_asn1_encode_set_request',
+      TRAP,               '_asn1_encode_trap',
+      GET_BULK_REQUEST,   '_asn1_encode_get_bulk_request',
+      INFORM_REQUEST,     '_asn1_encode_inform_request',
+      SNMPV2_TRAP,        '_asn1_encode_v2_trap'
    };
 
    if (!defined($type)) {
@@ -1396,23 +1943,23 @@ sub _asn1_encode_integer
 
 sub _asn1_encode_unsigned32
 {
-   my ($this, $type, $u32) = @_;
+   my ($this, $type, $u_int32) = @_;
 
    if (!defined($type)) { $type = INTEGER; }
 
-   if (!defined($u32)) { 
+   if (!defined($u_int32)) { 
       return $this->_asn1_encode_error(
          "%s value not defined", _asn1_itoa($type) 
       );
    }
 
-   if ($u32 !~ /^\d+$/) {
+   if ($u_int32 !~ /^\d+$/) {
       return $this->_asn1_encode_error(
          "Expected positive numeric %s value", _asn1_itoa($type)
       );
    }
 
-   $this->_asn1_encode_integer32($type, $u32);
+   $this->_asn1_encode_integer32($type, $u_int32);
 }
 
 sub _asn1_encode_integer32
@@ -1497,7 +2044,7 @@ sub _asn1_encode_object_identifier
    # IDENTIFIERs in the decode methods.
 
    if ($subids[0] eq '') { 
-      $this->_debug_message("leading dot present\n");
+      DEBUG_INFO("leading dot present");
       $this->{'_leading_dot'} = TRUE;
       shift(@subids);
    }
@@ -1742,12 +2289,12 @@ sub _asn1_encode_v2_trap
 
 sub _asn1_encode_error
 {
-   my ($this, @error) = @_;
+   my $this = shift;
 
    # Clear the buffer
    $this->_object_clear_buffer;
 
-   $this->_object_error(@error);
+   $this->_object_error(@_);
 }
 
 
@@ -1761,28 +2308,28 @@ sub _asn1_decode
    my ($method) = (undef);
 
    my $decode = {
-        INTEGER,            '_asn1_decode_integer32',
-        OCTET_STRING,       '_asn1_decode_octet_string',
-        NULL,               '_asn1_decode_null',
-        OBJECT_IDENTIFIER,  '_asn1_decode_object_identifier',
-        SEQUENCE,           '_asn1_decode_sequence',
-        IPADDRESS,          '_asn1_decode_ipaddress',
-        COUNTER,            '_asn1_decode_counter',
-        GAUGE,              '_asn1_decode_gauge',
-        TIMETICKS,          '_asn1_decode_timeticks',
-        OPAQUE,             '_asn1_decode_opaque',
-        COUNTER64,          '_asn1_decode_counter64',
-        NOSUCHOBJECT,       '_asn1_decode_nosuchobject',
-        NOSUCHINSTANCE,     '_asn1_decode_nosuchinstance',
-        ENDOFMIBVIEW,       '_asn1_decode_endofmibview',
-        GET_REQUEST,        '_asn1_decode_get_request',
-        GET_NEXT_REQUEST,   '_asn1_decode_get_next_request',
-        GET_RESPONSE,       '_asn1_decode_get_reponse',
-        SET_REQUEST,        '_asn1_decode_set_request',
-        TRAP,               '_asn1_decode_trap',
-        GET_BULK_REQUEST,   '_asn1_decode_get_bulk_request',
-        INFORM_REQUEST,     '_asn1_decode_inform_request',
-        SNMPV2_TRAP,        '_asn1_decode_v2_trap'
+      INTEGER,            '_asn1_decode_integer32',
+      OCTET_STRING,       '_asn1_decode_octet_string',
+      NULL,               '_asn1_decode_null',
+      OBJECT_IDENTIFIER,  '_asn1_decode_object_identifier',
+      SEQUENCE,           '_asn1_decode_sequence',
+      IPADDRESS,          '_asn1_decode_ipaddress',
+      COUNTER,            '_asn1_decode_counter',
+      GAUGE,              '_asn1_decode_gauge',
+      TIMETICKS,          '_asn1_decode_timeticks',
+      OPAQUE,             '_asn1_decode_opaque',
+      COUNTER64,          '_asn1_decode_counter64',
+      NOSUCHOBJECT,       '_asn1_decode_nosuchobject',
+      NOSUCHINSTANCE,     '_asn1_decode_nosuchinstance',
+      ENDOFMIBVIEW,       '_asn1_decode_endofmibview',
+      GET_REQUEST,        '_asn1_decode_get_request',
+      GET_NEXT_REQUEST,   '_asn1_decode_get_next_request',
+      GET_RESPONSE,       '_asn1_decode_get_reponse',
+      SET_REQUEST,        '_asn1_decode_set_request',
+      TRAP,               '_asn1_decode_trap',
+      GET_BULK_REQUEST,   '_asn1_decode_get_bulk_request',
+      INFORM_REQUEST,     '_asn1_decode_inform_request',
+      SNMPV2_TRAP,        '_asn1_decode_v2_trap'
    };
 
    if (defined($this->{'_error'})) { return $this->_asn1_decode_error; }
@@ -1801,7 +2348,7 @@ sub _asn1_decode
                );
             }
          }
-         return $this->$method();
+         return $this->$method($type);
       } else {
          return $this->_asn1_decode_error("Unknown ASN.1 type [0x%02x]", $type);
       }
@@ -1812,7 +2359,7 @@ sub _asn1_decode
 
 sub _asn1_decode_length
 {
-   my ($this) = @_;
+   my $this = shift;
    my ($length, $byte_cnt) = (0, 0);
   
    if (defined($this->{'_error'})) { return $this->_asn1_decode_error; }
@@ -1845,16 +2392,20 @@ sub _asn1_decode_length
 
 sub _asn1_decode_integer32
 {
-   my ($this) = @_;
+   my ($this, $type) = @_;
    my ($length, $integer, $negative, $byte) = (undef, 0, FALSE, undef);
 
    if (!defined($length = $this->_asn1_decode_length)) {
       return $this->_asn1_decode_error;
    }
 
-   # Just return zero if the object length is zero
-   if ($length < 1) { return '0'; }
-   
+   # Return an error if the object length is zero
+   if ($length < 1) {
+      return $this->_asn1_decode_error(
+         "%s length equal to zero", _asn1_itoa($type)
+      );
+   } 
+      
    if (!defined($byte = $this->_object_get_buffer(1))) { 
       return $this->_asn1_decode_error; 
    }
@@ -1868,7 +2419,7 @@ sub _asn1_decode_integer32
 
    if (($length > 4) || (($length > 3) && ($byte != 0))) {
       return $this->_asn1_decode_error(
-         "INTEGER length too long (%d bytes)", ($length + 1)
+         "%s length too long (%d bytes)", _asn1_itoa($type), ($length + 1)
       );
    }
 
@@ -1891,7 +2442,7 @@ sub _asn1_decode_integer32
 
 sub _asn1_decode_octet_string
 {
-   my ($this) = @_;
+   my $this = shift;
    my ($length, $string) = (undef, undef);
 
    if (!defined($length = $this->_asn1_decode_length)) {
@@ -1899,12 +2450,10 @@ sub _asn1_decode_octet_string
    }
 
    if (defined($string = $this->_object_get_buffer($length))) {
-      if (($string =~ /[\x00-\x08\x0b\x0e-\x1f\x7f-\xff]/g) && 
+      if (($string =~ /[\x01-\x08\x0b\x0e-\x1f\x7f-\xff]/g) && 
           ($this->translate)) 
       {
-         $this->_debug_message(
-            "translating OCTET STRING to printable hex string\n"
-         );
+         DEBUG_INFO("translating OCTET STRING to printable hex string");
          return sprintf("0x%s", unpack('H*', $string));
       } else {
          return $string;
@@ -1916,7 +2465,7 @@ sub _asn1_decode_octet_string
 
 sub _asn1_decode_null
 {
-   my ($this) = @_;
+   my $this = shift;
    my ($length) = (undef);
 
    if (!defined($length = $this->_asn1_decode_length)) {
@@ -1928,7 +2477,7 @@ sub _asn1_decode_null
    }
 
    if ($this->translate) {
-      $this->_debug_message("translating NULL to 'NULL' string\n");
+      DEBUG_INFO("translating NULL to 'NULL' string");
       'NULL';
    } else {
       '';
@@ -1937,7 +2486,7 @@ sub _asn1_decode_null
 
 sub _asn1_decode_object_identifier
 {
-   my ($this) = @_;
+   my $this = shift;
    my ($length, $subid_cnt, $subid, $byte) = (undef, 1, 0, undef);
    my (@oid);
 
@@ -1980,7 +2529,7 @@ sub _asn1_decode_object_identifier
    # if one was passed to the encode routine).
 
    if ($this->{'_leading_dot'}) {
-      $this->_debug_message("adding leading dot\n");
+      DEBUG_INFO("adding leading dot");
       '.' . join('.', @oid);
    } else {
       join('.', @oid);
@@ -1995,7 +2544,7 @@ sub _asn1_decode_sequence
 
 sub _asn1_decode_ipaddress
 {
-   my ($this) = @_;
+   my $this = shift;
    my ($length, $address) = (undef, undef);
 
    if (!defined($length = $this->_asn1_decode_length)) {
@@ -2018,22 +2567,22 @@ sub _asn1_decode_ipaddress
 
 sub _asn1_decode_counter
 {
-   $_[0]->_asn1_decode_integer32;
+   $_[0]->_asn1_decode_integer32($_[1]);
 }
 
 sub _asn1_decode_gauge
 {
-   $_[0]->_asn1_decode_integer32;
+   $_[0]->_asn1_decode_integer32($_[1]);
 }
 
 sub _asn1_decode_timeticks
 {
-   my ($this) = @_;
+   my ($this, $type) = @_;
    my ($ticks) = (undef);
 
-   if (defined($ticks = $this->_asn1_decode_integer32)) {
+   if (defined($ticks = $this->_asn1_decode_integer32($type))) {
       if ($this->translate) {
-         $this->_debug_message("translating %u TimeTicks to time\n", $ticks);
+         DEBUG_INFO("translating %u TimeTicks to time\n", $ticks);
          return _asn1_ticks_to_time($ticks);
       } else {
          return $ticks;
@@ -2050,7 +2599,7 @@ sub _asn1_decode_opaque
 
 sub _asn1_decode_counter64
 {
-   my ($this) = @_;
+   my $this = shift;
    my ($length, $byte, $negative) = (undef, undef, FALSE);
 
    # Verify the SNMP version
@@ -2064,8 +2613,9 @@ sub _asn1_decode_counter64
       return $this->_asn1_decode_error;
    }
 
-   # Just return zero if the object length is zero
-   if ($length < 1) { return '0'; }
+   if ($length < 1) {
+      return $this->_asn1_decode_error('Counter64 length equal to zero');
+   }
 
    if (!defined($byte = $this->_object_get_buffer(1))) {
       return $this->_asn1_decode_error;
@@ -2082,8 +2632,10 @@ sub _asn1_decode_counter64
    # Only load the Math::BigInt module when needed
    use Math::BigInt;
 
-   if ($byte & 0x80) { $negative = TRUE; }
-   if ($negative) { $byte = $byte ^ 0xff; }
+   if ($byte & 0x80) { 
+      $negative = TRUE;
+      $byte = $byte ^ 0xff; 
+   }
 
    my $c64 = Math::BigInt->new($byte);
 
@@ -2115,7 +2667,7 @@ sub _asn1_decode_counter64
 
 sub _asn1_decode_nosuchobject
 {
-   my ($this) = @_;
+   my $this = shift;
    my ($length) = (undef);
 
    if ($this->version != SNMP_VERSION_2C) {
@@ -2133,9 +2685,7 @@ sub _asn1_decode_nosuchobject
    }
 
    if ($this->translate) {
-      $this->_debug_message(
-         "translating noSuchObject to 'noSuchObject' string"
-      );
+      DEBUG_INFO("translating noSuchObject to 'noSuchObject' string");
       'noSuchObject';
    } else {
       $this->{'_error_status'} = NOSUCHOBJECT;
@@ -2145,7 +2695,7 @@ sub _asn1_decode_nosuchobject
 
 sub _asn1_decode_nosuchinstance
 {
-   my ($this) = @_;
+   my $this = shift;
    my ($length) = (undef);
 
    if ($this->version != SNMP_VERSION_2C) {
@@ -2165,9 +2715,7 @@ sub _asn1_decode_nosuchinstance
    }
 
    if ($this->translate) {
-      $this->_debug_message(
-         "translating noSuchInstance to 'noSuchInstance' string"
-      );
+      DEBUG_INFO("translating noSuchInstance to 'noSuchInstance' string");
       'noSuchInstance';
    } else {
       $this->{'_error_status'} = NOSUCHINSTANCE;
@@ -2177,7 +2725,7 @@ sub _asn1_decode_nosuchinstance
 
 sub _asn1_decode_endofmibview
 {
-   my ($this) = @_;
+   my $this = shift;
    my ($length) = (undef);
 
    if ($this->version != SNMP_VERSION_2C) {
@@ -2195,9 +2743,7 @@ sub _asn1_decode_endofmibview
    }
 
    if ($this->translate) {
-      $this->_debug_message(
-         "translating endOfMibView to 'endOfMibView' string"
-      );
+      DEBUG_INFO("translating endOfMibView to 'endOfMibView' string");
       'endOfMibView';
    } else {
       $this->{'_error_status'} = ENDOFMIBVIEW;
@@ -2274,9 +2820,9 @@ sub _asn1_decode_v2_trap
 
 sub _asn1_decode_error
 {
-   my ($this, @error) = @_;
+   my $this = shift;
 
-   $this->_object_error(@error);
+   $this->_object_error(@_);
 }
 
 
@@ -2286,31 +2832,31 @@ sub _asn1_decode_error
 
 sub _asn1_itoa 
 {
-   my ($type) = @_;
+   my $type = shift;
 
    my $types = {
-	INTEGER,            'INTEGER', 
-	OCTET_STRING,       'OCTET STRING', 
-	NULL,               'NULL', 
-	OBJECT_IDENTIFIER,  'OBJECT IDENTIFER', 
-	SEQUENCE,           'SEQUENCE', 
-	IPADDRESS,          'IpAddress', 
-	COUNTER,            'Counter', 
-	GAUGE,              'Gauge', 
-	TIMETICKS,          'TimeTicks', 
-	OPAQUE,             'Opaque', 
-        COUNTER64,          'Counter64',
-        NOSUCHOBJECT,       'noSuchObject',
-        NOSUCHINSTANCE,     'noSuchInstance',
-        ENDOFMIBVIEW,       'endOfMibView',
-	GET_REQUEST,        'GetRequest-PDU', 
-	GET_NEXT_REQUEST,   'GetNextRequest-PDU', 
-	GET_RESPONSE,       'GetResponse-PDU', 
-	SET_REQUEST,        'SetRequest-PDU', 
-	TRAP,               'Trap-PDU',
-        GET_BULK_REQUEST,   'GetBulkRequest-PDU',
-        INFORM_REQUEST,     'InformRequest-PDU',
-        SNMPV2_TRAP,        'SNMPv2-Trap-PDU' 
+      INTEGER,            'INTEGER', 
+      OCTET_STRING,       'OCTET STRING', 
+      NULL,               'NULL', 
+      OBJECT_IDENTIFIER,  'OBJECT IDENTIFER', 
+      SEQUENCE,           'SEQUENCE', 
+      IPADDRESS,          'IpAddress', 
+      COUNTER,            'Counter', 
+      GAUGE,              'Gauge', 
+      TIMETICKS,          'TimeTicks', 
+      OPAQUE,             'Opaque', 
+      COUNTER64,          'Counter64',
+      NOSUCHOBJECT,       'noSuchObject',
+      NOSUCHINSTANCE,     'noSuchInstance',
+      ENDOFMIBVIEW,       'endOfMibView',
+      GET_REQUEST,        'GetRequest-PDU', 
+      GET_NEXT_REQUEST,   'GetNextRequest-PDU', 
+      GET_RESPONSE,       'GetResponse-PDU', 
+      SET_REQUEST,        'SetRequest-PDU', 
+      TRAP,               'Trap-PDU',
+      GET_BULK_REQUEST,   'GetBulkRequest-PDU',
+      INFORM_REQUEST,     'InformRequest-PDU',
+      SNMPV2_TRAP,        'SNMPv2-Trap-PDU' 
    };
 
    if (!defined($type)) { return '??'; }
@@ -2322,7 +2868,7 @@ sub _asn1_itoa
    }
 }
 
-sub _asn1_oid_subtree 
+sub _asn1_oid_context_match
 {
    my ($oid_p, $oid_c) = @_;
    my ($parent, $child) = (undef, undef);
@@ -2350,9 +2896,32 @@ sub _asn1_oid_subtree
    TRUE;
 }
 
+sub _asn1_oid_lex_sort
+{
+   sort {
+      my ($aa, $bb);
+
+      my @a = split(/\./, $a);
+      if ($a[0] eq '') { shift(@a); }
+
+      my @b = split(/\./, $b);  
+      if ($b[0] eq '') { shift(@b); } 
+
+      while (@a) {
+         if (!defined($aa = shift(@a))) { return -1; }
+         if (!defined($bb = shift(@b))) { return 1; }
+         if ($aa < $bb) { return -1; } 
+         if ($aa > $bb) { return 1; }
+      }
+
+      0;
+   } (@_);
+
+}
+
 sub _asn1_ticks_to_time 
 {
-   my ($ticks) = @_;
+   my $ticks = shift;
 
    if (!defined($ticks)) { $ticks = 0; }
 
@@ -2382,13 +2951,14 @@ sub _asn1_ticks_to_time
 
 }
 
+
 ###
 ## User Datagram Protocol (UDP) methods
 ###
 
 sub _udp_send_message
 {
-   my ($this) = @_;
+   my $this = shift;
    my ($retries, $rout, $rin) = (0, '', '');
 
    # Make sure the socket is still open
@@ -2399,31 +2969,28 @@ sub _udp_send_message
    # Get the number of retries
    $retries = $this->{'_retries'};
 
-   # Send the message
-   if (!defined($this->_udp_send_buffer)) { return $this->_udp_error; }
-
    # Setup a vector to indicate received data on the socket
    vec($rin, fileno($this->{'_socket'}), 1) = 1;
 
-   while ($retries > 0) {
+   do {
+      if (!defined($this->_udp_send_buffer)) { return $this->_udp_error; }
       if (select($rout=$rin, undef, undef, $this->{'_timeout'})) {
          return $this->_udp_recv_buffer;
       } else {
+         DEBUG_INFO("request timed out, retries = %d", $retries);
          $retries--;
-         $this->_debug_message("request timed out\n");
-         if (!defined($this->_udp_send_buffer)) { return $this->_udp_error; }
       }
-   }
+   } while ($retries >= 0);
 
    # Exceeded the number of retries
    $this->_udp_error(
-      "No response from agent on remote host '%s'", $this->{'_hostname'} 
+      "No response from agent on remote host '%s'", $this->hostname 
    );
 }
 
 sub _udp_send_buffer
 {
-   my ($this) = @_;
+   my $this = shift;
    my ($length, $host_port, $host_addr) = (0, undef, undef);
 
    # Make sure the socket is still open
@@ -2432,9 +2999,7 @@ sub _udp_send_buffer
    }
 
    ($host_port, $host_addr) = sockaddr_in($this->{'_sockaddr'});
-   $this->_debug_message(
-      "address %s, port %d\n", inet_ntoa($host_addr), $host_port 
-   );
+   DEBUG_INFO("address %s, port %d", inet_ntoa($host_addr), $host_port); 
    $this->_debug_dump_buffer;
 
    # Transmit the contents of the buffer
@@ -2450,8 +3015,8 @@ sub _udp_send_buffer
 
 sub _udp_recv_buffer
 {
-   my ($this) = @_;
-   my ($sockaddr, $host_port, $host_addr) = (undef, undef, undef);
+   my $this = shift;
+   my $sockaddr = undef;
 
    # Make sure the socket is still open
    if (!defined($this->{'_socket'})) {
@@ -2462,33 +3027,15 @@ sub _udp_recv_buffer
    $this->_object_clear_buffer;
 
    # Fill the buffer
-   if (!defined($sockaddr = recv($this->{'_socket'}, $this->{'_buffer'},
-                               $this->{'_mtu'}, 0)))
+   if (!defined($sockaddr = 
+         recv($this->{'_socket'}, $this->{'_buffer'}, $this->{'_mtu'}, 0))
+      )
    {
       return $this->_udp_error("recv(): %s", $!);
    }
 
-   ($host_port, $host_addr) = sockaddr_in($sockaddr);
-
-   # Make sure that the address that we received the data from was the
-   # one that we sent the request to.  We just compare the bytes 
-   # containing the port and address information since Windows NT seems
-   # to fill the last eight bytes with random data and AIX returns a 
-   # different PF_INET value in the resulting sockaddr_in structure.
-
-   if (substr($sockaddr, 2, 6) ne substr($this->{'_sockaddr'}, 2, 6)) {
-      $this->_debug_message("rcv = 0x%s\n", unpack('H*', $sockaddr));
-      $this->_debug_message("snd = 0x%s\n", unpack('H*', $this->{'_sockaddr'}));
-      if ($this->verify_ip) {
-         return $this->_udp_error(
-            "Received unexpected datagram from '%s'", inet_ntoa($host_addr)
-         );
-      }
-   }
-
-   $this->_debug_message(
-      "address %s, port %d\n", inet_ntoa($host_addr), $host_port
-   );
+   my ($host_port, $host_addr) = sockaddr_in($sockaddr);
+   DEBUG_INFO("address %s, port %d", inet_ntoa($host_addr), $host_port);
    $this->_debug_dump_buffer;
 
    # Return the address structure
@@ -2497,15 +3044,161 @@ sub _udp_recv_buffer
 
 sub _udp_error
 {
-   my ($this, @error) = @_;
+   my $this = shift;
 
-   $this->_object_error(@error);
+   $this->_object_error(@_);
 }
 
 
 ###
 ## Object specific methods
 ###
+
+sub _object_copy
+{
+   my $this = shift;
+
+   my $copy = bless {}, ref($this);
+
+   foreach (keys(%{$this})) { $copy->{$_} = $this->{$_}; }
+
+   $copy;
+}
+
+sub _object_queue_message
+{
+   my $this = shift;
+
+   if ((!$this->{'_nonblocking'}) || (!defined($this->{'_fsm'}))) {
+      return $this->_object_encode_error(
+         'Unable to queue message for a blocking session'
+      );
+   }
+
+   if (!defined($this->{'_socket'})) { 
+      return $this->_object_encode_error('Session is closed');
+   }
+
+   if (!defined($this->{'_fsm'}->queue_message($this))) {
+      $this->_object_encode_error('Failed to queue message');
+   }
+
+   TRUE;
+}
+
+sub _object_add_callback
+{
+   my ($this, $callback) = @_;
+
+   # Callbacks can be passed in two different ways.  If the callback
+   # has options, the callback must be passed as an ARRAY reference
+   # with the first element being a CODE reference and the remaining
+   # elements the arguments.  If the callback has not options it
+   # is just passed as a CODE reference.
+
+   if ((ref($callback) eq 'ARRAY') && (ref($callback->[0]) eq 'CODE')) {
+      $this->{'_callback'} = $callback;   
+   } elsif (ref($callback) eq 'CODE') {
+      $this->{'_callback'} = [$callback];
+   } elsif (!defined($callback)) {
+      $this->{'_callback'} = undef;  # Used to clear the callback
+   } else {
+      return $this->_object_error('Invalid callback format');
+   }
+
+   TRUE;
+}
+
+sub _object_invoke_callback
+{
+   my $this = shift;
+
+   # Callbacks are invoked with a reference to the copy of the original 
+   # object followed by the users parameters.
+
+   if (defined($this->{'_callback'})) {
+      my @argv = @{$this->{'_callback'}};
+      my $callback = shift(@argv);
+      if (ref($callback) ne 'CODE') { return($this->{'_callback'} = undef); } 
+      unshift(@argv, $this);
+      eval { &{$callback}(@argv) };
+      if ($@ ne '') { DEBUG_INFO("eval error: %s", $@); }
+      return $@;
+   }
+
+   $this->{'_callback'};
+}
+
+sub _object_get_table_cb
+{
+   my ($this, $argv) = @_;
+
+   # Use get-next-requests until the response is not a subtree of the
+   # base OBJECT IDENTIFIER.  Return the table only if there are no
+   # errors other than a noSuchName(2) error since the table could
+   # be at the end of the tree.  Also return the table when the value
+   # of the OID equals endOfMibView(2) when using SNMPv2c.
+
+   # Assign the "real" callback to the object
+   $this->{'_callback'} = $argv->{'callback'};
+
+   # Check to see if the var_bind_list is defined (was there an error?)
+
+   if (defined($this->var_bind_list)) {
+
+      my ($next_oid) = keys(%{$this->var_bind_list});
+      if (_asn1_oid_context_match($argv->{'base_oid'}, $next_oid)) {
+
+         if (!exists($argv->{'table'}->{$next_oid})) {
+            $argv->{'table'}->{$next_oid} = $this->var_bind_list->{$next_oid};
+         } elsif ((($this->var_bind_list->{$next_oid} eq 'endOfMibView') ||
+                  ($this->error_status == ENDOFMIBVIEW)) &&        
+                  ($this->version == SNMP_VERSION_2C))
+         {
+            if (!defined($argv->{'table'})) {
+               $this->_object_decode_error('Requested table is empty');
+            }
+            $this->{'_var_bind_list'} = $argv->{'table'};
+            return $this->_object_invoke_callback;
+         } else {
+            $argv->{'repeat_cnt'}++;
+         }
+         # Check to make sure that the remote host does not respond
+         # incorrectly causing the get-next-requests to loop forever.
+         if ($argv->{'repeat_cnt'} > 5) {
+            $this->_object_decode_error(
+               'Loop detected with table on remote host'
+            );
+            return $this->_object_invoke_callback;
+         }
+         # Queue up the get-next-request
+         $this->get_next_request(
+            -callback    => [\&_object_get_table_cb, $argv],
+            -varbindlist => [$next_oid]
+         );
+
+      } else {
+         # We have reached the end of the table
+         if (!defined($argv->{'table'})) {
+            $this->_object_decode_error('Requested table is empty');
+         }
+         $this->{'_var_bind_list'} = $argv->{'table'};
+         return $this->_object_invoke_callback;
+      }
+
+   } else {
+
+      # Check for noSuchName(2) error
+      if ($this->error_status == 2) {
+         if (!defined($argv->{'table'})) {
+            $this->_object_decode_error('Requested table is empty');
+         }
+         $this->{'_var_bind_list'} = $argv->{'table'};
+      }
+      $this->_object_invoke_callback;
+
+   }
+}
 
 sub _object_put_buffer
 {
@@ -2556,15 +3249,9 @@ sub _object_get_buffer
    $substr;
 }
 
-sub _object_clear_buffer
-{
-   $_[0]->{'_buffer'} = '';
-}
+sub _object_clear_buffer { $_[0]->{'_buffer'} = ''; }
 
-sub _object_clear_var_bind_list
-{
-   $_[0]->{'_var_bind_list'} = undef;
-}
+sub _object_clear_var_bind_list { $_[0]->{'_var_bind_list'} = undef; }
 
 sub _object_clear_error
 {
@@ -2573,31 +3260,35 @@ sub _object_clear_error
    $_[0]->{'_error'} = undef;
 }
 
-sub _object_clear_leading_dot
+sub _object_clear_snmp_message
 {
-   $_[0]->{'_leading_dot'} = FALSE;
+   my @fields = qw(
+      _version _community _type _request_id _error_status _error_index
+      _enterprise _agent_addr _generic_trap _specific_trap _time_stamp
+   );
+
+   foreach (@fields) { if (exists($_[0]->{$_})) { $_[0]->{$_} = undef; } }
 }
 
-sub _object_buffer_length
-{
-   length $_[0]->{'_buffer'};
-}
+sub _object_clear_leading_dot { $_[0]->{'_leading_dot'} = FALSE; }
+
+sub _object_buffer_length { length $_[0]->{'_buffer'}; }
 
 sub _object_encode_error
 {
-   my ($this, @error) = @_;
+   my $this = shift;
 
    # Clear the buffer
    $this->_object_clear_buffer;
 
-   $this->_object_error(@error);
+   $this->_object_error(@_);
 }
 
 sub _object_decode_error
 {
-   my ($this, @error) = @_;
+   my $this = shift;
 
-   $this->_object_error(@error);
+   $this->_object_error(@_);
 }
 
 sub _object_error
@@ -2607,9 +3298,7 @@ sub _object_error
    if (!defined($this->{'_error'})) {
       $this->{'_error'} = sprintf $format, @message;
       if ($this->debug) {
-         my @info_1 = caller(1);
-         my @info_2 = caller(2);
-         printf("debug: [%d] %s(): %s\n", $info_1[2], $info_2[3], 
+         printf("debug: [%d] %s(): %s\n", (caller(1))[2], (caller(2))[3], 
             $this->{'_error'}
          );
       }
@@ -2620,36 +3309,30 @@ sub _object_error
 
 
 ###
-## Debug methods
+## Debug functions/methods
 ###
 
-sub _debug_message
+sub DEBUG_INFO
 {
-   my ($this, @message) = @_;
+   if (!$Net::SNMP::DEBUG) { return $Net::SNMP::DEBUG; }
 
-   if (!$this->debug) { return 0x0; }
+   my $format = sprintf("debug: [%d] %s(): ", (caller(0))[2], (caller(1))[3]);
+   $format = join('', $format, shift(@_), "\n");
+   printf $format, @_;
 
-   my @info_0 = caller(0);
-   my @info_1 = caller(1);
-   my $format = sprintf("debug: [%d] %s(): ", $info_0[2], $info_1[3]);
-
-   $format = join('', $format, shift(@message));
-
-   printf $format, @message;
-
-   0x1;
+   $Net::SNMP::DEBUG;
 }
 
 sub _debug_dump_buffer
 {
-   my ($this) = @_;
+   my $this = shift;
    my ($length, $offset, $line, $hex) = (0, 0, '', '');
 
    if (!$this->debug) { return undef; }
 
    $length = length($this->{'_buffer'});
 
-   $this->_debug_message("%d byte%s\n", $length, ($length == 1 ? '' : 's'));
+   DEBUG_INFO("%d byte%s", $length, ($length == 1 ? '' : 's'));
   
    while ($length > 0) {
       if ($length >= 16) { 
@@ -2671,7 +3354,434 @@ sub _debug_dump_buffer
 }
 
 # ============================================================================
-1; # [end Net::SNMP]
+1; # [end Net::SNMP] 
+# ============================================================================
+
+package Net::SNMP::FSM;
+
+# $Id$
+# $Source$
+
+# Copyright (c) 1999 David M. Town <dtown@fore.com>.
+# All rights reserved.
+
+# This program is free software; you may redistribute it and/or modify it
+# under the same terms as Perl itself.
+
+# ============================================================================
+
+## Import and initialize global symbols
+
+sub BEGIN
+{
+   require Net::SNMP;
+
+   *DEBUG_INFO   = \&Net::SNMP::DEBUG_INFO;
+   *FALSE        = \&Net::SNMP::FALSE;
+   *GET_RESPONSE = \&Net::SNMP::GET_RESPONSE;
+   *MAXIMUM_MTU  = \&Net::SNMP::MAXIMUM_MTU;
+   *SNMPV2_TRAP  = \&Net::SNMP::SNMPV2_TRAP;
+   *TRAP         = \&Net::SNMP::TRAP;
+   *TRUE         = \&Net::SNMP::TRUE;
+}
+
+## Finite State Machine state definitions
+
+sub STATE_STOPPED      { 0 }
+sub STATE_STARTING     { 1 }
+sub STATE_SENDING      { 2 }
+sub STATE_WAITING      { 3 }
+sub STATE_VALIDATING   { 4 }
+sub STATE_CLEARING     { 5 }
+
+## Flag to indicate a "dead" queued object
+
+sub TTD_DEAD           { 0 }
+
+
+# [public methods] -----------------------------------------------------------
+
+sub new
+{
+   my ($class, %argv) = @_;
+
+   my $this = bless {
+      '_decode_object' => undef,
+      '_pending_queue' => [],
+      '_rin'           => '',
+      '_sending_queue' => [],
+      '_sockets'       => {},
+      '_state'         => STATE_STOPPED
+   }, $class;
+
+   # Create a Net::SNMP object to use to decode the responses.
+
+   $this->{'_decode_object'} = Net::SNMP->new(-mtu => MAXIMUM_MTU);
+
+   if (!defined($this->{'_decode_object'})) {
+      DEBUG_INFO('failed to create Net::SNMP object');
+      return undef;
+   }
+
+   $this;
+}
+
+sub queue_message { $_[0]->_action_queue($_[1]); }
+
+sub event_loop    { $_[0]->_event_loop; }
+
+sub one_event     { $_[0]->_event_handle; }
+
+# [private methods] ----------------------------------------------------------
+
+sub _event_loop
+{
+   my $this = shift;
+
+   # The action that starts everything...
+   $this->_action_start;
+
+   while ($this->_object_state != STATE_STOPPED) { $this->_event_handle; }
+
+   $this->_object_clear;
+}
+
+sub _event_handle
+{
+   my $this = shift;
+
+   if ($this->_object_state == STATE_STARTING) {
+      $this->_state_starting;
+   } elsif ($this->_object_state == STATE_SENDING) {
+      $this->_state_sending;
+   } elsif ($this->_object_state == STATE_WAITING) {
+      $this->_state_waiting;
+   } elsif ($this->_object_state == STATE_VALIDATING) {
+      $this->_state_validating;
+   } elsif ($this->_object_state == STATE_CLEARING) {
+      $this->_state_clearing;
+   } else {
+      DEBUG_INFO("state = %d", $this->_object_state);
+      $this->_object_state(STATE_STOPPED);
+   }
+}
+
+
+###
+## FSM States
+###
+
+sub _state_starting
+{
+   my $this = shift;
+
+   # Need to initialize the "time-to-die" fields on all pending messages
+
+   foreach (@{$this->{'_pending_queue'}}) {
+      $_->{'_ttd'} = time() + $_->timeout;
+   }
+
+   if (@{$this->{'_sending_queue'}}) {
+      $this->_action_send;
+   } elsif (@{$this->{'_pending_queue'}}) {
+      $this->_action_wait;
+   } else {
+      $this->_action_stop;
+   }
+}
+
+sub _state_sending
+{
+   my $this = shift;
+   my $message = undef;
+
+   DEBUG_INFO("sending %d message(s)", scalar(@{$this->{'_sending_queue'}}));
+
+   while (defined($message = shift(@{$this->{'_sending_queue'}}))) {
+      if (!defined($message->_udp_send_buffer)) {
+         DEBUG_INFO("error [%s]", $message->error);
+         return $this->_action_stop;
+      }
+   }
+
+   if (@{$this->{'_pending_queue'}}) {
+      $this->_action_wait;
+   } else {
+      $this->_action_stop;
+   }
+}
+
+sub _state_waiting
+{
+   my $this = shift;
+
+   # Sort the pending queue by time-to-die
+   @{$this->{'_pending_queue'}} = sort _by_ttd @{$this->{'_pending_queue'}};
+
+   # Calculate a timeout based on the current time and the
+   # lowest time-to-die in the queue.
+
+   my $timeout = ${$this->{'_pending_queue'}}[0]->{'_ttd'} - time();
+
+   # If the timeout is less than 0, this entry has timed out.
+   if ($timeout < 0) { 
+      $this->_action_timeout; 
+      $timeout = 0;
+   }
+
+   if (select(my $rout = $this->{'_rin'}, undef, undef, $timeout)) {
+      # Find out which socket has data ready
+      foreach (keys(%{$this->{'_sockets'}})) {
+         if (defined($rout) && vec($rout, $_, 1)) {
+            DEBUG_INFO("socket handle [%d] ready", $_);
+            return $this->_action_read_data($this->{'_sockets'}->{$_});
+         }
+      }
+   }
+
+   DEBUG_INFO("no response, timeout = %f", $timeout);
+
+   # Else handle the timeout
+   $this->_action_timeout;
+}
+
+sub _state_validating
+{
+   my $this = shift;
+
+   my $object = $this->{'_decode_object'};
+
+   # Decode the packet up to the VarBindList
+
+   $object->_object_clear_snmp_message;
+
+   $object->{'_type'} = GET_RESPONSE;
+   if (!defined($object->_snmp_decode_message)) {
+      DEBUG_INFO("message decode error [%s]", $object->error);
+      return $this->_action_clear;
+   }
+   if (!defined($object->_snmp_decode_pdu)) {
+      DEBUG_INFO("pdu decode error [%s]", $object->error);
+      return $this->_action_clear;
+   }
+
+   # Now look for a matching queued message based on request-id
+   foreach (@{$this->{'_pending_queue'}}) {
+      if ($object->_request_id == $_->_request_id) {
+         DEBUG_INFO("response received: request-id = %s (%s)", 
+            $_->_request_id, $_->hostname
+         );
+         # Set the time-to-die to "dead" so this object is
+         # removed from the queue in the clearing state.
+         $_->{'_ttd'} = TTD_DEAD;
+
+         # Now compare the response to sent message
+         if (!defined($_->_snmp_compare_get_response($object))) {
+            return $this->_action_callback($_);
+         }
+         # Copy the remaining buffer over to the "real" object
+         # and decode the VarBindList.
+         $_->{'_buffer'} = $object->{'_buffer'};
+         $_->_snmp_decode_var_bind_list;
+         return $this->_action_callback($_);
+      }
+   }
+
+   DEBUG_INFO("unknown request-id = %s", $object->_request_id);
+
+   $this->_action_clear;
+}
+
+sub _state_clearing
+{
+   my $this = shift;
+
+   # Sort the pending queue by time-to-die
+   @{$this->{'_pending_queue'}} = sort _by_ttd @{$this->{'_pending_queue'}};
+
+   # Now clear out any "dead" objects from the pending queue
+   while ((@{$this->{'_pending_queue'}}) &&
+          (${$this->{'_pending_queue'}}[0]->{'_ttd'} == TTD_DEAD))
+   {
+      DEBUG_INFO("remove request-id = %s (%s)",
+         ${$this->{'_pending_queue'}}[0]->{'_org_req_id'},
+         ${$this->{'_pending_queue'}}[0]->hostname, 
+      );
+      shift(@{$this->{'_pending_queue'}});
+   }
+
+   if (!@{$this->{'_pending_queue'}}) {
+      $this->_action_stop;
+   } elsif (@{$this->{'_sending_queue'}}) {
+      $this->_action_send;
+   } else {
+      $this->_action_wait;
+   }
+}
+
+###
+## FSM actions
+###
+
+sub _action_queue
+{
+   my ($this, $message) = @_;
+
+   # Make sure that a Net::SNMP object was passed
+   if (!defined($message) || ref($message) ne 'Net::SNMP') {
+      DEBUG_INFO('invalid message type');
+      return undef;
+   }
+
+   # Validate the socket status
+   if (!defined($message->{'_socket'}) || !fileno($message->{'_socket'})) {
+      DEBUG_INFO('socket is invalid');
+      return undef;
+   }
+
+   # Copy the object, so that we can use it for retransmissions
+   my $copy = $message->_object_copy;
+
+   # Add a time-to-die field and a copy of the request-id to the copy
+   $copy->{'_ttd'} = time() + $copy->timeout;
+   $copy->{'_org_req_id'} = $copy->_request_id;
+
+   # Add the socket to the "readable" vector
+   vec($this->{'_rin'}, fileno($copy->{'_socket'}), 1) = 1;
+
+   # Add the socket to the list of sockets
+   $this->{'_sockets'}->{fileno($copy->{'_socket'})} = $copy->{'_socket'};
+
+   # Queue the copy for transmission
+   push(@{$this->{'_sending_queue'}}, $copy);
+
+   # Queue the copy, if the message requires a response
+   if ((defined($copy->{'_type'})) && ($copy->{'_type'} != TRAP) &&
+        ($copy->{'_type'} != SNMPV2_TRAP))
+   {
+      push(@{$this->{'_pending_queue'}}, $copy);
+   }
+
+   DEBUG_INFO("add request-id = %s (%s)", 
+      $copy->_request_id, $copy->hostname
+   );
+
+   if (($this->_object_state == STATE_STOPPED) || 
+        ($this->_object_state == STATE_STARTING))
+   {
+      $this->_object_state(STATE_STARTING);
+   } else {
+      $this->_object_state(STATE_SENDING);
+   }
+}
+
+sub _action_stop  { $_[0]->_object_state(STATE_STOPPED); }
+
+sub _action_start { $_[0]->_object_state(STATE_STARTING); }
+
+sub _action_wait  { $_[0]->_object_state(STATE_WAITING); }
+
+sub _action_read_data
+{
+   my ($this, $socket) = @_;
+
+   if (!fileno($socket)) { 
+      DEBUG_INFO('invalid socket');
+      return $this->_object_state(STATE_STOPPED);
+   } 
+
+   my $object = $this->{'_decode_object'};
+
+   # Set the FSM's Net::SNMP object's socket equal to the socket
+   $object->{'_socket'} = $socket;
+
+   # Read the data
+   if (!defined($object->_udp_recv_buffer)) {
+      DEBUG_INFO("error [%d]", $object->error);
+      return $this->_object_state(STATE_STOPPED);
+   }
+
+   $_[0]->_object_state(STATE_VALIDATING);
+}
+
+sub _action_timeout
+{
+   my $this = shift;
+ 
+   my $time = time();
+
+   foreach (@{$this->{'_pending_queue'}}) {
+      if ($_->{'_ttd'} > $time) { last; }
+      if ($_->{'_retries'}-- > 0) {
+         DEBUG_INFO("retry request-id = %s (%s), skew = %f, retries = %d",
+            $_->_request_id, $_->hostname, ($time - $_->{'_ttd'}),
+            $_->{'_retries'} 
+         );
+         # Update the time-to-die and queue for sending
+         $_->{'_ttd'} += int($_->timeout);
+         push(@{$this->{'_sending_queue'}}, $_);
+      } else {
+         DEBUG_INFO("timeout: request-id = %s (%s), skew = %f",
+            $_->_request_id, $_->hostname, ($time - $_->{'_ttd'})
+         );
+         $_->{'_ttd'} = TTD_DEAD;
+         $_->_snmp_decode_error(
+            "No response from agent on remote host '%s'", $_->hostname
+         );
+         $this->_action_callback($_);
+      }
+   }
+
+   if (@{$this->{'_sending_queue'}}) {
+      $this->_object_state(STATE_SENDING);
+   } else {
+      $this->_object_state(STATE_CLEARING);
+   }
+}
+
+sub _action_validate { $_[0]->_object_state(STATE_VALIDATING); }
+
+sub _action_clear { $_[0]->_object_state(STATE_CLEARING); }
+
+sub _action_send { $_[0]->_object_state(STATE_SENDING); }
+
+sub _action_callback
+{
+   if (@_ == 2) { $_[1]->_object_invoke_callback; }
+
+   $_[0]->_object_state(STATE_CLEARING);
+}
+
+
+###
+## Object specific methods/functions
+###
+
+sub _object_state
+{
+   if (@_ == 2) { $_[0]->{'_state'} = $_[1]; }
+
+   $_[0]->{'_state'};
+}
+
+sub _object_clear
+{
+   $_[0]->{'_pending_queue'} = [];
+   $_[0]->{'_rin'}           = '';
+   $_[0]->{'_sending_queue'} = [];
+   $_[0]->{'_sockets'}       = {};
+   $_[0]->{'_state'}         = STATE_STOPPED;
+
+   TRUE;
+}
+
+# Sort by time-to-die
+
+sub _by_ttd { $a->{'_ttd'} <=> $b->{'_ttd'}; }
+
+# ============================================================================
+1; # [end Net::SNMP::FSM]
+# ============================================================================
 
 __DATA__
 
@@ -2689,60 +3799,144 @@ Net::SNMP - Simple Network Management Protocol
 
 =head1 SYNOPSIS
 
-use Net::SNMP;
-
-=head1 DESCRIPTION
-
 The module Net::SNMP implements an object oriented interface to the Simple 
-Network Management Protocol.  Perl applications can use the module to 
-retrieve or update information on a remote host using the SNMP protocol.
-Net::SNMP is implemented completely in Perl, requires no compiling, and 
-uses only standard Perl modules.  Both SNMPv1 and SNMPv2c (Community-Based
-SNMPv2) are supported by the module.  The Net::SNMP module assumes that the 
-user has a basic understanding of the Simple Network Management Protocol and
-related network management concepts. 
+Network Management Protocol.  Perl applications can use the module to retrieve
+or update information on a remote host using the SNMP protocol. Net::SNMP is 
+implemented completely in Perl, requires no compiling, and uses only standard 
+Perl modules. Both SNMPv1 and SNMPv2c (Community-Based SNMPv2) are supported 
+by the module. The Net::SNMP module assumes that the user has a basic 
+understanding of the Simple Network Management Protocol and related network 
+management concepts.
+
+=head1 DESCRIPTION 
+
+The module Net::SNMP abstracts the intricate details of the Simple Network 
+Management Protocol by providing a high level programming interface to the 
+protocol.  Each Net::SNMP object provides a one-to-one mapping between a Perl 
+object and a remote SNMP agent or manager.  Once an object is created, it can 
+be used to perform all of the basic protocol exchange actions defined by SNMP. 
+
+A Net::SNMP object can be created such that it has either "blocking" or 
+"non-blocking" properties.  By default, the methods used to send SNMP messages 
+do not return until the protocol exchange has completed successfully or a 
+timeout period has expired. This behavior gives the object a "blocking" 
+property because the flow of the code is stopped until the method returns.  
+
+The optional named argument "B<-nonblocking>" can be passed to the object 
+constructor with a true value to give the object "non-blocking" behavior.
+A method invoked by a non-blocking object queues the SNMP message and returns
+immediately allowing the flow of the code to continue. The queued SNMP messages
+are not sent until an event loop is entered by calling the C<snmp_event_loop()>
+method.  When the SNMP messages are sent, any response to the messages invokes
+the subroutine defined by the user when the message was originally queued. The
+event loop exits when all messages have been removed from the queue by either 
+receiving a response or when the number of retries for the object has been 
+exceeded.
+
+=head2 Blocking Objects
+
+The default behavior of the methods associated with a Net::SNMP object is to 
+block the code flow until the method completes.  For methods that initiate a 
+SNMP protocol exchange requiring a response, a hash reference containing the 
+results of the query are returned. The undefined value is returned by all 
+methods when a failure has occurred. The C<error()> method can be used to 
+determine the cause of the failure.
+
+The hash reference returned by a SNMP protocol exchange points to a hash 
+constructed from the VarBindList contained in the SNMP GetResponse-PDU.  The 
+hash is created using the ObjectName and the ObjectSyntax pairs in the 
+VarBindList.  The keys of the hash consist of the OBJECT IDENTIFIERs in dotted 
+notation corresponding to each ObjectName in the VarBindList.  The value of 
+each hash entry is set equal to the value of the corresponding ObjectSyntax. 
+This hash reference can also be retrieved using the C<var_bind_list()> method.
+
+=head2 Non-blocking Objects
+
+When a Net::SNMP object is created having non-blocking behavior, the invocation
+of methods associated with the object returns immediately, allowing the flow of 
+the code to continue.  When a method is invoked that would initiate a SNMP 
+protocol exchange requiring a response, either a true value (i.e. 0x1) is 
+returned immediately or the undefined value is returned if there was a failure.
+The C<error()> method can be used to determine the cause of the failure.
+
+Most methods associated with a non-blocking object have an optional named 
+argument called "B<-callback>".  The B<-callback> argument expects a reference 
+to a subroutine or to an array whose first element must be a reference to a 
+subroutine.  The subroutine defined by the B<-callback> option is executed when
+a response to a SNMP message is received, an error condition has occurred, or 
+the number of retries for the message has been exceeded. 
+
+When the B<-callback> argument only contains a subroutine reference, the 
+subroutine is evaluated passing a copy of the original Net::SNMP object as the 
+only parameter.  The copy of the object has all of the properties that the 
+original object had when the message was queued, and will also contain the 
+results of the SNMP protocol exchange.  If the B<-callback> argument was 
+defined as an array reference, all elements in the array are passed to the 
+subroutine after the copy of the Net::SNMP object.  The first element, which is
+required to be a reference to a subroutine, is removed before the remaining 
+arguments are passed to that subroutine.
+
+Once one method is invoked with the B<-callback> argument, this argument stays 
+with the object and is used by any further calls to methods using the 
+B<-callback> option if the argument is absent.  The undefined value may be 
+passed to the B<-callback> argument to delete the callback subroutine.
+
+B<NOTE:> The subroutine being passed with the B<-callback> named argument 
+should not cause blocking itself.  This will cause all the actions in the event
+loop to be stopped, defeating the non-blocking property of the Net::SNMP 
+module. 
+
+The contents of the VarBindList contained in the SNMP GetResponse-PDU can be 
+retrieved by calling the C<var_bind_list()> method associated with the copy of 
+the original object.  The value returned by the C<var_bind_list()> method is a 
+hash reference created using the ObjectName and the ObjectSyntax pairs in the 
+VarBindList.  The keys of the hash consist of the OBJECT IDENTIFIERs in dotted 
+notation corresponding to each ObjectName in the VarBindList.  The value of 
+each hash entry is set equal to the value of the corresponding ObjectSyntax. 
+The undefined value is returned if there has been a failure and the C<error()>
+method may be used to determine the reason.
 
 =head1 METHODS
 
-When named arguments are used with methods, two different styles are
-supported.  All examples use the IO:: style:
+Most methods associated with a Net::SNMP object take different parameters based
+on the "blocking" or "non-blocking" property of the object.  When named 
+arguments are used with methods, two different styles are supported. All 
+examples in this documentation use the dashed-option style:
 
-   $object->method(Argument => $value);
+       $object->method(-argument => $value);
 
-However, the dashed-option style is also allowed:
+However, the IO:: style is also allowed:
 
-   $object->method(-argument => $value);
-
+       $object->method(Argument => $value);
 
 =head2 session() - create a new Net::SNMP object
 
    ($session, $error) = Net::SNMP->session(
-                                      [Hostname  => $hostname,]
-                                      [Community => $community,]
-                                      [Port      => $port,]
-                                      [Version   => $version,]
-                                      [Timeout   => $seconds,]
-                                      [Retries   => $count,]
-                                      [MTU       => $octets,]
-                                      [Translate => $translate,]
-                                      [VerifyIP  => $verifyip,]
-                                      [Debug     => $debug]
-                                   );
+                           [-hostname    => $hostname,]
+                           [-community   => $community,]
+                           [-port        => $port,]
+                           [-nonblocking => $nonblocking,]
+                           [-version     => $version,]
+                           [-timeout     => $seconds,]
+                           [-retries     => $count,]
+                           [-mtu         => $octets,]
+                           [-translate   => $translate,]
+                           [-debug       => $debug]
+                        );
 
-This is the constructor for Net::SNMP objects. In scalar context, a
+This is the constructor for Net::SNMP objects.  In scalar context, a
 reference to a new Net::SNMP object is returned if the creation of the object
 is successful.  In list context, a reference to a new Net::SNMP object and an 
-error message string is returned.  
+empty error message string is returned.  If a failure occurs, the object 
+reference is returned as the undefined value.  The error string may be used 
+to determine the cause of the error.
 
-If an error occurs, the object reference returns the undefined value.
-The error string may be used when this method is used in list context to
-determine the cause of the error.
-
-The B<Hostname>, B<Community>, and B<Port> arguments are basic properties
-of a Net::SNMP object and cannot be changed after the object is created.
-All other arguments have methods that allow their values to be modified after
-the Net::SNMP object has been created.  See the methods corresponding to  
-these named arguments for their valid ranges and default values.
+The B<-hostname>, B<-community>, B<-port>, and B<-nonblocking> arguments are 
+basic properties of a Net::SNMP object and cannot be changed after the object 
+is created.  All other arguments have methods that allow their values to be 
+modified after the Net::SNMP object has been created.  See the methods 
+corresponding to these named arguments for their valid ranges and default 
+values.
 
 All arguments are optional and will take default values in the absence of a
 corresponding named argument. 
@@ -2751,19 +3945,23 @@ corresponding named argument.
 
 =item *
 
-The default value for the remote B<Hostname> is "localhost".  The hostname 
+The default value for the remote B<-hostname> is "localhost".  The hostname 
 can either be a network hostname or the dotted IP address of the host. 
 
 =item *
 
-The default value for the SNMP B<Community> name is "public".
+The default value for the SNMP B<-community> name is "public".
 
 =item *
 
-The default value for the destination UDP B<Port> number is 161.  This is 
+The default value for the destination UDP B<-port> number is 161.  This is 
 the port on which hosts using default values expect to receive all SNMP 
 messages except for traps.  Port number 162 is the default port used by hosts 
 expecting to receive SNMP traps.
+
+=item *
+
+The default value for the B<-nonblocking> property is 0x0 (false).
 
 =back
 
@@ -2774,92 +3972,108 @@ expecting to receive SNMP traps.
 This method closes the UDP socket and clears the errors, hash pointers, and 
 buffers associated with the object.
 
+=head2 snmp_event_loop() - enter the non-blocking object event loop
+
+   $session->snmp_event_loop;
+
+This method enters the event loop associated with non-blocking Net::SNMP
+objects.  The method exits when all queued SNMP messages have been responded
+to or have timed out.  This method is also exported as the stand alone 
+function C<snmp_event_loop()> by default (see L<"EXPORTS">).
+
 =head2 get_request() - send a SNMP get-request to the remote agent
+
+Blocking
 
    $response = $session->get_request(@oids);
 
+Non-blocking
+
+         $ok = $session->get_request(
+                            [-callback   => sub {},]
+	         	    -varbindlist => \@oids
+                         );
+
 This method performs a SNMP get-request query to gather data from the remote
-agent on the host associated with the Net::SNMP object.  The method takes
-a list of OBJECT IDENTIFIERs in dotted notation.  Each OBJECT IDENTIFER is
-placed into a single SNMP GetRequest-PDU in the same order that it held in
-the original list.
+agent on the host associated with the Net::SNMP object.  The blocking form of
+the method takes a list of OBJECT IDENTIFIERs in dotted notation. Each OBJECT 
+IDENTIFER is placed into a single SNMP GetRequest-PDU in the same order that it
+held in the original list.  When the object is in non-blocking mode, the list
+is passed as an array reference to the B<-varbindlist> named argument.
 
-Upon success, a reference to a hash is returned which contains the results of
-the query. The undefined value is returned when a failure has occurred.  The
-C<error()> method can be used to determine the cause of the failure.
-
-The returned reference points to a hash constructed from the VarBindList
-contained in the SNMP GetResponse-PDU.  The hash is created using the
-ObjectName and the ObjectSyntax pairs in the VarBindList.  The keys of the
-hash consist of the OBJECT IDENTIFIERs in dotted notation corresponding to
-each ObjectName in the list.  If any of the passed OBJECT IDENTIFIERs began
-with a leading dot, all of the OBJECT IDENTIFIER hash keys will be prefixed
-with a leading dot.  The value of each hash entry is set to be the value of
-the associated ObjectSyntax.  The hash reference can also be retrieved using 
-the C<var_bind_list()> method.
+A reference to a hash is returned in blocking mode which contains the contents
+of the VarBindList.  In non-blocking mode, a true value is returned when no 
+error has occurred.  In either mode the undefined value is returned when an
+error has occurred.  The C<error()> method may be used to determine the cause
+of the failure.
 
 =head2 get_next_request() - send a SNMP get-next-request to the remote agent
 
+Blocking
+
    $response = $session->get_next_request(@oids);
 
-This method performs a SNMP get-next-request query to gather data from the
-remote agent on the host associated with the Net::SNMP object.  The method
-takes a list of OBJECT IDENTIFIERs in dotted notation.  Each OBJECT IDENTIFER
-is placed into a single SNMP GetNextRequest-PDU in the same order that it
-held in the original list.
+Non-blocking
 
-Upon success, a reference to a hash is returned which contains the results of
-the query. The undefined value is returned when a failure has occurred.  The
-C<error()> method can be used to determine the cause of the failure.
+         $ok = $session->get_next_request(
+                            [-callback   => sub {},]
+                            -varbindlist => \@oids
+                         );
 
-The returned reference points to a hash constructed from the VarBindList
-contained in the SNMP GetResponse-PDU.  The hash is created using the
-ObjectName and the ObjectSyntax pairs in the VarBindList.  The keys of the
-hash consist of the OBJECT IDENTIFIERs in dotted notation corresponding to
-each ObjectName in the list.  If any of the passed OBJECT IDENTIFIERs began
-with a leading dot, all of the OBJECT IDENTIFIER hash keys will be prefixed
-with a leading dot.  The value of each hash entry is set to be the value of
-the associated ObjectSyntax.  The hash reference can also be retrieved using
-the C<var_bind_list()> method.
+This method performs a SNMP get-next-request query to gather data from the 
+remote agent on the host associated with the Net::SNMP object.  The blocking 
+form of the method takes a list of OBJECT IDENTIFIERs in dotted notation. Each 
+OBJECT IDENTIFER is placed into a single SNMP GetNextRequest-PDU in the same 
+order that it held in the original list.  When the object is in non-blocking 
+mode, the list is passed as an array reference to the B<-varbindlist> named 
+argument.
+
+A reference to a hash is returned in blocking mode which contains the contents
+of the VarBindList.  In non-blocking mode, a true value is returned when no
+error has occurred.  In either mode the undefined value is returned when an
+error has occurred.  The C<error()> method may be used to determine the cause
+of the failure.
 
 =head2 set_request() - send a SNMP set-request to the remote agent
 
-   $response = $session->set_request(
-                            $oid, $type, $value 
-                            [, $oid, $type, $value]
+Blocking
+
+   $response = $session->set_request(@oid_type_value);
+
+Non-blocking
+
+         $ok = $session->set_request(
+                            [-callback   => sub {},]
+                            -varbindlist => \@oid_type_value
                          );
 
 This method is used to modify data on the remote agent that is associated
-with the Net::SNMP object using a SNMP set-request.  The method takes a
-list of values consisting of groups of an OBJECT IDENTIFIER, an object type, 
-and the actual value to be set.  The OBJECT IDENTIFIERs in each trio are to
-be in dotted notation.  The object type is a byte corresponding to the ASN.1
-type of value that is to be set.  Each of the supported types have been
-defined and are exported by the package by default (see L<"EXPORTS">).
+with the Net::SNMP object using a SNMP set-request.  The blocking form of the
+method takes a list of values consisting of groups of an OBJECT IDENTIFIER,
+an object type, and the actual value to be set.  The OBJECT IDENTIFIERs in each 
+trio are to be in dotted notation.  The object type is a byte corresponding to 
+the ASN.1 type of value that is to be set.  Each of the supported types have 
+been defined and are exported by the package by default (see L<"EXPORTS">).  
+When the object is in non-blocking mode, the list is passed as an array 
+reference to the B<-varbindlist> named argument.
 
-Upon success, a reference to a hash is returned which contains the results of
-the query. The undefined value is returned when a failure has occurred.  The
-C<error()> method can be used to determine the cause of the failure.
-
-The returned reference points to a hash constructed from the VarBindList
-contained in the SNMP GetResponse-PDU.  The hash is created using the
-ObjectName and the ObjectSyntax pairs in the VarBindList.  The keys of the
-hash consist of the OBJECT IDENTIFIERs in dotted notation corresponding to
-each ObjectName in the list.  If any of the passed OBJECT IDENTIFIERs began
-with a leading dot, all of the OBJECT IDENTIFIER hash keys will be prefixed
-with a leading dot.  The value of each hash entry is set to be the value of
-the associated ObjectSyntax.  The hash reference can also be retrieved using
-the C<var_bind_list()> method.
+A reference to a hash is returned in blocking mode which contains the contents
+of the VarBindList.  In non-blocking mode, a true value is returned when no
+error has occurred.  In either mode the undefined value is returned when an
+error has occurred.  The C<error()> method may be used to determine the cause
+of the failure.
 
 =head2 trap() - send an SNMP trap to the remote manager
 
-   $octets = $session->trap(
-                          [Enterprise   => $oid,]
-                          [AgentAddr    => $ipaddress,]
-                          [GenericTrap  => $generic,]
-                          [SpecificTrap => $specific,]
-                          [TimeStamp    => $timeticks,]
-                          [VarBindList  => \@oids,]
+Blocking or non-blocking
+
+   $value = $session->trap(
+                         [-enterprise   => $oid,]
+                         [-agentaddr    => $ipaddress,]
+                         [-generictrap  => $generic,]
+                         [-specifictrap => $specific,]
+                         [-timestamp    => $timeticks,]
+                         [-varbindlist  => \@oids]
                        );
 
 This method sends an SNMP trap to the remote manager associated with the
@@ -2870,37 +4084,37 @@ defaults in the absence of a corresponding named argument:
 
 =item *
 
-The default value for the trap B<Enterprise> is "1.3.6.1.4.1", which 
+The default value for the trap B<-enterprise> is "1.3.6.1.4.1", which 
 corresponds to "iso.org.dod.internet.private.enterprises".  The enterprise 
 value is expected to be an OBJECT IDENTIFER in dotted notation. 
 
 =item *
 
-The default value for the trap B<AgentAddr> is the local IP address from
+The default value for the trap B<-agentaddr> is the local IP address from
 the host on which the script is running.  The agent-addr is expected to
 be an IpAddress in dotted notation.
 
 =item *
 
-The default value for the B<GenericTrap> type is 6 which corresponds to 
+The default value for the B<-generictrap> type is 6 which corresponds to 
 "enterpriseSpecific".  The generic-trap types are defined and can be exported
 upon request (see L<"EXPORTS">).
 
 =item *
 
-The default value for the B<SpecificTrap> type is 0.  No pre-defined values
+The default value for the B<-specifictrap> type is 0.  No pre-defined values
 are available for specific-trap types.
 
 =item *
 
-The default value for the trap B<TimeStamp> is the "uptime" of the script.  The
+The default value for the trap B<-timestamp> is the "uptime" of the script.  The
 "uptime" of the script is the number of hundredths of seconds that have elapsed
-since the script started running.  The time-stamp is expected to be a TimeTicks
+since the script began running.  The time-stamp is expected to be a TimeTicks
 number in hundredths of seconds.
 
 =item *
 
-The default value for the trap B<VarBindList> is an empty array reference.
+The default value for the trap B<-varbindlist> is an empty array reference.
 The variable-bindings are expected to be in an array format consisting of 
 groups of an OBJECT IDENTIFIER, an object type, and the actual value of the 
 object.  This is identical to the list expected by the C<set_request()> method.
@@ -2911,84 +4125,94 @@ L<"EXPORTS">).
 
 =back
 
-Upon success, the number of bytes transmitted is returned.  The undefined value
-is returned when a failure has occurred.  The C<error()> method can be used to 
-determine the cause of the failure.  Since there are no acknowledgements for
-Trap-PDUs, there is no way to determine if the remote host actually received 
-the trap.
+Upon success, the number of bytes transmitted is returned when the object is
+in blocking mode.  A true value is returned when successful in non-blocking
+mode.  The undefined value is returned when a failure has occurred.  The
+C<error()> method can be used to determine the cause of the failure. Since
+there are no acknowledgements for Trap-PDUs, there is no way to determine if
+the remote host actually received the trap.  
+
+B<NOTE:> When the object is in non-blocking mode, the trap is not sent until 
+the event loop is entered.
 
 =head2 get_bulk_request() - send a SNMPv2 get-bulk-request to the remote agent
 
+Blocking
+
    $response = $session->get_bulk_request(
-                            [NonRepeaters   => $nonrepeaters,]
-                            [MaxRepetitions => $maxrepetitions,]
-                            [VarBindList    => \@oids,]
+                            [-nonrepeaters   => $nonrepeaters,]
+                            [-maxrepetitions => $maxrepetitions,]
+                            -varbindlist     => \@oids
+                         );
+
+Non-blocking
+
+         $ok = $session->get_bulk_request(
+                            [-callback       => sub {},]
+                            [-nonrepeaters   => $nonrepeaters,]
+                            [-maxrepetitions => $maxrepetitions,]
+                            -varbindlist     => \@oids
                          );
 
 This method performs a SNMP get-bulk-request query to gather data from the
 remote agent on the host associated with the Net::SNMP object.  All arguments 
-are optional and will be given the following defaults in the absence of a 
-corresponding named argument: 
+are optional except B<-varbindlist> and will be given the following defaults 
+in the absence of a corresponding named argument: 
 
 =over 
 
 =item *
 
-The default value for the get-bulk-request B<NonRepeaters> is 0.  The 
+The default value for the get-bulk-request B<-nonrepeaters> is 0.  The 
 non-repeaters value specifies the number of variables in the 
 variable-bindings list for which a single successor is to be returned.
 
 =item *
 
-The default value for the get-bulk-request B<MaxRepetitions> is 0. The
+The default value for the get-bulk-request B<-maxrepetitions> is 0. The
 max-repetitions value specifies the number of successors to be returned for
 the remaining variables in the variable-bindings list.
 
 =item *
 
-The default value for the get-bulk-request B<VarBindList> is an empty array
-reference.  The variable-bindings are expected to be in an array format 
-consisting of groups of an OBJECT IDENTIFIER, an object type, and the actual
-value of the object.  This is identical to the list expected by the 
-C<set_request()> method.  The OBJECT IDENTIFIERs in each trio are to be in 
-dotted notation.  The object type is a byte corresponding to the ASN.1 type 
-for the value that is identified.  Each of the supported types have been 
-defined and are exported by default (see L<"EXPORTS">).
+The B<-varbindlist> argument expects an array reference consisting of a list of
+OBJECT IDENTIFIERs in dotted notation.  Each OBJECT IDENTIFER is placed into a 
+single SNMP GetBulkRequest-PDU in the same order that it held in the original 
+list.
 
 =back
 
-Upon success, a reference to a hash is returned which contains the results of
-the query. The undefined value is returned when a failure has occurred.  The
-C<error()> method can be used to determine the cause of the failure.
-
-The returned reference points to a hash constructed from the VarBindList
-contained in the SNMP GetResponse-PDU.  The hash is created using the
-ObjectName and the ObjectSyntax pairs in the VarBindList.  The keys of the
-hash consist of the OBJECT IDENTIFIERs in dotted notation corresponding to
-each ObjectName in the list.  If any of the passed OBJECT IDENTIFIERs began
-with a leading dot, all of the OBJECT IDENTIFIER hash keys will be prefixed
-with a leading dot.  The value of each hash entry is set to be the value of
-the associated ObjectSyntax.  The hash reference can also be retrieved using
-the C<var_bind_list()> method.
+A reference to a hash is returned in blocking mode which contains the contents
+of the VarBindList.  In non-blocking mode, a true value is returned when no
+error has occurred.  In either mode the undefined value is returned when an
+error has occurred.  The C<error()> method may be used to determine the cause
+of the failure.
 
 B<NOTE:> This method can only be used when the version of the object is set to
 SNMPv2c.
 
 =head2 inform_request() - send a SNMPv2 inform-request to the remote manager
 
-   $response = $session->inform_request(
-                            $oid, $type, $value 
-                            [, $oid, $type, $value]
+Blocking
+
+   $response = $session->inform_request(@oid_type_value);
+
+Non-blocking
+
+         $ok = $session->inform_request(
+                            [-callback   => sub {},]
+                            -varbindlist => \@oid_type_value
                          );
 
 This method is used to provide management information to the remote manager
-associated with the Net::SNMP object using a SNMPv2 inform-request.  The 
-method takes a list of values consisting of groups of an OBJECT IDENTIFIER,
-an object type, and the actual value to be set.  The OBJECT IDENTIFIERs in 
-each trio are to be in dotted notation.  The object type is a byte 
-corresponding to the ASN.1 type of value that is identified. Each of the
-supported types have been defined and are exported by the package by default
-(see L<"EXPORTS">).
+associated with the Net::SNMP object using a SNMPv2 inform-request.  In 
+blocking mode, the method takes a list of values consisting of groups of an 
+OBJECT IDENTIFIER, an object type, and the actual value to be defined.  The 
+OBJECT IDENTIFIERs in each trio are to be in dotted notation.  The object type
+is a byte corresponding to the ASN.1 type of value that is identified. Each of
+the supported types have been defined and are exported by the package by 
+default (see L<"EXPORTS">).  When the object is in non-blocking mode, the 
+list is passed as an array reference to the B<-varbindlist> named argument.
 
 The first two variable-bindings fields in the inform-request are specified
 by SNMPv2 and should be:
@@ -3005,37 +4229,28 @@ snmpTrapOID.0 - ['1.3.6.1.6.3.1.1.4.1.0', OBJECT_IDENTIFIER, $oid]
 
 =back
 
-Upon success, a reference to a hash is returned which contains the results of
-the query. The undefined value is returned when a failure has occurred.  The
-C<error()> method can be used to determine the cause of the failure.
-
-The returned reference points to a hash constructed from the VarBindList
-contained in the SNMP GetResponse-PDU.  The hash is created using the
-ObjectName and the ObjectSyntax pairs in the VarBindList.  The keys of the
-hash consist of the OBJECT IDENTIFIERs in dotted notation corresponding to
-each ObjectName in the list.  If any of the passed OBJECT IDENTIFIERs began
-with a leading dot, all of the OBJECT IDENTIFIER hash keys will be prefixed
-with a leading dot.  The value of each hash entry is set to be the value of
-the associated ObjectSyntax.  The hash reference can also be retrieved using
-the C<var_bind_list()> method.
+A reference to a hash is returned in blocking mode which contains the contents
+of the VarBindList.  In non-blocking mode, a true value is returned when no
+error has occurred.  In either mode the undefined value is returned when an
+error has occurred.  The C<error()> method may be used to determine the cause
+of the failure.
 
 B<NOTE:> This method can only be used when the version of the object is set to
 SNMPv2c.
 
 =head2 snmpv2_trap() - send a SNMPv2 snmpV2-trap to the remote manager
 
-   $octets = $session->snmpv2_trap(
-                          $oid, $type, $value 
-                          [, $oid, $type, $value]
-                       );
+Blocking or non-blocking
+
+   $value = $session->snmpv2_trap(@oid_type_value);
 
 This method sends an SNMPv2 snmpV2-trap to the remote manager associated with 
-the Net::SNMP object.  The method takes a list of values consisting of groups
-of an OBJECT IDENTIFIER, an object type, and the actual value to be set. The
-OBJECT IDENTIFIERs in each trio are to be in dotted notation.  The object type
-is a byte corresponding to the ASN.1 type of value that is being identified. 
-Each of the supported types have been defined and are exported by the package
-by default (see L<"EXPORTS">).
+the Net::SNMP object.  In either mode, the method takes a list of values 
+consisting of groups of an OBJECT IDENTIFIER, an object type, and the actual 
+value to be defined. The OBJECT IDENTIFIERs in each trio are to be in dotted 
+notation.  The object type is a byte corresponding to the ASN.1 type of value 
+that is being identified.  Each of the supported types have been defined and 
+are exported by the package by default (see L<"EXPORTS">).   
 
 The first two variable-bindings fields in the snmpV2-trap are specified by
 SNMPv2 and should be:
@@ -3052,44 +4267,52 @@ snmpTrapOID.0 - ['1.3.6.1.6.3.1.1.4.1.0', OBJECT_IDENTIFIER, $oid]
 
 =back
 
-Upon success, the number of bytes transmitted is returned.  The undefined value
-is returned when a failure has occurred.  The C<error()> method can be used to
-determine the cause of the failure.  Since there are no acknowledgements for
-SNMPv2-Trap-PDUs, there is no way to determine if the remote host actually 
-received the snmpV2-trap.
+Upon success, the number of bytes transmitted is returned when the object is
+in blocking mode.  A true value is returned when in successful in non-blocking 
+mode.  The undefined value is returned when a failure has occurred.  The 
+C<error()> method can be used to determine the cause of the failure. Since
+there are no acknowledgements for SNMPv2-Trap-PDUs, there is no way to 
+determine if the remote host actually received the snmpV2-trap.
 
 B<NOTE:> This method can only be used when the version of the object is set to
 SNMPv2c.
 
+B<NOTE:> When the object is in non-blocking mode, the snmpV2-trap is not sent 
+until the event loop is entered.
+
 =head2 get_table() - retrieve a table from the remote agent
+
+Blocking
 
    $response = $session->get_table($oid);
 
+Non-blocking
+
+         $ok = $session->get_table(
+                            -baseoid   => $oid,
+                            [-callback => sub {},]
+                         );
+
 This method performs repeated SNMP get-next-request queries to gather data 
 from the remote agent on the host associated with the Net::SNMP object.
-The method takes a single OBJECT IDENTIFIER.  This OBJECT IDENTIFIER is used
-as the base object for the SNMP get-next-requests.  Repeated SNMP 
-get-next-requests are issued until the OBJECT IDENTIFER in the response is no 
-longer a subtree of the base OBJECT IDENTIFIER.
+In blocking mode, the method takes a single OBJECT IDENTIFIER which is used as
+the base object for the SNMP get-next-requests. Repeated SNMP get-next-requests
+are issued until the OBJECT IDENTIFER in the response is no longer a subtree 
+of the base OBJECT IDENTIFIER.  When the object is in non-blocking mode, the 
+OBJECT IDENTIFIER must be passed to the B<-baseoid> named argument. 
 
-Upon success, a reference to a hash is returned which contains the results of
-the query. The undefined value is returned when a failure has occurred.  The
-C<error()> method can be used to determine the cause of the failure.
-
-The returned reference points to a hash constructed from the VarBindList
-contained in the SNMP GetResponse-PDU.  The hash is created using the
-ObjectName and the ObjectSyntax pairs in the VarBindList.  The keys of the
-hash consist of the OBJECT IDENTIFIERs in dotted notation corresponding to
-each ObjectName in the list.  If any of the passed OBJECT IDENTIFIERs began
-with a leading dot, all of the OBJECT IDENTIFIER hash keys will be prefixed
-with a leading dot.  The value of each hash entry is set to be the value of
-the associated ObjectSyntax.  The hash reference can also be retrieved using
-the C<var_bind_list()> method.
+A reference to a hash is returned in blocking mode which contains the contents
+of the VarBindList.  In non-blocking mode, a true value is returned when no
+error has occurred.  In either mode the undefined value is returned when an
+error has occurred.  The C<error()> method may be used to determine the cause
+of the failure.
 
 B<WARNING:> Results from this method can become very large if the base
 OBJECT IDENTIFIER is close the root of the SNMP MIB tree.
 
 =head2 version() - set or get the SNMP version for the object
+
+   $rfc_version = $session->version([$version]);
 
 This method is used to set or get the current SNMP version associated with
 the Net::SNMP object.  The module supports SNMP version-1 (SNMPv1) and SNMP 
@@ -3097,7 +4320,7 @@ version-2c (SNMPv2c).  The default version used by the module is SNMP
 version-1.
 
 The method accepts the digit '1' or the string 'SNMPv1' for SNMP version-1 and
-the digit '2', or the strings '2c', 'SNMPv2', or 'SNMPv2' for SNMP version-2c.
+the digit '2', or the strings '2c', 'SNMPv2', or 'SNMPv2c' for SNMP version-2c.
 The undefined value is returned upon an error and the C<error()> method may 
 be used to determine the cause.
 
@@ -3110,7 +4333,13 @@ version field (i.e. SNMPv1 == 0 and SNMPv2c == 1).
    $error_message = $session->error;
 
 This method returns a text string explaining the reason for the last error.
-A null string is returned if no error has occurred.
+An empty string is returned if no error has occurred.
+
+=head2 hostname() - get the associated hostname from the object
+
+   $hostname = $session->hostname;
+
+This method returns the hostname string that is associated with the object.
 
 =head2 error_status() - get the current SNMP error-status from the object
 
@@ -3130,8 +4359,15 @@ last SNMP GetResponse-PDU.
 
    $response = $session->var_bind_list;
 
-This method returns a reference to the hash returned from the query or set 
-methods.  The undefined value is returned if this value is empty.
+This method returns a hash reference created using the ObjectName and the 
+ObjectSyntax pairs in the VarBindList of the last SNMP GetResponse-PDU received
+by the object. The keys of the hash consist of the OBJECT IDENTIFIERs in dotted
+notation corresponding to each ObjectName in the VarBindList.  If any OBJECT 
+IDENTIFIERs passed to the method began with a leading dot, all of the OBJECT 
+IDENTIFIER hash keys will be prefixed with a leading dot.  The value of each 
+hash entry is set equal to the value of the corresponding ObjectSyntax.  The 
+undefined value is returned if there has been a failure and the C<error()> 
+method may be used to determine the reason.
 
 =head2 timeout() - set or get the current timeout period for the object 
 
@@ -3153,7 +4389,7 @@ the cause.
 
 This method returns the current value for the number of times to retry
 sending a SNMP message to the remote host.  The default number of retries
-is 2.
+is 4.
 
 If a parameter is specified, the number of retries for the object is set to
 the provided value if it falls within the range 0 to 20. The undefined value
@@ -3226,36 +4462,48 @@ Perl would treat as a true value will set the mode to be enabled, while a
 false value will disable translation.  The current state of the translation 
 mode is returned by the method.
 
-=head2 verify_ip() - enable or disable IP verification for the object
-
-   $mode = $session->verify_ip([$mode]);
-
-When the object receives an UDP packet, the IP address and UDP port with which
-the object was created are compared to the values in the received packet.
-By default, if these values do not match, the UDP packet is ignored and an 
-error message is returned.  This check is to insure that the data the object 
-has just received is from the host to which the message was sent. However this 
-can cause problems with multi-homed hosts which respond from a different 
-interface than the one to which the message was sent.
-
-This method is used to enable or disable IP verification on a per object basis.
-By default, IP address and port verification is enabled.  If a parameter is 
-specified, the verification mode is set to either enabled or disabled depending
-on the value of the passed parameter.  Any value that Perl would treat as a
-true value will set the mode to be enabled, while a false value will disable IP
-verification.  The current state of the IP verification mode is returned by the 
-method.
-
-=head2 debug() - set or get the debug mode for the object
+=head2 debug() - set or get the debug mode for the module 
 
    $mode = $session->debug([$mode]);
 
-This method is used to enable or disable debugging on a per object basis.  By
+This method is used to enable or disable debugging for the Net::SNMP module. By
 default, debugging is off.  If a parameter is specified, the debug mode is set
 to either enabled or disabled depending on the value of the passed parameter. 
 Any value that Perl would treat as a true value will set the mode to be 
 enabled, while a false value will disable debugging.  The current state of the 
-debugging mode is returned by the method.
+debugging mode is returned by the method.  Debugging can also be enabled using
+the stand along function C<snmp_debug()>.  This function can be exported by
+request (see L<"EXPORTS">).  
+
+=head1 FUNCTIONS
+
+=head2 oid_context_match() - determine if an OID has a specified MIB context 
+
+   $value = oid_context_match($context_oid, $oid);
+
+This function takes two OBJECT IDENTIFIERs in dotted notation and returns a
+true value (i.e. 0x1) if the second OBJECT IDENTIFIER is equal to or is a 
+subtree of the first OBJECT IDENTIFIER in the SNMP Management Information Base 
+(MIB).  This function can be used in conjunction with the C<get-next-request()>
+or C<get-bulk-request()> methods to determine when a OBJECT IDENTIFIER in the 
+GetResponse-PDU is no longer in the desired MIB context.
+
+=head2 oid_lex_sort() - sort a list of OBJECT IDENTIFIERs lexicographically
+
+   @sorted_oids = oid_lex_sort(@oids);
+
+This function takes a list of OBJECT IDENTIFIERs in dotted notation and returns
+the listed sorted in lexicographical order.
+
+=head2 ticks_to_time() - convert TimeTicks to formatted time
+
+   $time = ticks_to_time($timeticks);
+
+This function takes an ASN.1 TimeTicks value and returns a string representing
+the time defined by the value.  The TimeTicks value is expected to be a 
+non-negative integer value representing the time in hundredths of a second since
+some epoch.  The returned string will display the time in days, hours, and 
+seconds format according to the value of the TimeTicks argument.
 
 =head1 EXPORTS
 
@@ -3265,14 +4513,18 @@ debugging mode is returned by the method.
 
 INTEGER, INTEGER32, OCTET_STRING, NULL, OBJECT_IDENTIFIER, IPADDRESS, COUNTER,
 COUNTER32, GAUGE, GAUGE32, UNSIGNED32, TIMETICKS, OPAQUE, COUNTER64, 
-NOSUCHOBJECT, NOSUCHINSTANCE, ENDOFMIBVIEW
+NOSUCHOBJECT, NOSUCHINSTANCE, ENDOFMIBVIEW, snmp_event_loop
 
 =item Exportable
 
 INTEGER, INTEGER32, OCTET_STRING, NULL, OBJECT_IDENTIFIER, IPADDRESS, COUNTER, 
 COUNTER32, GAUGE, GAUGE32, UNSIGNED32, TIMETICKS, OPAQUE, COUNTER64,
-NOSUCHOBJECT, NOSUCHINSTANCE, ENDOFMIBVIEW, COLD_START, WARM_START, LINK_DOWN, 
-LINK_UP, AUTHENTICATION_FAILURE, EGP_NEIGHBOR_LOSS, ENTERPRISE_SPECIFIC
+NOSUCHOBJECT, NOSUCHINSTANCE, ENDOFMIBVIEW, GET_REQUEST, GET_NEXT_REQUEST,
+GET_RESPONSE, SET_REQUEST, TRAP, GET_BULK_REQUEST, INFORM_REQUEST, SNMPV2_TRAP,
+COLD_START, WARM_START, LINK_DOWN, LINK_UP, AUTHENTICATION_FAILURE, 
+EGP_NEIGHBOR_LOSS, ENTERPRISE_SPECIFIC, SNMP_VERSION_1, SNMP_VERSION_2C, 
+SNMP_PORT, SNMP_TRAP_PORT, snmp_debug, snmp_event_loop, oid_context_match,
+oid_lex_sort,  ticks_to_time
 
 =item Tags
 
@@ -3282,12 +4534,18 @@ LINK_UP, AUTHENTICATION_FAILURE, EGP_NEIGHBOR_LOSS, ENTERPRISE_SPECIFIC
 
 INTEGER, INTEGER32, OCTET_STRING, NULL, OBJECT_IDENTIFIER, IPADDRESS, COUNTER,
 COUNTER32, GAUGE, GAUGE32, UNSIGNED32, TIMETICKS, OPAQUE, COUNTER64, 
-NOSUCHOBJECT, NOSUCHINSTANCE, ENDOFMIBVIEW
+NOSUCHOBJECT, NOSUCHINSTANCE, ENDOFMIBVIEW, GET_REQUEST, GET_NEXT_REQUEST, 
+GET_RESPONSE, SET_REQUEST, TRAP, GET_BULK_REQUEST, INFORM_REQUEST, SNMPV2_TRAP
 
 =item :generictrap
 
 COLD_START, WARM_START, LINK_DOWN, LINK_UP, AUTHENTICATION_FAILURE,
 EGP_NEIGHBOR_LOSS, ENTERPRISE_SPECIFIC
+
+=item :snmp
+
+SNMP_VERSION_1, SNMP_VERSION_2C, SNMP_PORT, SNMP_TRAP_PORT, snmp_debug, 
+snmp_event_loop, oid_context_match, oid_lex_sort, ticks_to_time
 
 =item :ALL
 
@@ -3299,10 +4557,14 @@ All of the above exportable items.
 
 =head1 EXAMPLES
 
-This example gets the system uptime from a remote host:
+=head2 Blocking get-request for sysUpTime
 
+This example gets the sysUpTime from a remote host:
 
-   #!/bin/env perl
+   #! /usr/local/bin/perl
+
+   use strict;
+   use vars qw($hostname $community $port $session $error $response);
 
    use Net::SNMP;
 
@@ -3311,25 +4573,26 @@ This example gets the system uptime from a remote host:
    $port      = shift || 161;
 
    ($session, $error) = Net::SNMP->session(
-                                      Hostname  => $hostname,
-                                      Community => $community,
-                                      Port      => $port
-                                   );
+      -hostname  => $hostname,
+      -community => $community,
+      -port      => $port
+   );
 
    if (!defined($session)) {
-      printf("ERROR: %s\n", $error);
+      printf("ERROR: %s.\n", $error);
       exit 1;
    }
 
-   $sysUpTime = '1.3.6.1.2.1.1.3.0';
+   my $sysUpTime = '1.3.6.1.2.1.1.3.0';
 
    if (!defined($response = $session->get_request($sysUpTime))) {
-      printf("ERROR: %s\n", $session->error);
+      printf("ERROR: %s.\n", $session->error);
       $session->close;
       exit 1;
    }
 
-   printf("sysUpTime for host '%s' is %s\n", $hostname, 
+   printf("sysUpTime for host '%s' is %s\n", 
+      $hostname, 
       $response->{$sysUpTime}
    );
 
@@ -3337,9 +4600,14 @@ This example gets the system uptime from a remote host:
 
    exit 0;
 
-This example sets the system contact information to "Help Desk":
+=head2 Blocking set-request of sysContact 
 
-   #!/bin/env perl
+This example sets the sysContact information on the remote host to "Help Desk":
+
+   #! /usr/local/bin/perl
+
+   use strict;
+   use vars qw($hostname $community $port $session $error $response);
 
    use Net::SNMP;
 
@@ -3348,35 +4616,133 @@ This example sets the system contact information to "Help Desk":
    $port      = shift || 161;
 
    ($session, $error) = Net::SNMP->session(
-                                      Hostname  => $hostname,
-                                      Community => $community,
-                                      Port      => $port
-                                   );
+      -hostname  => $hostname,
+      -community => $community,
+      -port      => $port
+   );
 
    if (!defined($session)) {
-      printf("ERROR: %s\n", $error);
+      printf("ERROR: %s.\n", $error);
       exit 1;
    }
 
-   $sysContact = '1.3.6.1.2.1.1.4.0';
-   $contact    = 'Help Desk';
+   my $sysContact = '1.3.6.1.2.1.1.4.0';
+   my $contact    = 'Help Desk';
 
    $response = $session->set_request($sysContact, OCTET_STRING, $contact);
- 
-   if (!defined($response)) { 
-      printf("ERROR: %s\n", $session->error);
+
+   if (!defined($response)) {
+      printf("ERROR: %s.\n", $session->error);
       $session->close;
       exit 1;
    }
 
-
-   printf("sysContact for host '%s' set to '%s'\n", $hostname, 
+   printf("sysContact for host '%s' set to '%s'\n", 
+      $hostname,
       $response->{$sysContact}
    );
 
    $session->close;
 
-   exit 0; 
+   exit 0;
+
+=head2 Non-blocking get-request for sysUpTime on multiple hosts
+
+This example polls several hosts for their sysUpTime using non-blocking 
+objects and reports a warning if this value is less than the value from
+the last poll:
+
+   #! /usr/local/bin/perl
+
+   use strict;
+   use vars qw(@hosts @sessions $polls $last_poll_time $sleep);
+
+   use Net::SNMP qw(snmp_event_loop ticks_to_time);
+
+   # List of hosts to poll
+   @hosts = qw(1.1.1.1 1.1.1.2 localhost);
+
+   # Poll interval (in seconds).  This value should be greater than
+   # the number of retries times the timeout value.
+   my $interval = 60;
+
+   # Maximum number of polls
+   my $max_polls = 10;
+
+   # Create a session for each host
+   foreach (@hosts) {
+      my ($session, $error) = Net::SNMP->session(
+         -hostname    => $_,
+         -nonblocking => 0x1,  # Create non-blocking objects
+         -translate   => 0x0   # Turn off so sysUpTime is numeric
+      );
+      if (!defined($session)) {
+         printf("ERROR: %s.\n", $error);
+         foreach (@sessions) { $_->[0]->close; }
+         exit 1;
+      }
+
+      # Create an array of arrays which contain the new object, 
+      # and the last sysUpTime.
+      push(@sessions, [$session, 0]);
+   }
+
+   my $sysUpTime = '1.3.6.1.2.1.1.3.0';
+
+   while (++$polls <= $max_polls) {
+
+      $last_poll_time = time();
+
+      # Queue each of the queries for sysUpTime
+      foreach (@sessions) {
+         $_->[0]->get_request(
+             -varbindlist => [$sysUpTime],
+             -callback    => [\&validate_sysUpTime_cb, \$_->[1]]
+         );
+      }
+
+      # Enter the event loop
+      snmp_event_loop();
+
+      # Sleep until the next poll time
+      $sleep = $interval - (time() - $last_poll_time);
+      if (($sleep < 1) || ($polls >= $max_polls)) { next; }
+      sleep($sleep);
+
+      print "\n";
+   }
+
+   # Not necessary, but it is nice to clean up after yourself
+   foreach (@sessions) { $_->[0]->close; }
+
+   exit 0;
+
+   sub validate_sysUpTime_cb
+   {
+      my ($this, $last_uptime) = @_;
+
+      if (!defined($this->var_bind_list)) {
+         printf("%-15s  ERROR: %s\n", $this->hostname, $this->error);
+      } else {
+         my $uptime = $this->var_bind_list->{$sysUpTime};
+         if ($uptime < ${$last_uptime}) {
+            printf("%-15s  WARNING: %s is less than %s\n",
+               $this->hostname, 
+               ticks_to_time($uptime), 
+               ticks_to_time(${$last_uptime})
+            );
+         } else {
+            printf("%-15s  Ok (%s)\n", 
+               $this->hostname, 
+               ticks_to_time($uptime)
+            );
+         }
+         # Store the new sysUpTime
+         ${$last_uptime} = $uptime;
+      }
+
+      $this->error_status;
+   }
 
 
 =head1 AUTHOR

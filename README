@@ -1,9 +1,20 @@
 
-                       Net::SNMP, version 2.00
+                       Net::SNMP, version 3.00 (Alpha)
 
+NOTICE
+
+    ** THIS IS AN ALPHA VERSION OF THIS MODULE RELEASED FOR TESTING. **  
+  
+        ** THE INTERFACE MAY CHANGE BEFORE THE FINAL RELEASE. **
+
+    Net::SNMP v3.00 will implement event loop based non-blocking support.
+
+    Any comments or suggestions are welcome at this time that may improve
+    the final design of the module.
+  
 NAME
 
-    Net::SNMP - Simple Network Management Protocol version-1
+    Net::SNMP - Simple Network Management Protocol
 
 DESCRIPTION
 
