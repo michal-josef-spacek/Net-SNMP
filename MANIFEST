@@ -3,3 +3,5 @@ lib/Net/SNMP.pm
 MANIFEST
 Makefile.PL
 README
+t/require.t
+t/socket.t

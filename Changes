@@ -1,5 +1,19 @@
                             Net::SNMP Changes
 
+RELEASE 1.40 APR-26-1999
+
+- All parameters for the object that used to be only configurable via an 
+  object method can now be modified at object creation by passing named
+  arguments to the constructor.
+- The translate() and debug() methods were modified to require a boolean
+  argument to enable or disable the feature.  This depreciates the toggle
+  functionality they had previously.
+- New method verify_ip() added that enables or disables the verification
+  of the IP address and UDP port number on datagrams received by the object.
+- Added support for decoding ASN.1 lengths encoded with 3 or 4 bytes. 
+- Installation tests for the modules required by Net::SNMP and for basic 
+  socket functionality were added to the distribution. 
+
 RELEASE 1.30 MAR-17-1999
 
 - Modified the OBJECT INDENTIFIER decode method to return a leading dot
@@ -32,8 +46,8 @@ RELEASE 1.10 OCT-14-1998
  
 RELEASE 1.00 SEP-09-1998
 
-Initial release.
+- Initial release.
 
 RCS
 
-    $Id: Changes,v 1.3 1999/03/17 13:22:33 dtown Exp $
+    $Id: Changes,v 1.4 1999/04/26 13:08:20 dtown Exp $

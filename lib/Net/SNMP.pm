@@ -3,7 +3,7 @@
 
 package Net::SNMP;
 
-# $Id: SNMP.pm,v 1.3 1999/03/17 13:26:50 dtown Exp $
+# $Id: SNMP.pm,v 1.4 1999/04/26 13:13:25 dtown Exp $
 # $Source: /home/dtown/Projects/Net-SNMP/SNMP.pm,v $
 
 # The module Net::SNMP implements an object oriented interface to the Simple 
@@ -20,7 +20,7 @@ package Net::SNMP;
 
 ## Version of Net::SNMP module
 
-$Net::SNMP::VERSION = 1.30;
+$Net::SNMP::VERSION = 1.40;
 
 ## Required version of Perl
 
@@ -34,14 +34,15 @@ use vars qw(@ISA @EXPORT @EXPORT_OK %EXPORT_TAGS);
 
 @ISA         = qw(Exporter);
 @EXPORT      = qw(
-                  INTEGER OCTET_STRING NULL OBJECT_IDENTIFIER
+                  INTEGER OCTET_STRING NULL OBJECT_IDENTIFIER 
                   IPADDRESS COUNTER GAUGE TIMETICKS OPAQUE
                );
 @EXPORT_OK   = qw(
                   COLD_START WARM_START LINK_DOWN LINK_UP 
-                  AUTHENTICATION_FAILURE EGP_NEIGHBOR_LOSS
+                  AUTHENTICATION_FAILURE EGP_NEIGHBOR_LOSS 
                   ENTERPRISE_SPECIFIC
                );
+
 %EXPORT_TAGS = (
                   asn1        => [@EXPORT],
                   generictrap => [@EXPORT_OK], 
@@ -110,6 +111,8 @@ sub MAXIMUM_MTU         { 65535 }
 sub MAXIMUM_TIMEOUT     {  60.0 }   
 sub MAXIMUM_RETRIES     {    20 }
 
+sub TRUE                  { 0x1 }
+sub FALSE                 { 0x0 }
 
 # [public methods] -----------------------------------------------------------
 
@@ -120,43 +123,64 @@ sub session
    
    # Create a new data structure for the object
    my $this = bless {
+        '_buffer',       => "\0" x DEFAULT_MTU,
+        '_community'     => DEFAULT_COMMUNITY,
+        '_debug'         => FALSE,
+        '_error'         => undef,
+        '_error_status'  => 0,
         '_hostname'      => DEFAULT_HOSTNAME,
+        '_leading_dot'   => FALSE,
+        '_mtu'           => DEFAULT_MTU,
+        '_request_id'    => (int(rand 0xff) + 1),
+        '_retries'       => DEFAULT_RETRIES,
         '_sockaddr'      => undef,
         '_socket'        => gensym(),
-        '_community'     => DEFAULT_COMMUNITY,
-        '_request_id'    => (int(rand 0xff) + 1),
-        '_error_status'  => 0,
-        '_var_bind_list' => undef,
         '_timeout'       => DEFAULT_TIMEOUT,
-        '_retries'       => DEFAULT_RETRIES,
-        '_mtu'           => DEFAULT_MTU,
-        '_error'         => undef,
-        '_debug'         => 0x0,
-        '_translate'     => 0x1,
-        '_leading_dot'   => 0x0,
-        '_buffer',       => "\0" x DEFAULT_MTU 
+        '_translate'     => TRUE,
+        '_var_bind_list' => undef,
+        '_verify_ip'     => TRUE 
    }, $class;
 
    # Validate the passed arguments 
    foreach (keys %argv) {
-      if (/^-?hostname$/i) {
+      if (/^-?community$/i) {
+         if ($argv{$_} eq '') {
+            $this->{'_error'} = 'Empty community specified';
+         } else {
+            $this->{'_community'} = $argv{$_};
+         }
+      } elsif (/^-?debug$/i) {
+         if ($argv{$_}) {
+            $this->{'_debug'} = TRUE;
+         } else {
+            $this->{'_debug'} = FALSE;
+         }
+      } elsif (/^-?hostname$/i) {
          if ($argv{$_} eq '') {
             $this->{'_error'} = 'Empty hostname specified';
          } else { 
             $this->{'_hostname'} = $argv{$_}; 
          }
-      } elsif (/^-?community$/i) {
-         if ($argv{$_} eq '') {
-            $this->{'_error'} = 'Empty community specified';
-         } else { 
-            $this->{'_community'} = $argv{$_}; 
-         }
+      } elsif (/^-?mtu$/i) {
+         $this->mtu($argv{$_});
       } elsif (/^-?port$/i) {
          if ($argv{$_} !~ /^\d+$/) {
             $this->{'_error'} = 'Expected numeric port number'; 
          } else { 
             $port = $argv{$_}; 
          }
+      } elsif (/^-?retries$/i) {
+         $this->retries($argv{$_});
+      } elsif (/^-?timeout$/i) {
+         $this->timeout($argv{$_});
+      } elsif (/^-?translate$/i) {
+         if ($argv{$_}) {
+            $this->{'_translate'} = TRUE;
+         } else {
+            $this->{'_translate'} = FALSE;
+         }
+      } elsif (/^-?verifyip$/i) {
+         $this->verify_ip($argv{$_});
       } else {
          $this->{'_error'} = sprintf("Invalid argument '%s'", $_);  
       }
@@ -172,9 +196,8 @@ sub session
    # Resolve the hostname to an IP address
    if (!defined($host_addr = inet_aton($this->{'_hostname'}))) {
       $this->{'_error'} = sprintf(
-                             "Unable to resolve hostname '%s'", 
-                             $this->{'_hostname'}
-                          );
+         "Unable to resolve hostname '%s'", $this->{'_hostname'}
+      );
       if (wantarray) {
          return (undef, $this->{'_error'});
       } else {
@@ -308,33 +331,32 @@ sub trap
       if (/^-?enterprise$/i) {
          if ($argv{$_} !~ /^\.?\d+\.\d+(\.\d+)*/) {
             return $this->_snmp_encode_error(
-                             'Expected enterprise as OBJECT IDENTIFIER in ' .
-                             'dotted notation' 
-                          );
+               'Expected enterprise as OBJECT IDENTIFIER in dotted notation' 
+            );
          } else {
             $this->{'_enterprise'} = $argv{$_};
          }
       } elsif (/^-?agentaddr$/i) {
          if ($argv{$_} !~ /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/) {
             return $this->_snmp_encode_error(
-                             'Expected agent-addr in dotted notation'     
-                          );
+               'Expected agent-addr in dotted notation'     
+            );
          } else {
             $this->{'_agent_addr'} = $argv{$_};
          }
       } elsif (/^-?generictrap$/i) {
          if ($argv{$_} !~ /^\d+$/) {
             return $this->_snmp_encode_error(
-                             'Expected numeric generic-trap type'
-                          );
+               'Expected numeric generic-trap type'
+            );
          } else {
             $this->{'_generic_trap'} = $argv{$_};
          }
       } elsif (/^-?specifictrap$/i) {
          if ($argv{$_} !~ /^\d+$/) {
             return $this->_snmp_encode_error(
-                             'Expected numeric specific-trap type'
-                          );
+               'Expected numeric specific-trap type'
+            );
          } else {
             $this->{'_specific_trap'} = $argv{$_};
          }
@@ -347,8 +369,8 @@ sub trap
       } elsif (/^-?varbindlist$/i) {
          if (ref($argv{$_}) ne 'ARRAY') {
             return $this->_snmp_encode_error(
-                             'Expected array reference for variable-bindings'
-                          );
+               'Expected array reference for variable-bindings'
+            );
          } else {
             @var_bind_list = @{$argv{$_}}; 
          }   
@@ -388,8 +410,8 @@ sub get_table
       # incorrectly causing the get-next-requests to loop forever.
       if ($repeat_cnt > 5) {
          return $this->_object_decode_error(
-                          'Loop detected with table on remote host'
-                       );
+            'Loop detected with table on remote host'
+         );
       }
       if (!defined($this->_snmp_encode_get_next_request($next_oid))) {
          return $this->_object_encode_error;
@@ -435,14 +457,14 @@ sub timeout
    # Clear any previous error message
    $this->_object_clear_error;
 
-   if (defined($timeout)) {
+   if (@_ == 2) {
       if (($timeout >= MINIMUM_TIMEOUT) && ($timeout <= MAXIMUM_TIMEOUT)) { 
          $this->{'_timeout'} = $timeout; 
       } else {
          return $this->_object_encode_error(
-                          "Timeout out of range [%03.01f - %03.01f seconds]",
-                          MINIMUM_TIMEOUT, MAXIMUM_TIMEOUT
-                       );
+            "Timeout out of range [%03.01f - %03.01f seconds]",
+            MINIMUM_TIMEOUT, MAXIMUM_TIMEOUT
+         );
       } 
    }
 
@@ -456,14 +478,13 @@ sub retries
    # Clear any previous error message
    $this->_object_clear_error;
 
-   if (defined($retries)) {
+   if (@_ == 2) {
       if (($retries >= MINIMUM_RETRIES) && ($retries <= MAXIMUM_RETRIES)) { 
          $this->{'_retries'} = $retries; 
       } else {
          return $this->_object_encode_error(
-                          "Retries out of range [%d - %d]",
-                          MINIMUM_RETRIES, MAXIMUM_RETRIES
-                       );
+            "Retries out of range [%d - %d]", MINIMUM_RETRIES, MAXIMUM_RETRIES
+         );
       }
    }
 
@@ -477,14 +498,13 @@ sub mtu
    # Clear any previous error message
    $this->_object_clear_error;
 
-   if (defined($mtu)) {
+   if (@_ == 2) {
       if (($mtu >= MINIMUM_MTU) && ($mtu <= MAXIMUM_MTU )) { 
          $this->{'_mtu'} = $mtu; 
       } else {
          return $this->_object_encode_error(
-                          "MTU out of range [%d - %d octets]",
-                          MINIMUM_MTU, MAXIMUM_MTU
-                       );
+            "MTU out of range [%d - %d octets]", MINIMUM_MTU, MAXIMUM_MTU
+         );
       }
    }
 
@@ -493,24 +513,59 @@ sub mtu
 
 sub translate
 {
-   my ($this) = @_;
-
-   if ($this->{'_translate'}) {
-      $this->{'_translate'} = 0x0;
+   my ($this, $flag) = @_;
+ 
+   if (@_ == 2) {
+      if ($flag) {
+         $this->{'_translate'} = TRUE;
+      } else {
+         $this->{'_translate'} = FALSE;
+      }
    } else {
-      $this->{'_translate'} = 0x1;
+      printf(STDERR 
+         "warn: %s::translate(): Use as a toggle is depreciated, pass " .
+         "boolean argument.\n", 
+         ref($_[0])
+      );
    }
+
+   $this->{'_translate'};
+}
+
+sub verify_ip
+{
+   my ($this, $flag) = @_;
+
+   if (@_ == 2) {
+      if ($flag) {
+         $this->{'_verify_ip'} = TRUE;
+      } else {
+         $this->{'_verify_ip'} = FALSE;
+      }
+   }
+ 
+   $this->{'_verify_ip'};
 }
 
 sub debug
 {
-   my ($this) = @_;
+   my ($this, $flag) = @_;
 
-   if ($this->{'_debug'}) {
-      $this->{'_debug'} = 0x0;
+   if (@_ == 2) {
+      if ($flag) {
+         $this->{'_debug'} = TRUE;
+      } else {
+         $this->{'_debug'} = FALSE;
+      }
    } else {
-      $this->{'_debug'} = 0x1;
+      printf(STDERR 
+         "warn: %s::debug(): Use as a toggle is depreciated, pass boolean " .
+         "argument.\n", 
+         ref($_[0])
+      );
    }
+
+   $this->{'_debug'};  
 }
 
 sub DESTROY { $_[0]->close; } 
@@ -529,9 +584,9 @@ sub _snmp_encode_get_request
    # Clear any previous error message
    $this->_object_clear_error;
 
-   $this->_snmp_encode_message(GET_REQUEST, 
-             $this->_snmp_create_oid_null_pairs(@oids)
-          ); 
+   $this->_snmp_encode_message(
+      GET_REQUEST, $this->_snmp_create_oid_null_pairs(@oids)
+   ); 
 }
 
 sub _snmp_encode_get_next_request
@@ -541,9 +596,9 @@ sub _snmp_encode_get_next_request
    # Clear any previous error message
    $this->_object_clear_error;
 
-   $this->_snmp_encode_message(GET_NEXT_REQUEST,
-             $this->_snmp_create_oid_null_pairs(@oids)
-          );
+   $this->_snmp_encode_message(
+      GET_NEXT_REQUEST, $this->_snmp_create_oid_null_pairs(@oids)
+   );
 }
 
 sub _snmp_encode_get_response
@@ -564,9 +619,9 @@ sub _snmp_encode_set_request
    # Clear any previous error message
    $this->_object_clear_error;
 
-   $this->_snmp_encode_message(SET_REQUEST,
-             $this->_snmp_create_oid_value_pairs(@oid_values)
-          );
+   $this->_snmp_encode_message(
+      SET_REQUEST, $this->_snmp_create_oid_value_pairs(@oid_values)
+   );
 }
 
 sub _snmp_encode_trap
@@ -576,9 +631,9 @@ sub _snmp_encode_trap
    # Clear any previous error message
    $this->_object_clear_error;
 
-   $this->_snmp_encode_message(TRAP,
-             $this->_snmp_create_oid_value_pairs(@oid_values)
-          );
+   $this->_snmp_encode_message(
+      TRAP, $this->_snmp_create_oid_value_pairs(@oid_values)
+   );
 }
 
 sub _snmp_encode_message
@@ -597,10 +652,11 @@ sub _snmp_encode_message
    # message type is supported.
 
    if (($type != GET_REQUEST) && ($type != GET_NEXT_REQUEST) && 
-         ($type != SET_REQUEST) && ($type != TRAP)) {
+       ($type != SET_REQUEST) && ($type != TRAP))
+   {
       return $this->_snmp_encode_error(
-                       "PDU type [0x%02x] not supported", $type
-                    );
+         "PDU type [0x%02x] not supported", $type
+      );
    } 
 
    # We need to reset the buffer that might have been defined 
@@ -711,7 +767,8 @@ sub _snmp_encode_trap_pdu
    # Encode the enterprise
    if (!defined(
          $this->_asn1_encode(OBJECT_IDENTIFIER, $this->{'_enterprise'}))
-      ) { 
+      ) 
+   { 
       return $this->_snmp_encode_error;
    }
 
@@ -729,9 +786,8 @@ sub _snmp_encode_var_bind_list
 
    if ((scalar(@var_bind) % 4)) {
       return $this->_snmp_encode_error(
-                       "Invalid number of VarBind parameters [%d]", 
-                       scalar(@var_bind) 
-                    );
+         "Invalid number of VarBind parameters [%d]", scalar(@var_bind) 
+      );
    }
  
    # Encode the objects from the end of the list, so they are wrapped 
@@ -750,8 +806,8 @@ sub _snmp_encode_var_bind_list
       $type  = pop(@var_bind);
       if ($type != OBJECT_IDENTIFIER) {
          return $this->_snmp_encode_error(
-                          'Expected OBJECT IDENTIFIER in VarBindList'
-                       );
+            'Expected OBJECT IDENTIFIER in VarBindList'
+         );
       }
       if (!defined($this->_asn1_encode($type, $value))) {
          return $this->_snmp_encode_error;
@@ -781,8 +837,8 @@ sub _snmp_create_oid_null_pairs
       $oid = shift(@oids);
       if ($oid !~ /^\.?\d+\.\d+(\.\d+)*/) {
          return $this->_snmp_encode_error(
-                          'Expected OBJECT IDENTIFIER in dotted notation'
-                       );
+            'Expected OBJECT IDENTIFIER in dotted notation'
+         );
       }
       push(@pairs, OBJECT_IDENTIFIER, $oid, NULL, '');
    }
@@ -798,17 +854,16 @@ sub _snmp_create_oid_value_pairs
 
    if ((scalar(@oid_values) % 3)) {
       return $this->_snmp_encode_error(
-                       'Expected [OBJECT IDENTIFIER, ASN.1 type, object ' .
-                       'value] combination'
-                    );
+         'Expected [OBJECT IDENTIFIER, ASN.1 type, object value] combination'
+      );
    }
 
    while (@oid_values) {
       $oid = shift(@oid_values);
       if ($oid !~ /^\.?\d+\.\d+(\.\d+)*/) {
          return $this->_snmp_encode_error(
-                          'Expected OBJECT IDENTIFIER in dotted notation'
-                       );
+            'Expected OBJECT IDENTIFIER in dotted notation'
+         );
       }
       push(@pairs, OBJECT_IDENTIFIER, $oid);
       push(@pairs, shift(@oid_values), shift(@oid_values));
@@ -872,10 +927,11 @@ sub _snmp_decode_message
       return $this->_snmp_decode_error('SNMP PDU type not defined');
    }
    if (($type != GET_REQUEST) && ($type != GET_NEXT_REQUEST) &&
-         ($type != GET_RESPONSE) &&($type != SET_REQUEST)) {
+       ($type != GET_RESPONSE) &&($type != SET_REQUEST)) 
+   {
       return $this->_snmp_decode_error(
-                       "PDU type [0x%02x] not supported", $type
-                    );
+         "PDU type [0x%02x] not supported", $type
+      );
    }
 
    # Decode the message SEQUENCE
@@ -884,9 +940,8 @@ sub _snmp_decode_message
    } 
    if ($value != $this->_object_buffer_length) {
       return $this->_snmp_decode_error(
-                       'Encoded message length not equal to remaining data ' .
-                       'length'
-                    );
+         'Encoded message length not equal to remaining data length' 
+      );
    }
 
    # Decode the version
@@ -895,8 +950,8 @@ sub _snmp_decode_message
    } 
    if ($value != SNMP_VERSION_1) {
       return $this->_snmp_decode_error(
-                       "Unsupported SNMP version [0x%02x]", $value 
-                    );
+         "Unsupported SNMP version [0x%02x]", $value 
+      );
    }
 
    # Decode the community
@@ -905,10 +960,9 @@ sub _snmp_decode_message
    }
    if ($value ne $this->{'_community'}) {
       return $this->_snmp_decode_error(
-                       "Received community [%s] is not equal to transmitted " .
-                       "community [%s]",  
-                       $value, $this->{'_community'}
-                    );
+         "Received community [%s] is not equal to transmitted community [%s]",  
+         $value, $this->{'_community'}
+      );
    } 
 
    # Decode the PDU type
@@ -940,10 +994,9 @@ sub _snmp_decode_pdu
    }
    if ($value != $this->{'_request_id'}) {
       return $this->_snmp_decode_error(
-                       "Received request-id [%s] is not equal to " .
-                       "transmitted request-id [%s]",
-                       $value, $this->{'_request_id'} 
-                    );
+         "Received request-id [%s] is not equal to transmitted request-id [%s]",
+         $value, $this->{'_request_id'} 
+      );
    }   
 
    # Decode the error-status and error-index
@@ -956,9 +1009,9 @@ sub _snmp_decode_pdu
    if ($status != 0) {
       $this->{'_error_status'} = $status;
       return $this->_snmp_decode_error(
-                       "Received SNMP %s(%s) error-status at error-index %s",
-                       $error_status[$status], $status, $value
-                    );
+         "Received SNMP %s(%s) error-status at error-index %s",
+         $error_status[$status], $status, $value
+      );
    } 
 
    # Decode the VarBindList
@@ -976,9 +1029,8 @@ sub _snmp_decode_var_bind_list
    }
    if ($value != $this->_object_buffer_length) {
       return $this->_snmp_decode_error(
-                       'Encoded VarBindList length not equal to remaining ' .
-                       'data length'
-                    );
+         'Encoded VarBindList length not equal to remaining data length' 
+      );
    }
 
    while ($this->_object_buffer_length) {
@@ -1070,22 +1122,18 @@ sub _asn1_encode_type_length
 
    if ($length < 0x80) {
       return $this->_object_put_buffer(
-                       join('', pack('C2', $type, $length), $value)
-                    );
+         join('', pack('C2', $type, $length), $value)
+      );
    } elsif ($length <= 0xff) {
       return $this->_object_put_buffer(
-                       join('', pack('C3', $type, (0x80 | 1), $length),
-                          $value
-                       )
-                    );
+         join('', pack('C3', $type, (0x80 | 1), $length), $value)
+      );
    } elsif ($length <= 0xffff) {
       return $this->_object_put_buffer(
-                       join('', pack('CCn', $type, (0x80 | 2), $length),
-                          $value
-                       )
-                    );
-   }
-
+         join('', pack('CCn', $type, (0x80 | 2), $length), $value)
+      );
+   } 
+      
    $this->_asn1_encode_error('Unable to encode ASN.1 length');
 }
 
@@ -1098,7 +1146,7 @@ sub _asn1_encode_integer
       return $this->_asn1_encode_error('INTEGER value not defined');
    }
 
-   if ($integer !~ /^\d+$/) {
+   if ($integer !~ /^-?\d+$/) {
       return $this->_asn1_encode_error('Expected numeric INTEGER value');
    }
 
@@ -1106,7 +1154,8 @@ sub _asn1_encode_integer
    # most significant end of the two's complement integer.
 
    while (((!($integer & 0xff800000)) || 
-           (($integer & 0xff800000) == 0xff800000)) && ($size > 1)) {
+          (($integer & 0xff800000) == 0xff800000)) && ($size > 1)) 
+   {
       $size--;
       $integer <<= 8;
    }
@@ -1130,14 +1179,14 @@ sub _asn1_encode_unsigned_integer
 
    if (!defined($integer)) { 
       return $this->_asn1_encode_error(
-                       "%s value not defined", _asn1_itoa($type) 
-                    );
+         "%s value not defined", _asn1_itoa($type) 
+      );
    }
 
    if ($integer !~ /^\d+$/) {
       return $this->_asn1_encode_error(
-                       "Expected numeric %s value", _asn1_itoa($type)
-                    );
+         "Expected positive numeric %s value", _asn1_itoa($type)
+      );
    }
 
    # Check to see if the most significant bit is set, if it is we
@@ -1210,7 +1259,7 @@ sub _asn1_encode_object_identifier
 
    if ($subids[0] eq '') { 
       $this->_debug_message("leading dot present\n");
-      $this->{'_leading_dot'} = 0x1;
+      $this->{'_leading_dot'} = TRUE;
       shift(@subids);
    }
 
@@ -1237,7 +1286,8 @@ sub _asn1_encode_object_identifier
          # Determine the number of bits need to encode the subidentifier
          for ($tmask = 0x7f, $tbits = 0; 
               $tmask != 0x00; 
-              $tmask <<= 7, $tbits += 7) {
+              $tmask <<= 7, $tbits += 7)
+         {
             if ($subid & $tmask) {
                $mask = $tmask;
                $bits = $tbits;
@@ -1248,7 +1298,8 @@ sub _asn1_encode_object_identifier
             # Handle a mask that was truncated above because
             # the subidentifier was four bytes long.
             if ((($mask & 0xffffffff) == 0xffe00000) ||
-                  ($mask == 0x1e00000)) {
+                 ($mask == 0x1e00000)) 
+            {
                $mask = 0xfe00000;
             }
             $value .= pack('C', ((($subid & $mask) >> $bits) | 0x80));
@@ -1278,9 +1329,9 @@ sub _asn1_encode_ipaddress
       return $this->_asn1_encode_error('Expected IpAddress in dotted notation');
    } 
 
-   $this->_asn1_encode_type_length(IPADDRESS, 
-             pack('C4', split(/\./, $address))
-          );
+   $this->_asn1_encode_type_length(
+      IPADDRESS, pack('C4', split(/\./, $address))
+   );
 }
 
 sub _asn1_encode_counter
@@ -1380,9 +1431,9 @@ sub _asn1_decode
          if (defined($expected)) {
             if ($type != $expected) {
                return $this->_asn1_decode_error(
-                                "Expected %s, but found %s", 
-                                _asn1_itoa($expected), _asn1_itoa($type)
-                             );
+                  "Expected %s, but found %s", 
+                  _asn1_itoa($expected), _asn1_itoa($type)
+               );
             }
          }
          return $this->$method();
@@ -1410,22 +1461,17 @@ sub _asn1_decode_length
       $byte_cnt = ($length & 0x7f);
       if ($byte_cnt == 0) {
          return $this->_asn1_decode_error(
-                          'Indefinite ASN.1 lengths not supported'
-                       );  
-      } elsif ($byte_cnt == 1) {
-         if (!defined($length = $this->_object_get_buffer(1))) {
+            'Indefinite ASN.1 lengths not supported'
+         );  
+      } elsif ($byte_cnt <= 4) {
+         if (!defined($length = $this->_object_get_buffer($byte_cnt))) {
             return $this->_asn1_decode_error;
          }
-         $length = unpack('C', $length); 
-      } elsif ($byte_cnt == 2) {
-         if (!defined($length = $this->_object_get_buffer(2))) {
-            return $this->_asn1_decode_error;
-         }
-         $length = unpack('n', $length);
+         $length = unpack('N', ("\0" x (4 - $byte_cnt) . $length)); 
       } else {   
          return $this->_asn1_decode_error(
-                          "ASN.1 length too long (%d bytes)", $byte_cnt 
-                       );
+            "ASN.1 length too long (%d bytes)", $byte_cnt 
+         );
       }
    }
  
@@ -1443,7 +1489,7 @@ sub _asn1_decode_integer
 
    # Just return zero if the object length is zero
    if ($length < 1) { return '0'; }
-
+   
    if (!defined($byte = $this->_object_get_buffer(1))) { 
       return $this->_asn1_decode_error; 
    }
@@ -1457,8 +1503,8 @@ sub _asn1_decode_integer
 
    if (($length > 4) || (($length > 3) && ($byte != 0))) {
       return $this->_asn1_decode_error(
-                       "INTEGER length too long (%d bytes)", ($length + 1)
-                    );
+         "INTEGER length too long (%d bytes)", ($length + 1)
+      );
    }
 
    $integer = (($integer << 8) | $byte);
@@ -1489,10 +1535,11 @@ sub _asn1_decode_octet_string
 
    if (defined($string = $this->_object_get_buffer($length))) {
       if (($string =~ /[\x00-\x08\x0b\x0e-\x1f\x7f-\xff]/g) && 
-            ($this->{'_translate'})) {
+          ($this->{'_translate'})) 
+      {
          $this->_debug_message(
-                   "translating OCTET STRING to printable hex string\n"
-                );
+            "translating OCTET STRING to printable hex string\n"
+         );
          return sprintf("0x%s", unpack('H*', $string));
       } else {
          return $string;
@@ -1533,7 +1580,11 @@ sub _asn1_decode_object_identifier
       return $this->_asn1_decode_error;
    }
 
-   if ($length < 1) { return '0'; }
+   if ($length < 1) { 
+      return $this->_asn1_decode_error(
+                'OBJECT IDENTIFIER length equal to zero'
+             );
+   }
 
    while ($length > 0) {
       $subid = 0;
@@ -1544,8 +1595,8 @@ sub _asn1_decode_object_identifier
          $byte = unpack('C', $byte);
          if ($subid >= 0xffffffff) {
             return $this->_asn1_decode_error(
-                             'OBJECT IDENTIFIER subidentifier too large'
-                          );
+               'OBJECT IDENTIFIER subidentifier too large'
+            );
          }
          $subid = (($subid << 7) + ($byte & 0x7f)); 
          $length--;
@@ -1588,9 +1639,9 @@ sub _asn1_decode_ipaddress
 
    if ($length != 4) {
       return $this->_asn1_decode_error(
-                       "Invalid IpAddress length (% byte%s)",
-                       $length, ($length == 1 ? '' : 's')
-                    );
+         "Invalid IpAddress length (% byte%s)", 
+         $length, ($length == 1 ? '' : 's')
+      );
    }
 
    if (defined($address = $this->_object_get_buffer(4))) {
@@ -1725,12 +1776,12 @@ sub _asn1_oid_subtree
    my @subid_c = split(/\./, $oid_c);
 
    while (@subid_p) {
-      if (!defined($parent = shift(@subid_p))) { return 1; }
-      if (!defined($child  = shift(@subid_c))) { return 0; }
-      if ($parent != $child) { return 0x0; }
+      if (!defined($parent = shift(@subid_p))) { return TRUE; }
+      if (!defined($child  = shift(@subid_c))) { return FALSE; }
+      if ($parent != $child) { return FALSE; }
    }
 
-   0x1;
+   TRUE;
 }
 
 sub _asn1_ticks_to_time 
@@ -1799,9 +1850,9 @@ sub _udp_send_message
    }
 
    # Exceeded the number of retries
-   return $this->_udp_error("No response from agent on remote host '%s'", 
-                    $this->{'_hostname'}
-                 );
+   $this->_udp_error(
+      "No response from agent on remote host '%s'", $this->{'_hostname'} 
+   );
 }
 
 sub _udp_send_buffer
@@ -1815,14 +1866,15 @@ sub _udp_send_buffer
    }
 
    ($host_port, $host_addr) = sockaddr_in($this->{'_sockaddr'});
-   $this->_debug_message("address %s, port %d\n", inet_ntoa($host_addr), 
-             $host_port
-          );
+   $this->_debug_message(
+      "address %s, port %d\n", inet_ntoa($host_addr), $host_port 
+   );
    $this->_debug_dump_buffer;
 
    # Transmit the contents of the buffer
    if (!defined($length = send($this->{'_socket'}, $this->{'_buffer'}, 0,
-                             $this->{'_sockaddr'}))) {
+                             $this->{'_sockaddr'})))
+   {
       return $this->_udp_error("send(): %s", $!);
    }
 
@@ -1858,19 +1910,19 @@ sub _udp_recv_buffer
    # to fill the last eight bytes with random data and AIX returns a 
    # different PF_INET value in the resulting sockaddr_in structure.
 
-   $this->_debug_message("OS   = %s\n", $^O);
-   $this->_debug_message("recv = 0x%s\n", unpack('H*', $sockaddr));
-   $this->_debug_message("send = 0x%s\n", unpack('H*', $this->{'_sockaddr'}));
-
    if (substr($sockaddr, 2, 6) ne substr($this->{'_sockaddr'}, 2, 6)) {
-      return $this->_udp_error("Received unexpected datagram from '%s'",
-                inet_ntoa($host_addr)
-             );
+      $this->_debug_message("rcv = 0x%s\n", unpack('H*', $sockaddr));
+      $this->_debug_message("snd = 0x%s\n", unpack('H*', $this->{'_sockaddr'}));
+      if ($this->verify_ip) {
+         return $this->_udp_error(
+            "Received unexpected datagram from '%s'", inet_ntoa($host_addr)
+         );
+      }
    }
 
    $this->_debug_message(
-             "address %s, port %d\n", inet_ntoa($host_addr), $host_port
-          );
+      "address %s, port %d\n", inet_ntoa($host_addr), $host_port
+   );
    $this->_debug_dump_buffer;
 
    # Return the address structure
@@ -1956,7 +2008,7 @@ sub _object_clear_error
 
 sub _object_clear_leading_dot
 {
-   $_[0]->{'_leading_dot'} = 0x0;
+   $_[0]->{'_leading_dot'} = FALSE;
 }
 
 sub _object_buffer_length
@@ -2059,7 +2111,7 @@ __DATA__
 ###
 ## POD formatted documentation for Perl module Net::SNMP.
 ##
-## $Id: Net-SNMP.pod,v 1.3 1999/03/17 13:24:31 dtown Exp $
+## $Id: Net-SNMP.pod,v 1.4 1999/04/26 13:09:55 dtown Exp $
 ## $Source: /home/dtown/Projects/Net-SNMP/Net-SNMP.pod,v $
 ##
 ###
@@ -2094,9 +2146,17 @@ However, the dashed-option style is also allowed:
 
 =head2 session() - create a new Net::SNMP object
 
-   ($session, $error) = Net::SNMP->session([Hostname  => $hostname,] 
-                                           [Community => $community,] 
-                                           [Port      => $port,]);
+   ($session, $error) = Net::SNMP->session(
+                                      [Hostname  => $hostname,]
+                                      [Community => $community,]
+                                      [Port      => $port,]
+                                      [Timeout   => $seconds,]
+                                      [Retries   => $count,]
+                                      [MTU       => $octets,]
+                                      [Translate => $translate,]
+                                      [VerifyIP  => $verifyip,]
+                                      [Debug     => $debug]
+                                   );
 
 This is the constructor for Net::SNMP objects. In scalar context, a
 reference to a new Net::SNMP object is returned if the creation of the object
@@ -2107,8 +2167,14 @@ If an error occurs, the object reference returns the undefined value.
 The error string may be used when this method is used in list context to
 determine the cause of the error.
 
-All arguments are optional and will be given the following defaults in the 
-absence of a corresponding named argument: 
+The B<Hostname>, B<Community>, and B<Port> arguments are basic properties
+of a Net::SNMP object and cannot be changed after the object is created.
+All other arguments have methods that allow their values to be modified after
+the Net::SNMP object has been created.  See the methods corresponding to  
+these named arguments for their valid ranges and default values.
+
+All arguments are optional and will take default values in the absence of a
+corresponding named argument. 
 
 =over  
 
@@ -2214,12 +2280,14 @@ the C<var_bind_list()> method.
 
 =head2 trap() - send an SNMP trap to the remote manager
 
-   $octets = $session->trap([Enterprise   => $oid,]
-                            [AgentAddr    => $ipaddress,]
-                            [GenericTrap  => $generic,]
-                            [SpecificTrap => $specific,]
-                            [TimeStamp    => $timeticks,]
-                            [VarBindList  => \@var_bind,]);
+   $octets = $session->trap(
+                          [Enterprise   => $oid,]
+                          [AgentAddr    => $ipaddress,]
+                          [GenericTrap  => $generic,]
+                          [SpecificTrap => $specific,]
+                          [TimeStamp    => $timeticks,]
+                          [VarBindList  => \@var_bind,]
+                       );
 
 This method sends an SNMP trap to the remote manager associated with the
 Net::SNMP object.  All arguments are optional and will be given the following 
@@ -2366,9 +2434,9 @@ value if it falls within the range 30 to 65535 octets.  The undefined value
 is returned upon an error and the C<error()> method may be used to determine
 the cause.
 
-=head2 translate() - toggle the translation flag for the object
+=head2 translate() - enable or disable the translation mode for the object
 
-   $flag = $session->translate;
+   $mode = $session->translate([$mode]);
 
 When the object decodes the GetResponse-PDU that is returned in response to
 a SNMP message, certain values are translated into a more "human readable"
@@ -2391,19 +2459,46 @@ NULL values return the string "NULL" instead of a null string.
 
 =back
 
-This method is used to enable or disable this translation on a per object
-basis.  Each call to the method will reverse the current state of translation.
-The new state of the translation flag is returned by the method.  A true
-value indicates that translation will occur.  
+If a parameter is specified, the translation mode is set to either enabled
+or disabled depending on the value of the passed parameter.  Any value that
+Perl would treat as a true value will set the mode to be enabled, while a
+false value will disable translation.  The current state of the translation 
+mode is returned by the method.
 
-=head2 debug() - toggle the debug flag for the object
+NOTE: The usage of this method has changed since Net::SNMP v1.30.
 
-   $flag = $session->debug;
+=head2 verify_ip() - enable or disable IP verification for the object
+
+   $mode = $session->verify_ip([$mode]);
+
+When the object receives an UDP packet, the IP address and UDP port with which
+the object was created are compared to the values in the received packet.
+By default, if these values do not match, the UDP packet is ignored and an 
+error message is returned.  This check is to insure that the data the object 
+has just received is from the host to which the message was sent. However this 
+can cause problems with multi-homed hosts which respond from a different 
+interface than the one to which the message was sent.
+
+This method is used to enable or disable IP verification on a per object basis.
+By default, IP address and port verification is enabled.  If a parameter is 
+specified, the verification mode is set to either enabled or disabled depending
+on the value of the passed parameter.  Any value that Perl would treat as a
+true value will set the mode to be enabled, while a false value will disable IP
+verification.  The current state of the IP verification mode is returned by the 
+method.
+
+=head2 debug() - set or get the debug mode for the object
+
+   $mode = $session->debug([$mode]);
 
 This method is used to enable or disable debugging on a per object basis.  By
-default, debugging is off.  Each call to the method will reverse the current 
-state of the debug flag.  The new state of the translation flag is returned
-by the method.  A true value indicates that debugging is enabled.
+default, debugging is off.  If a parameter is specified, the debug mode is set
+to either enabled or disabled depending on the value of the passed parameter. 
+Any value that Perl would treat as a true value will set the mode to be 
+enabled, while a false value will disable debugging.  The current state of the 
+debugging mode is returned by the method.
+
+NOTE: The usage of this method has changed since Net::SNMP v1.30. 
 
 =head1 EXPORTS
 
@@ -2449,7 +2544,7 @@ This example gets the system uptime from a remote host:
 
    #!/bin/env perl
 
-   use Net::SNMP();
+   use Net::SNMP;
 
    $hostname  = shift;
    $community = shift || 'public';
@@ -2474,7 +2569,7 @@ This example gets the system uptime from a remote host:
       exit 1;
    }
 
-   printf("Uptime for host '%s' is: %s\n", $hostname, 
+   printf("Up time for host '%s' is: %s\n", $hostname, 
       $response->{$sysUpTime}
    );
 
