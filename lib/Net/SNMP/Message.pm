@@ -3,7 +3,7 @@
 
 package Net::SNMP::Message;
 
-# $Id: Message.pm,v 2.0 2004/07/20 13:30:35 dtown Exp $
+# $Id: Message.pm,v 2.1 2004/09/09 16:53:00 dtown Exp $
 
 # Object used to represent a SNMP message. 
 
@@ -22,7 +22,7 @@ use Math::BigInt();
 
 ## Version of the Net::SNMP::Message module
 
-our $VERSION = v2.0.0;
+our $VERSION = v2.0.1;
 
 ## Handle importing/exporting of symbols
 
@@ -1508,18 +1508,18 @@ sub _process_counter64
    my $int64 = Math::BigInt->new(shift(@bytes));
    map {
       $_ ^= 0xff if ($negative);
-      $int64->bmul(256);
-      $int64->badd($_);
+      $int64 *= 256;
+      $int64 += $_;
    } @bytes;
 
    # If the value is negative the other end incorrectly encoded
    # the Counter64 since it should always be a positive value.
 
    if ($negative) {
-      $int64 = Math::BigInt->new('-1')->bsub($int64);
+      $int64 = Math::BigInt->new('-1') - $int64;
       if ($this->{_translate} & TRANSLATE_UNSIGNED) {
          DEBUG_INFO('translating negative Counter64 value');
-         $int64->badd('18446744073709551616');
+         $int64 += Math::BigInt->new('18446744073709551616');
       }
    }
 
@@ -1699,7 +1699,7 @@ sub _process_report
       INTEGER,            'INTEGER',
       OCTET_STRING,       'OCTET STRING',
       NULL,               'NULL',
-      OBJECT_IDENTIFIER,  'OBJECT IDENTIFER',
+      OBJECT_IDENTIFIER,  'OBJECT IDENTIFIER',
       SEQUENCE,           'SEQUENCE',
       IPADDRESS,          'IpAddress',
       COUNTER,            'Counter',

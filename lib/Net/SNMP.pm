@@ -3,7 +3,7 @@
 
 package Net::SNMP;
 
-# $Id: SNMP.pm,v 5.0 2004/07/20 13:34:51 dtown Exp $
+# $Id: SNMP.pm,v 5.1 2004/09/09 16:53:00 dtown Exp $
 
 # Copyright (c) 1998-2004 David M. Town <dtown@cpan.org>
 # All rights reserved.
@@ -106,7 +106,7 @@ BEGIN
 
 ## Version of the Net::SNMP module
 
-our $VERSION = v5.0.0;
+our $VERSION = v5.0.1;
 
 ## Load our modules
 
@@ -1553,7 +1553,7 @@ sub hostname : locked : method
    $error_status = $session->error_status;
 
 This method returns the numeric value of the error-status contained in the 
-last SNMP GetResponse-PDU received by the object.
+last SNMP message received by the object.
 
 =cut
 
@@ -1567,7 +1567,7 @@ sub error_status : locked : method
    $error_index = $session->error_index;
 
 This method returns the numeric value of the error-index contained in the 
-last SNMP GetResponse-PDU received by the object.
+last SNMP message received by the object.
 
 =cut
 
@@ -2634,10 +2634,7 @@ sub _get_table_cb
             if (!exists($argv->{table}->{$next_oid})) {
                $argv->{table}->{$next_oid} = $result->{$next_oid};
                $argv->{types}->{$next_oid} = $types->{$next_oid};
-            } elsif (($result->{$next_oid} eq 'endOfMibView')      # translate
-                     || (($result->{$next_oid} eq '')              # !translate
-                        && ($this->error_status == ENDOFMIBVIEW)))
-            {
+            } elsif ($types->{$next_oid} == ENDOFMIBVIEW) {
                $end_of_table = TRUE;
             } else {
                $argv->{repeat_cnt}++;

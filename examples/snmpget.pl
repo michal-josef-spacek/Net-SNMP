@@ -6,7 +6,7 @@ if 0;
 
 # ============================================================================
 
-# $Id: snmpget.pl,v 2.2 2004/07/20 13:38:01 dtown Exp $
+# $Id: snmpget.pl,v 2.3 2004/09/09 16:53:00 dtown Exp $
 
 # Copyright (c) 2000-2004 David M. Town <dtown@cpan.org>
 # All rights reserved.
@@ -23,7 +23,7 @@ use strict;
 use vars qw($SCRIPT $VERSION %OPTS);
 
 $SCRIPT  = 'snmpget';
-$VERSION = '2.2.0';
+$VERSION = '2.2.1';
 
 # Validate the command line options
 if (!getopts('a:A:c:dD:E:m:n:p:r:t:u:v:x:X:', \%OPTS)) {
@@ -45,7 +45,6 @@ my ($s, $e) = Net::SNMP->session(
    exists($OPTS{d}) ? (-debug        => DEBUG_ALL) : (),
    exists($OPTS{m}) ? (-maxmsgsize   =>  $OPTS{m}) : (),
    exists($OPTS{p}) ? (-port         =>  $OPTS{p}) : (),
-   exists($OPTS{P}) ? (-protocol     =>  $OPTS{P}) : (),
    exists($OPTS{r}) ? (-retries      =>  $OPTS{r}) : (),
    exists($OPTS{t}) ? (-timeout      =>  $OPTS{t}) : (),
    exists($OPTS{u}) ? (-username     =>  $OPTS{u}) : (),
@@ -112,7 +111,7 @@ Options: -v 1|2c|3      SNMP version
    Transport Layer:
          -D <domain>    Domain <udp4|udp6|tcp4|tcp6>
          -m <octets>    Maximum message size
-         -p <port>      Destination UDP port
+         -p <port>      Destination port
          -r <attempts>  Number of retries
          -t <secs>      Timeout period
 USAGE

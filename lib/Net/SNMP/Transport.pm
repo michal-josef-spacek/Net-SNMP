@@ -3,7 +3,7 @@
 
 package Net::SNMP::Transport;
 
-# $Id: Transport.pm,v 1.0 2004/07/20 13:32:58 dtown Exp $
+# $Id: Transport.pm,v 1.1 2004/09/09 16:53:00 dtown Exp $
 
 # Base object for the Net::SNMP Transport Domain objects.
 
@@ -19,7 +19,7 @@ use strict;
 
 ## Version of the Net::SNMP::Transport module
 
-our $VERSION = v1.0.0;
+our $VERSION = v1.0.1;
 
 ## Handle importing/exporting of symbols
 
@@ -525,8 +525,8 @@ sub _new
 
       $this->[_SOCKET] = $this->_socket_create(
 
-         LocalAddr     => $this->_addr_ntoa($src_addr),
-         LocalPort     => $src_port,
+         LocalAddr  => $this->_addr_ntoa($src_addr),
+         ($src_port) ? ( LocalPort => $src_port ) : (), 
 
          # For connection-oriented transports, we either listen or
          # attempt to connect to the remote host.

@@ -1,11 +1,11 @@
 # -*- mode: perl -*- 
 # ============================================================================
 
-# $Id: mp.t,v 4.0 2001/10/15 13:40:57 dtown Exp $
+# $Id: mp.t,v 4.1 2004/09/09 16:53:00 dtown Exp $
 
 # Test of the Message Processing Model. 
 
-# Copyright (c) 2001 David M. Town <dtown@cpan.org>.
+# Copyright (c) 2001-2004 David M. Town <dtown@cpan.org>.
 # All rights reserved.
 
 # This program is free software; you may redistribute it and/or modify it
@@ -24,9 +24,9 @@ BEGIN
 }
 
 use Net::SNMP::MessageProcessing;
-use Net::SNMP::PDU qw(OCTET_STRING SNMP_VERSION_2C);
+use Net::SNMP::PDU qw( OCTET_STRING SNMP_VERSION_2C );
 use Net::SNMP::Security;
-use Net::SNMP::Transport::UDP;
+use Net::SNMP::Transport;
 
 #
 # 1. Get the Message Processing instance 
@@ -62,7 +62,7 @@ my $t;
 
 eval 
 { 
-   ($t, $e) = Net::SNMP::Transport::UDP->new; 
+   ($t, $e) = Net::SNMP::Transport->new; 
 };
 
 ok(($@ || $e), '', 'Failed to create Transport Layer object'); 

@@ -1,5 +1,13 @@
                            Net::SNMP Changes
 
+RELEASE 5.0.1 SEP-09-2004
+
+- The module is now again functional with Perl 5.6.x.  Compensations
+  were made for compatibility problems with the IO::Socket::INET and
+  Math::BigInt modules packaged with Perl 5.6.x.
+- The UDP/IPv6 and TCP/IPv6 Transport Domains are now functional when
+  using version 2.0x of the IO::Socket::INET6 module.
+   
 RELEASE 5.0.0 JUL-20-2004 
 
 - Added support for the UDP/IPv6 Transport Domain listed in RFC 3419.
@@ -250,4 +258,4 @@ RELEASE 1.00 SEP-09-1998
 
 RCS
 
-    $Id: Changes,v 5.0 2004/07/20 13:36:49 dtown Exp $
+    $Id: Changes,v 5.1 2004/09/09 16:53:00 dtown Exp $

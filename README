@@ -1,5 +1,5 @@
 
-                       Net::SNMP, version 5.0.0 
+                       Net::SNMP, version 5.0.1 
 
 NAME
 
@@ -70,5 +70,5 @@ COPYRIGHT
 
 RCS
 
-    $Id: README,v 5.0 2004/07/20 13:37:32 dtown Exp $
+    $Id: README,v 5.1 2004/09/09 16:53:00 dtown Exp $
 

@@ -3,7 +3,7 @@
 
 package Net::SNMP::Transport::TCP6;
 
-# $Id: TCP6.pm,v 1.0 2004/07/20 13:24:53 dtown Exp $
+# $Id: TCP6.pm,v 1.1 2004/09/09 16:53:00 dtown Exp $
 
 # Object that handles the TCP/IPv6 Transport Domain for the SNMP Engine.
 
@@ -17,7 +17,7 @@ package Net::SNMP::Transport::TCP6;
 
 use strict;
 
-use Net::SNMP::Transport::TCP qw( DOMAIN_TCPIPV6 );
+use Net::SNMP::Transport::TCP qw( DOMAIN_TCPIPV6 _SOCKET );
 
 use IO::Socket::INET6;
 
@@ -28,7 +28,7 @@ use Socket6 qw(
 
 ## Version of the Net::SNMP::Transport::TCP6 module
 
-our $VERSION = v1.0.0;
+our $VERSION = v1.0.1;
 
 ## Handle importing/exporting of symbols
 
@@ -55,6 +55,18 @@ sub domain
 sub name 
 {
   'TCP/IPv6';
+}
+
+sub srcaddr
+{
+   return in6addr_any unless (my $name = $_[0]->[_SOCKET]->sockname);
+   (sockaddr_in6($name))[1];
+}
+
+sub recvaddr
+{
+   return in6addr_any unless (my $name = $_[0]->[_SOCKET]->peername);
+   (sockaddr_in6($name))[1];
 }
 
 # [private methods] ----------------------------------------------------------
