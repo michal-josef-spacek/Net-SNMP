@@ -1,5 +1,11 @@
                             Net::SNMP Changes
 
+RELEASE 1.20 NOV-06-1998
+
+- Now use gensym() from the Symbol module to generate typeglob references 
+  for socket handles, correcting a memory leak.
+- All private methods renamed to Perl programming style recommendations. 
+
 RELEASE 1.10 OCT-14-1998
 
 - New method trap() for sending SNMP Trap-PDUs added.
@@ -21,4 +27,4 @@ Initial release.
 
 RCS
 
-    $Id: Changes,v 1.1 1998/10/14 12:22:57 dtown Exp $
+    $Id: Changes,v 1.2 1998/11/06 13:59:51 dtown Exp $

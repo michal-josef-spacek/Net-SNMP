@@ -1,12 +1,12 @@
 # -*- mode: perl -*-
 # ============================================================================
 
-# $Id: Makefile.PL,v 1.1 1998/10/14 12:24:43 dtown Exp $
+# $Id: Makefile.PL,v 1.2 1998/11/06 14:00:56 dtown Exp $
 # $Source: /home/dtown/Projects/Net-SNMP/Makefile.PL,v $
 
 # Makefile for Perl module Net::SNMP.
 
-# Copyright (c) 1998 David M. Town <town+@pitt.edu>.
+# Copyright (c) 1998 David M. Town <dtown@fore.com>.
 # All rights reserved.
 
 # This program is free software; you may redistribute it and/or modify it
