@@ -6,9 +6,9 @@ if 0;
 
 # ============================================================================
 
-# $Id: trap.pl,v 4.0 2001/10/15 13:22:40 dtown Exp $
+# $Id: trap.pl,v 4.1 2002/05/06 12:30:37 dtown Exp $
 
-# Copyright (c) 2000-2001 David M. Town <dtown@cpan.org>
+# Copyright (c) 2000-2002 David M. Town <dtown@cpan.org>
 # All rights reserved.
 
 # This program is free software; you may redistribute it and/or modify it
@@ -27,7 +27,7 @@ my ($session, $error) = Net::SNMP->session(
 );
 
 if (!defined($session)) {
-   printf("ERROR: %s\n", $error);
+   printf("ERROR: %s.\n", $error);
    exit 1;
 }
 
@@ -46,7 +46,7 @@ my $result = $session->trap(
 );
 
 if (!defined($result)) {
-   printf("ERROR: %s\n", $session->error());
+   printf("ERROR: %s.\n", $session->error());
 } else {
    printf("Trap-PDU sent.\n");
 }
@@ -58,7 +58,7 @@ my @varbind = ('1.3.6.1.2.1.2.2.1.7.0', INTEGER, 1);
 $result = $session->trap(-varbindlist  => \@varbind); 
 
 if (!defined($result)) {
-   printf("ERROR: %s\n", $session->error());
+   printf("ERROR: %s.\n", $session->error());
 } else {
    printf("Trap-PDU sent.\n");
 }
@@ -76,7 +76,7 @@ $session->close();
 );
 
 if (!defined($session)) {
-   printf("ERROR: %s\n", $error);
+   printf("ERROR: %s.\n", $error);
    exit 1;
 }
 
@@ -88,7 +88,7 @@ $result = $session->snmpv2_trap(
 );
 
 if (!defined($result)) {
-   printf("ERROR: %s\n", $session->error());
+   printf("ERROR: %s.\n", $session->error());
 } else {
    printf("SNMPv2-Trap-PDU sent.\n");
 }

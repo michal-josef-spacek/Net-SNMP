@@ -1,5 +1,5 @@
 
-                       Net::SNMP, version 4.0.1 
+                       Net::SNMP, version 4.0.2 
 
 NAME
 
@@ -21,7 +21,7 @@ INSTALLATION
     from the Comprehensive Perl Archive Network (CPAN) execute the 
     command:
 
-	perl -MCPAN -e 'install Net::SNMP'
+	perl -MCPAN -e "install Net::SNMP"
 
     The Net::SNMP module can also be installed using the distribution file
     downloaded from CPAN.  After unpacking the file, perform one of the 
@@ -64,5 +64,5 @@ COPYRIGHT
 
 RCS
 
-    $Id: README,v 4.3 2002/01/01 14:03:44 dtown Exp $
+    $Id: README,v 4.4 2002/05/06 12:30:37 dtown Exp $
 

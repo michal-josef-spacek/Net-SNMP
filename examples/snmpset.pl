@@ -6,9 +6,9 @@ if 0;
 
 # ============================================================================
 
-# $Id: snmpset.pl,v 2.0 2001/10/15 13:21:31 dtown Exp $
+# $Id: snmpset.pl,v 2.1 2002/05/06 12:30:37 dtown Exp $
 
-# Copyright (c) 2000-2001 David M. Town <dtown@cpan.org>
+# Copyright (c) 2000-2002 David M. Town <dtown@cpan.org>
 # All rights reserved.
 
 # This program is free software; you may redistribute it and/or modify it
@@ -23,7 +23,7 @@ use strict;
 use vars qw($SCRIPT $VERSION %OPTS);
 
 $SCRIPT  = 'snmpset';
-$VERSION = '2.0.0';
+$VERSION = '2.0.1';
 
 # Validate the command line options
 if (!getopts('a:A:c:dE:m:n:p:r:t:u:v:X:', \%OPTS)) {
@@ -107,20 +107,18 @@ sub _convert_asn1_types
       return 1;
    }
 
-   for (my $i = 0; $i < scalar(@{$argv}); $i++) {
-      if (!($i % 3)) {
-         if (exists($asn1_types{$argv->[$i+1]})) {
-            if ($argv->[$i+1] eq 'h') {
-               if ($argv->[$i+2] =~ /^(?i:0x)?([0-9a-fA-F]+)$/) {
-                  $argv->[$i+2] = pack('H*', $1);
-               } else {
-                  _exit("Expected hex string for type 'h'");
-               }
-            } 
-            $argv->[$i+1] = $asn1_types{$argv->[$i+1]};
-         } else {
-            _exit('Unknown ASN.1 type [%s]', $argv->[$i+1]);
-         }
+   for (my $i = 0; $i < scalar(@{$argv}); $i += 3) {
+      if (exists($asn1_types{$argv->[$i+1]})) {
+         if ($argv->[$i+1] eq 'h') {
+            if ($argv->[$i+2] =~ /^(?i:0x)?([0-9a-fA-F]+)$/) {
+               $argv->[$i+2] = pack('H*', length($1) % 2 ? '0'.$1 : $1);
+            } else {
+               _exit("Expected hex string for type 'h'");
+            }
+         } 
+         $argv->[$i+1] = $asn1_types{$argv->[$i+1]};
+      } else {
+         _exit('Unknown ASN.1 type [%s]', $argv->[$i+1]);
       }
    }
 

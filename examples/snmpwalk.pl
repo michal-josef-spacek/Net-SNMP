@@ -6,9 +6,9 @@ if 0;
 
 # ============================================================================
 
-# $Id: snmpwalk.pl,v 2.0 2001/10/15 13:21:52 dtown Exp $
+# $Id: snmpwalk.pl,v 2.1 2002/05/06 12:30:37 dtown Exp $
 
-# Copyright (c) 2000-2001 David M. Town <dtown@cpan.org>
+# Copyright (c) 2000-2002 David M. Town <dtown@cpan.org>
 # All rights reserved.
 
 # This program is free software; you may redistribute it and/or modify it
@@ -23,7 +23,7 @@ use strict;
 use vars qw($SCRIPT $VERSION %OPTS);
 
 $SCRIPT  = 'snmpwalk';
-$VERSION = '2.0.0';
+$VERSION = '2.0.1';
 
 # Validate the command line options
 if (!getopts('a:A:c:dE:m:n:p:r:t:u:v:X:', \%OPTS)) {
@@ -100,8 +100,8 @@ if ($s->version == SNMP_VERSION_1) {
 
 }
 
-# Let the user know about errors (except noSuchName).
-if (($s->error() ne '') && ($s->error_status() != 2)) {
+# Let the user know about any errors
+if ($s->error() ne '') {
    _exit($s->error());
 }
 

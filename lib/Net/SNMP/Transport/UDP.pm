@@ -3,7 +3,7 @@
 
 package Net::SNMP::Transport::UDP;
 
-# $Id: UDP.pm,v 1.2 2001/11/09 14:03:52 dtown Exp $
+# $Id: UDP.pm,v 1.3 2002/05/06 12:30:37 dtown Exp $
 
 # Object that handles the UDP/IP Transport layer for the SNMP Engine.
 
@@ -25,7 +25,7 @@ use IO::Socket::INET qw(
 
 ## Version of the Net::SNMP::Transport::UDP module
 
-our $VERSION = v1.0.0;
+our $VERSION = v1.0.1;
 
 ## Handle importing/exporting of symbols
 
@@ -290,11 +290,11 @@ sub retries
 
 sub srcaddr
 {
-   my $srcaddr = (sockaddr_in($_[0]->[_SRCADDR]))[1]; 
+   my $srcaddr = (sockaddr_in(getsockname($_[0]->[_SOCKET])))[1];
 
    if ($srcaddr eq INADDR_ANY) {
       eval {
-         $srcaddr = scalar(gethostbyname(&Sys::Hostname::hostname())); 
+         $srcaddr = scalar(gethostbyname(&Sys::Hostname::hostname()));
       };
       $srcaddr = INADDR_ANY if ($@);
    }
@@ -304,7 +304,7 @@ sub srcaddr
 
 sub srcport
 {
-   (sockaddr_in($_[0]->[_SRCADDR]))[0];
+   (sockaddr_in(getsockname($_[0]->[_SOCKET])))[0];
 }
 
 sub srchost
@@ -352,6 +352,11 @@ sub socket
    $_[0]->[_SOCKET];
 }
 
+sub fileno
+{
+   $_[0]->[_SOCKET]->fileno;
+}
+
 sub error
 {
    $_[0]->[_ERROR] || '';
@@ -367,7 +372,8 @@ sub DESTROY
    # Decrement the reference count and clear the global reference
    # to the source address if no one is using it. 
 
-   return unless exists($SOCKETS->{$_[0]->[_SRCADDR]});
+   return unless (defined($_[0]->[_SRCADDR]) &&
+                    exists($SOCKETS->{$_[0]->[_SRCADDR]}));
 
    if (--$SOCKETS->{$_[0]->[_SRCADDR]}->[1] < 1) {
       delete($SOCKETS->{$_[0]->[_SRCADDR]});

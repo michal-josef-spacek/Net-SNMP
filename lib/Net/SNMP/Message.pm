@@ -3,7 +3,7 @@
 
 package Net::SNMP::Message;
 
-# $Id: Message.pm,v 1.3 2002/01/01 14:03:44 dtown Exp $
+# $Id: Message.pm,v 1.4 2002/05/06 12:30:37 dtown Exp $
 
 # Object used to represent a SNMP message. 
 
@@ -21,7 +21,7 @@ use Math::BigInt();
 
 ## Version of the Net::SNMP::Message module
 
-our $VERSION = v1.0.1;
+our $VERSION = v1.0.2;
 
 ## Handle exporting of symbols
 
@@ -224,28 +224,28 @@ sub new
 
 {
    my $prepare_methods = {
-      INTEGER,            '_prepare_integer',
-      OCTET_STRING,       '_prepare_octet_string',
-      NULL,               '_prepare_null',
-      OBJECT_IDENTIFIER,  '_prepare_object_identifier',
-      SEQUENCE,           '_prepare_sequence',
-      IPADDRESS,          '_prepare_ipaddress',
-      COUNTER,            '_prepare_counter',
-      GAUGE,              '_prepare_gauge',
-      TIMETICKS,          '_prepare_timeticks',
-      OPAQUE,             '_prepare_opaque',
-      COUNTER64,          '_prepare_counter64',
-      NOSUCHOBJECT,       '_prepare_nosuchobject',
-      NOSUCHINSTANCE,     '_prepare_nosuchinstance',
-      ENDOFMIBVIEW,       '_prepare_endofmibview',
-      GET_REQUEST,        '_prepare_get_request',
-      GET_NEXT_REQUEST,   '_prepare_get_next_request',
-      GET_RESPONSE,       '_prepare_get_response',
-      SET_REQUEST,        '_prepare_set_request',
-      TRAP,               '_prepare_trap',
-      GET_BULK_REQUEST,   '_prepare_get_bulk_request',
-      INFORM_REQUEST,     '_prepare_inform_request',
-      SNMPV2_TRAP,        '_prepare_v2_trap'
+      INTEGER,            \&_prepare_integer,
+      OCTET_STRING,       \&_prepare_octet_string,
+      NULL,               \&_prepare_null,
+      OBJECT_IDENTIFIER,  \&_prepare_object_identifier,
+      SEQUENCE,           \&_prepare_sequence,
+      IPADDRESS,          \&_prepare_ipaddress,
+      COUNTER,            \&_prepare_counter,
+      GAUGE,              \&_prepare_gauge,
+      TIMETICKS,          \&_prepare_timeticks,
+      OPAQUE,             \&_prepare_opaque,
+      COUNTER64,          \&_prepare_counter64,
+      NOSUCHOBJECT,       \&_prepare_nosuchobject,
+      NOSUCHINSTANCE,     \&_prepare_nosuchinstance,
+      ENDOFMIBVIEW,       \&_prepare_endofmibview,
+      GET_REQUEST,        \&_prepare_get_request,
+      GET_NEXT_REQUEST,   \&_prepare_get_next_request,
+      GET_RESPONSE,       \&_prepare_get_response,
+      SET_REQUEST,        \&_prepare_set_request,
+      TRAP,               \&_prepare_trap,
+      GET_BULK_REQUEST,   \&_prepare_get_bulk_request,
+      INFORM_REQUEST,     \&_prepare_inform_request,
+      SNMPV2_TRAP,        \&_prepare_v2_trap
    };
 
    sub prepare 
@@ -265,34 +265,34 @@ sub new
 
 {
    my $process_methods = {
-      INTEGER,            '_process_integer32',
-      OCTET_STRING,       '_process_octet_string',
-      NULL,               '_process_null',
-      OBJECT_IDENTIFIER,  '_process_object_identifier',
-      SEQUENCE,           '_process_sequence',
-      IPADDRESS,          '_process_ipaddress',
-      COUNTER,            '_process_counter',
-      GAUGE,              '_process_gauge',
-      TIMETICKS,          '_process_timeticks',
-      OPAQUE,             '_process_opaque',
-      COUNTER64,          '_process_counter64',
-      NOSUCHOBJECT,       '_process_nosuchobject',
-      NOSUCHINSTANCE,     '_process_nosuchinstance',
-      ENDOFMIBVIEW,       '_process_endofmibview',
-      GET_REQUEST,        '_process_get_request',
-      GET_NEXT_REQUEST,   '_process_get_next_request',
-      GET_RESPONSE,       '_process_get_response',
-      SET_REQUEST,        '_process_set_request',
-      TRAP,               '_process_trap',
-      GET_BULK_REQUEST,   '_process_get_bulk_request',
-      INFORM_REQUEST,     '_process_inform_request',
-      SNMPV2_TRAP,        '_process_v2_trap',
-      REPORT,             '_process_report'
+      INTEGER,            \&_process_integer32,
+      OCTET_STRING,       \&_process_octet_string,
+      NULL,               \&_process_null,
+      OBJECT_IDENTIFIER,  \&_process_object_identifier,
+      SEQUENCE,           \&_process_sequence,
+      IPADDRESS,          \&_process_ipaddress,
+      COUNTER,            \&_process_counter,
+      GAUGE,              \&_process_gauge,
+      TIMETICKS,          \&_process_timeticks,
+      OPAQUE,             \&_process_opaque,
+      COUNTER64,          \&_process_counter64,
+      NOSUCHOBJECT,       \&_process_nosuchobject,
+      NOSUCHINSTANCE,     \&_process_nosuchinstance,
+      ENDOFMIBVIEW,       \&_process_endofmibview,
+      GET_REQUEST,        \&_process_get_request,
+      GET_NEXT_REQUEST,   \&_process_get_next_request,
+      GET_RESPONSE,       \&_process_get_response,
+      SET_REQUEST,        \&_process_set_request,
+      TRAP,               \&_process_trap,
+      GET_BULK_REQUEST,   \&_process_get_bulk_request,
+      INFORM_REQUEST,     \&_process_inform_request,
+      SNMPV2_TRAP,        \&_process_v2_trap,
+      REPORT,             \&_process_report
    };
 
    sub process 
    {
-   #  my ($this, $type) = @_;
+   #  my ($this, $expected) = @_;
 
       return $_[0]->_error if defined($_[0]->{_error});
 
@@ -339,13 +339,16 @@ sub prepare_v3_global_data
 
    # msgFlags::=OCTET STRING
 
-   my $level = $pdu->security->security_level;
+   my $security_level  = $pdu->security->security_level;
    $this->{_msg_flags} = MSG_FLAGS_NOAUTHNOPRIV | MSG_FLAGS_REPORTABLE;
 
-   if ($level == SECURITY_LEVEL_AUTHNOPRIV) {
+   if ($security_level > SECURITY_LEVEL_NOAUTHNOPRIV) {
+
       $this->{_msg_flags} |= MSG_FLAGS_AUTH;
-   } elsif ($level == SECURITY_LEVEL_AUTHPRIV) {
-      $this->{_msg_flags} |= MSG_FLAGS_AUTH | MSG_FLAGS_PRIV;
+
+      if ($security_level > SECURITY_LEVEL_AUTHNOPRIV) {
+          $this->{_msg_flags} |= MSG_FLAGS_PRIV;
+      }
    }
 
    if (!$pdu->expect_response) {
@@ -484,7 +487,7 @@ sub context_name
       }
    }
 
-   $_[0]->{_context_name} || '';
+   defined($_[0]->{_context_name}) ? $_[0]->{_context_name} : '';
 }
 
 sub msg_id
@@ -1201,7 +1204,7 @@ sub _prepare_report
       return $_[0]->_error('Report-PDU not supported in SNMPv1');
    }
 
-   $_[0]->_prepare_type_length(SNMPV2_TRAP, $_[1]);
+   $_[0]->_prepare_type_length(REPORT, $_[1]);
 }
 
 #
@@ -1254,12 +1257,8 @@ sub _process_integer32
 
    # If the first bit is set, the integer is negative
    if (($byte = unpack('C', $byte)) & 0x80) {
-      if (($_[1] == INTEGER) || (!($_[0]->{_translate} & TRANSLATE_UNSIGNED))) {
-         $int32 = -1;
-         $negative = TRUE;
-      } else {
-         DEBUG_INFO("translating sign bit for %s", asn1_itoa($_[1]));
-      }
+      $int32 = -1;
+      $negative = TRUE;
    }
 
    if (($length > 4) || (($length > 3) && ($byte != 0x00))) {
@@ -1278,7 +1277,12 @@ sub _process_integer32
    }
 
    if ($negative) {
-      sprintf('%d', $int32);
+      if (($_[1] == INTEGER) || (!($_[0]->{_translate} & TRANSLATE_UNSIGNED))) {
+         sprintf('%d', $int32);
+      } else {
+         DEBUG_INFO('translating negative %s value', asn1_itoa($_[1]));
+         sprintf('%u', $int32);  
+      }
    } else {
       sprintf('%u', $int32);
    }
@@ -1459,12 +1463,8 @@ sub _process_counter64
    my $negative = FALSE;
 
    if ($byte & 0x80) {
-      if (!($_[0]->{_translate} & TRANSLATE_UNSIGNED)) {
-         $negative = TRUE;
-         $byte = $byte ^ 0xff;
-      } else {
-         DEBUG_INFO('translating sign bit for Counter64');
-      }
+      $negative = TRUE;
+      $byte = $byte ^ 0xff;
    }
 
    my $u_int64 = Math::BigInt->new($byte);
@@ -1487,6 +1487,11 @@ sub _process_counter64
    if ($negative) {
       $byte = Math::BigInt->new('-1');
       $u_int64 = $byte->bsub($u_int64);
+      if ($_[0]->{_translate} & TRANSLATE_UNSIGNED) {
+         DEBUG_INFO('translating negative Counter64 value');
+         $byte = Math::BigInt->new('18446744073709551616');
+         $u_int64 = $byte->badd($u_int64);
+      }
    }
 
    # Perl 5.6.0 (force to string or substitution does not work).

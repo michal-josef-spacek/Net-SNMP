@@ -1,4 +1,26 @@
-                            Net::SNMP Changes
+                           Net::SNMP Changes
+
+RELEASE 4.0.2 MAY-06-2002
+
+- The SNMPv3 request message sent for time synchronization is now sent
+  with the same securityLevel that is configured for the session.
+- The "reserved" bits in the msgFlags field of an incoming SNMPv3
+  message are now ignored as suggested by RFC 2572.
+- When encrypting a SNMPv3 message, the padding byte(s) are now set to
+  a value equal to the size of the padding.  "The actual pad value is
+  irrelevant..." according RFC 2574 Section 8.1.1.2.  However, there 
+  are some agents that expect this byte pattern.
+- Corrected a reference count mismatch which would leave a listening 
+  socket open if no response is received from the remote agent.
+- Corrected a "deep recursion" error that occurred when using the
+  get_table() method to retrieve large tables in blocking mode.
+- Using the "-delay" argument with the get_table() method no longer
+  incorrectly delays between message exchanges when retrieving the table.
+- Optimizations and improvements were made to the Net::SNMP::Dispatcher
+  event scheduling and handling procedures.
+- The "translate unsigned" logic now correctly handles properly 
+  formatted (but unexpected) negative Counter64, Counter, Gauge, and 
+  TimeTick values. 
 
 RELEASE 4.0.1 JAN-01-2002
 
@@ -11,6 +33,9 @@ RELEASE 4.0.1 JAN-01-2002
   returns the correct value as reserved by RFC 2571.
 - The first subidentifier in an OBJECT IDENTIFIER is now restricted to
   ccitt(0), iso(1), or joint-iso-ccitt(2) as specified by ISO/IEC 8825.
+- Changed the appropriate CHECK blocks into BEGIN blocks to avoid the 
+  "Can't call method 'send_pdu' on an undefined value" error when the 
+  module is loaded using a quoted eval statement. 
 
 RELEASE 4.0.0 NOV-09-2001
 
@@ -32,7 +57,7 @@ RELEASE 3.65 SEP-09-2001
 - Updated the logic in the "blocking" response handling method such
   the transmit buffer is properly updated if there is a decode
   error while parsing the GetResponse-PDU. 
-- Counter, Guages, and TimeTick values that are incorrectly encoded as
+- Counter, Gauge, and TimeTick values that are incorrectly encoded as
   negative signed integers are now converted to unsigned values.  This
   feature can be disabled by setting the "-unsigned" flag to false 
   using the translate() method.
@@ -85,7 +110,7 @@ RELEASE 3.00 SEP-09-1999
 - The "null" character (\000) no longer triggers an OCTET STRING in a
   GetResponse-PDU to be converted to a hexadecimal representation if
   translation is enabled.
-- A single socket is now used for all Net:SNMP objects.
+- A single socket is now used for all Net::SNMP objects.
 - Corrected an error where a blocking session would send one too many 
   retries and fail to listen for the last message sent.
 - Added a new export tag ":snmp" used to define SNMP related symbols.
@@ -109,7 +134,7 @@ RELEASE 1.40 APR-26-1999
   object method can now be modified at object creation by passing named
   arguments to the constructor.
 - The translate() and debug() methods were modified to require a boolean
-  argument to enable or disable the feature.  This depreciates the toggle
+  argument to enable or disable the feature.  This deprecates the toggle
   functionality they had previously.
 - New method verify_ip() added that enables or disables the verification
   of the IP address and UDP port number on datagrams received by the object.
@@ -153,4 +178,4 @@ RELEASE 1.00 SEP-09-1998
 
 RCS
 
-    $Id: Changes,v 4.2 2002/01/01 14:03:44 dtown Exp $
+    $Id: Changes,v 4.3 2002/05/06 12:30:37 dtown Exp $

@@ -3,7 +3,7 @@
 
 package Net::SNMP;
 
-# $Id: SNMP.pm,v 4.3 2002/01/01 14:03:44 dtown Exp $
+# $Id: SNMP.pm,v 4.4 2002/05/06 12:30:37 dtown Exp $
 
 # Copyright (c) 1998-2002 David M. Town <dtown@cpan.org>
 # All rights reserved.
@@ -106,7 +106,7 @@ BEGIN
 
 ## Version of the Net::SNMP module
 
-our $VERSION = v4.0.1;
+our $VERSION = v4.0.2;
 
 ## Load our modules
 
@@ -156,7 +156,7 @@ our @TRANSLATE = qw(
 our @EXPORT    = (@ASN1, 'snmp_dispatcher', 'snmp_event_loop');
 our @EXPORT_OK = (
    @ASN1_PDU, @DEBUG, @GENERICTRAP, @SNMP, @TRANSLATE, 'SEQUENCE', 'NULL', 
-   'snmp_dispatcher_one_event'
+   'snmp_dispatch_once'
 );
 
 our %EXPORT_TAGS = (
@@ -297,20 +297,20 @@ sub new
 
    # Create a new data structure for the object
    my $this = bless {
-        '_callback'          =>  undef,
-        '_context_engine_id' =>  undef,
-        '_context_name'      =>  undef,
-        '_delay'             =>  0,
-        '_hostname'          =>  '',
-        '_discovery_queue'   =>  [],
-        '_error'             =>  undef,
-        '_nonblocking'       =>  FALSE,
-        '_pdu'               =>  undef,
-        '_security'          =>  undef,
-        '_translate'         =>  TRANSLATE_ALL,
-        '_transport'         =>  undef,
-        '_transport_argv'    =>  [],
-        '_version'           =>  SNMP_VERSION_1,
+        '_callback'          =>  undef,           # Callback
+        '_context_engine_id' =>  undef,           # contextEngineID
+        '_context_name'      =>  undef,           # contextName
+        '_delay'             =>  0,               # Message delay
+        '_hostname'          =>  '',              # Hostname
+        '_discovery_queue'   =>  [],              # Pending message queue
+        '_error'             =>  undef,           # Error message
+        '_nonblocking'       =>  FALSE,           # Blocking/non-blocking flag
+        '_pdu'               =>  undef,           # Message/PDU object
+        '_security'          =>  undef,           # Security model
+        '_translate'         =>  TRANSLATE_ALL,   # Translation mask 
+        '_transport'         =>  undef,           # Transport model
+        '_transport_argv'    =>  [],              # Transport constructor argv
+        '_version'           =>  SNMP_VERSION_1,  # SNMP version
    }, $class;
 
    # Parse the passed arguments 
@@ -579,7 +579,7 @@ sub snmp_event_loop()
    snmp_dispatcher;
 }
 
-sub snmp_dispatcher_one_event()
+sub snmp_dispatch_once()
 {
    $DISPATCHER->one_event;
 }
@@ -851,7 +851,7 @@ sub trap
 
    $this->_send_pdu;
 
-   defined($this->{_error}) ? undef : TRUE;
+   defined($this->{_error}) ? $this->_error : TRUE;
 }
 
 =head2 get_bulk_request() - send a get-bulk-request to the remote agent
@@ -1080,7 +1080,7 @@ sub snmpv2_trap
 
    $this->_send_pdu;
 
-   defined($this->{_error}) ? undef : TRUE;
+   defined($this->{_error}) ? $this->_error : TRUE;
 }
 
 =head2 get_table() - retrieve a table from the remote agent
@@ -1127,17 +1127,16 @@ sub get_table
    # act accordingly.
 
    if ((@_) && ($_[0] =~ /^\.?\d+\.\d+(?:\d+)*/)) {
-      $argv[0] = $_[0];
-   } else {
-      if (!defined($this->_prepare_argv([qw( -callback
-                                             -delay
-                                             -contextengineid
-                                             -contextname 
-                                             -baseoid         )], 
-                                           \@_, \@argv))) 
-      {
-         return $this->_error;
-      }
+      unshift(@_, '-baseoid');
+   }
+
+   if (!defined($this->_prepare_argv([qw( -callback
+                                          -delay
+                                          -contextengineid
+                                          -contextname 
+                                          -baseoid         )], \@_, \@argv))) 
+   {
+      return $this->_error;
    }
 
    if ($argv[0] !~ /^\.?\d+\.\d+(?:\d+)*/) {
@@ -1412,7 +1411,9 @@ form.  By default the following translations occur:
 =item *
 
 OCTET STRINGs and Opaques containing non-printable ASCII characters are 
-converted into a hexadecimal representation prefixed with "0x". 
+converted into a hexadecimal representation prefixed with "0x".  B<NOTE:>  
+The following ASCII control characters are considered to be printable by
+the module:  NUL(0x00), HT(0x09), LF(0x0A), FF(0x0C), and CR(0x0D). 
 
 =item *
 
@@ -1445,8 +1446,8 @@ L<"EXPORTS">).
 
 =item *
 
-Counter, Gauges, and TimeTick values that have been incorrectly encoded as
-signed negative values are returned as unsigned values.  
+Counter64, Counter, Gauge, and TimeTick values that have been incorrectly 
+encoded as signed negative values are returned as unsigned values.
 
 =back
 
@@ -1614,20 +1615,16 @@ sub oid_base_match($$)
 {
    my ($base, $oid) = @_;
 
-   $base || return 0;
-   $oid  || return 0;
+   $base || return FALSE;
+   $oid  || return FALSE;
 
    $base =~ s/^\.//o;
    $oid  =~ s/^\.//o;
 
-   $base = join('', map { pack('N', $_) } split('\.', $base));
-   $oid  = join('', map { pack('N', $_) } split('\.', $oid));
+   $base = pack('N*', split('\.', $base));
+   $oid  = pack('N*', split('\.', $oid));
 
-   if (substr($oid, 0, length($base)) eq $base) {
-      return 1;
-   }
- 
-   0;  
+   (substr($oid, 0, length($base)) eq $base) ? TRUE : FALSE;
 }
 
 sub oid_context_match($$)
@@ -1653,7 +1650,7 @@ sub oid_lex_sort(@)
    map  {
       my $oid = $_; 
       $oid =~ s/^\.//o;
-      [$_, join('', map { pack('N', $_) } split('\.', $oid))] 
+      [$_, pack('N*', split('\.', $oid))]
    } @_;
 }
 
@@ -1795,10 +1792,10 @@ sub _prepare_argv
 #  my ($this, $allowed, $named, $unnamed) = @_;
 
    my $obj_args = {
-      '-callback'        => '_callback',          # non-blocking only
-      '-contextengineid' => '_context_engine_id', # v3 only
-      '-contextname'     => '_context_name',      # v3 only
-      '-delay'           => '_delay',             # non-blocking only
+      -callback        => \&_callback,          # non-blocking only
+      -contextengineid => \&_context_engine_id, # v3 only
+      -contextname     => \&_context_name,      # v3 only
+      -delay           => \&_delay,             # non-blocking only
    };
 
    my %argv;
@@ -1926,7 +1923,7 @@ sub _context_engine_id
       $this->{_context_engine_id} = undef; 
       TRUE;
    } elsif ($context_engine_id =~ /^(?i:0x)?([a-fA-F0-9]{10,64})$/) {
-      $this->{_context_engine_id} = pack('H*', $1);
+      $this->{_context_engine_id} = pack('H*', length($1) % 2 ? '0'.$1 : $1);
    } else {
       $this->_error('Invalid contextEngineID format specified');
    }
@@ -2037,7 +2034,7 @@ sub _discovery
 
    snmp_dispatcher() unless ($this->{_nonblocking});
 
-   ($this->error) ? FALSE : TRUE;
+   ($this->{_error}) ? $this->_error : TRUE;
 }
 
 sub _discovery_engine_id_cb
@@ -2067,6 +2064,9 @@ sub _discovery_engine_id_cb
       return $this->_error;
    }
 
+   # Clear the usmStatsUnknownEngineIDs error
+   $this->_error_clear;
+
    # If the security model indicates that discovery is complete,
    # we send any pending messages and return success.  If discovery
    # is not complete, we probably need to synchronize with the
@@ -2088,8 +2088,6 @@ sub _discovery_engine_id_cb
    # process should also establish time synchronization with the
    # authoritative SNMP engine.  This may be accomplished by sending
    # an authenticated Request message..."
-
-   $this->_error_clear;
 
    # Create a new PDU
    if (!defined($this->_create_pdu)) {
@@ -2118,7 +2116,7 @@ sub _discovery_engine_id_cb
 
    snmp_dispatcher() unless ($this->{_nonblocking});
 
-   ($this->error) ? FALSE : TRUE;
+   ($this->{_error}) ? $this->_error : TRUE;
 }
 
 sub _discovery_synchronization_cb
@@ -2134,6 +2132,7 @@ sub _discovery_synchronization_cb
    if (($this->{_security}->discovered) &&
        ($this->{_error} =~ /usmStatsNotInTimeWindows/))
    {
+      $this->_error_clear;
     
       DEBUG_INFO('discovery and synchronization complete');
 
@@ -2145,10 +2144,10 @@ sub _discovery_synchronization_cb
       return TRUE;
    }
 
-   # If we received the usmStatsNotInTimeWindows report, but we are
-   # still not synchronized, provide a generic error message.
+   # If we received the usmStatsNotInTimeWindows report or no error, but 
+   # we are still not synchronized, provide a generic error message.
 
-   if ($this->{_error} =~ /usmStatsNotInTimeWindows/) {
+   if ((!$this->{_error}) || ($this->{_error} =~ /usmStatsNotInTimeWindows/)) {
       $this->_error_clear;
       $this->_error('Time synchronization failed during discovery');
    }
@@ -2284,7 +2283,8 @@ sub _get_table_cb
             }
          } 
 
-         return $this->_send_pdu;
+         # Send the next PDU with no delay
+         return $DISPATCHER->send_pdu($this->{_pdu}, 0) ? TRUE : $this->_error;
       }
 
       # Copy the table to the var_bind_list
@@ -2382,25 +2382,24 @@ rules and conventions of the F<Exporter> module (see L<Exporter>).
 
 =item Default
 
-INTEGER, INTEGER32, OCTET_STRING, OBJECT_IDENTIFIER, IPADDRESS, COUNTER,
-COUNTER32, GAUGE, GAUGE32, UNSIGNED32, TIMETICKS, OPAQUE, COUNTER64, 
-NOSUCHOBJECT, NOSUCHINSTANCE, ENDOFMIBVIEW, snmp_dispatcher
+&snmp_dispatcher, INTEGER, INTEGER32, OCTET_STRING, OBJECT_IDENTIFIER, 
+IPADDRESS, COUNTER, COUNTER32, GAUGE, GAUGE32, UNSIGNED32, TIMETICKS, 
+OPAQUE, COUNTER64, NOSUCHOBJECT, NOSUCHINSTANCE, ENDOFMIBVIEW 
 
 =item Exportable
 
-INTEGER, INTEGER32, OCTET_STRING, NULL, OBJECT_IDENTIFIER, SEQUENCE, 
-IPADDRESS, COUNTER, COUNTER32, GAUGE, GAUGE32, UNSIGNED32, TIMETICKS, OPAQUE, 
-COUNTER64, NOSUCHOBJECT, NOSUCHINSTANCE, ENDOFMIBVIEW, GET_REQUEST, 
-GET_NEXT_REQUEST, GET_RESPONSE, SET_REQUEST, TRAP, GET_BULK_REQUEST, 
-INFORM_REQUEST, SNMPV2_TRAP, DEBUG_ALL, DEBUG_NONE, DEBUG_MESSAGE, 
-DEBUG_TRANSPORT, DEBUG_DISPATCHER, DEBUG_PROCESSING, DEBUG_SECURITY, 
-COLD_START, WARM_START, LINK_DOWN, LINK_UP, AUTHENTICATION_FAILURE, 
-EGP_NEIGHBOR_LOSS, ENTERPRISE_SPECIFIC, SNMP_VERSION_1, SNMP_VERSION_2C, 
-SNMP_VERSION_3, SNMP_PORT, SNMP_TRAP_PORT, snmp_debug, snmp_dispatcher, 
-oid_base_match, oid_lex_sort, ticks_to_time, TRANSLATE_NONE, 
-TRANSLATE_OCTET_STRING, TRANSLATE_NULL, TRANSLATE_TIMETICKS,
-TRANSLATE_OPAQUE, TRANSLATE_NOSUCHOBJECT, TRANSLATE_NOSUCHINSTANCE,
-TRANSLATE_ENDOFMIBVIEW, TRANSLATE_UNSIGNED, TRANSLATE_ALL
+&snmp_debug, &snmp_dispatcher, &oid_base_match, &oid_lex_sort, &ticks_to_time,
+INTEGER, INTEGER32, OCTET_STRING, NULL, OBJECT_IDENTIFIER, SEQUENCE, IPADDRESS,
+COUNTER, COUNTER32, GAUGE, GAUGE32, UNSIGNED32, TIMETICKS, OPAQUE, COUNTER64, 
+NOSUCHOBJECT, NOSUCHINSTANCE, ENDOFMIBVIEW, GET_REQUEST, GET_NEXT_REQUEST, 
+GET_RESPONSE, SET_REQUEST, TRAP, GET_BULK_REQUEST, INFORM_REQUEST, SNMPV2_TRAP,
+DEBUG_ALL, DEBUG_NONE, DEBUG_MESSAGE, DEBUG_TRANSPORT, DEBUG_DISPATCHER, 
+DEBUG_PROCESSING, DEBUG_SECURITY, COLD_START, WARM_START, LINK_DOWN, LINK_UP, 
+AUTHENTICATION_FAILURE, EGP_NEIGHBOR_LOSS, ENTERPRISE_SPECIFIC, SNMP_VERSION_1,
+SNMP_VERSION_2C, SNMP_VERSION_3, SNMP_PORT, SNMP_TRAP_PORT, TRANSLATE_NONE, 
+TRANSLATE_OCTET_STRING, TRANSLATE_NULL, TRANSLATE_TIMETICKS, TRANSLATE_OPAQUE,
+TRANSLATE_NOSUCHOBJECT, TRANSLATE_NOSUCHINSTANCE, TRANSLATE_ENDOFMIBVIEW, 
+TRANSLATE_UNSIGNED, TRANSLATE_ALL
 
 =item Tags
 
@@ -2416,8 +2415,8 @@ INFORM_REQUEST, SNMPV2_TRAP
 
 =item :debug
 
-DEBUG_ALL, DEBUG_NONE, DEBUG_MESSAGE, DEBUG_TRANSPORT, DEBUG_DISPATCHER,
-DEBUG_PROCESSING, DEBUG_SECURITY, snmp_debug
+&snmp_debug, DEBUG_ALL, DEBUG_NONE, DEBUG_MESSAGE, DEBUG_TRANSPORT, 
+DEBUG_DISPATCHER, DEBUG_PROCESSING, DEBUG_SECURITY
 
 =item :generictrap
 
@@ -2426,8 +2425,8 @@ EGP_NEIGHBOR_LOSS, ENTERPRISE_SPECIFIC
 
 =item :snmp
 
-SNMP_VERSION_1, SNMP_VERSION_2C, SNMP_VERSION_3, SNMP_PORT, SNMP_TRAP_PORT, 
-snmp_debug, snmp_dispatcher, oid_base_match, oid_lex_sort, ticks_to_time
+&snmp_debug, &snmp_dispatcher, &oid_base_match, &oid_lex_sort, &ticks_to_time,
+SNMP_VERSION_1, SNMP_VERSION_2C, SNMP_VERSION_3, SNMP_PORT, SNMP_TRAP_PORT 
 
 =item :translate
 
@@ -2645,23 +2644,25 @@ the last poll.
 
    # List of hosts to poll
 
-   my @hosts = qw(1.1.1.1 1.1.1.2 localhost);
+   my @HOSTS = qw(1.1.1.1 1.1.1.2 localhost);
 
-   # Poll interval (in seconds).  This value should be greater than
-   # the number of retries times the timeout value.
+   # Poll interval (in seconds).  This value should be greater 
+   # than the number of retries plus one, times the timeout value.
 
-   my $INTERVAL = 60;
+   my $INTERVAL  = 60;
 
-   # Maximum number of polls after the initial poll
+   # Maximum number of polls, including the initial poll.
 
    my $MAX_POLLS = 10;
 
-   my @sessions;
+   my $sysUpTime = '1.3.6.1.2.1.1.3.0';
 
-   # Create a session for each host
-   foreach (@hosts) {
+   # Create a session for each host and queue the first get-request.
+
+   foreach my $host (@HOSTS) {
+
       my ($session, $error) = Net::SNMP->session(
-         -hostname    => $_,
+         -hostname    => $host,
          -nonblocking => 0x1,   # Create non-blocking objects
          -translate   => [
             -timeticks => 0x0   # Turn off so sysUpTime is numeric
@@ -2672,22 +2673,19 @@ the last poll.
          exit 1;
       }
 
-      # Create an array of arrays which contains the new object, 
-      # the last sysUpTime, and the total number of polls.
+      # Queue the get-request, passing references to variables that
+      # will be used to store the last sysUpTime and the number of
+      # polls that this session has performed. 
 
-      push(@sessions, [$session, 0, 0]);
-   }
+      my ($last_uptime, $num_polls) = (0, 0);
 
-   my $sysUpTime = '1.3.6.1.2.1.1.3.0';
-
-   # Queue each of the queries for sysUpTime
-   foreach (@sessions) {
-      $_->[0]->get_request(
+      $session->get_request(
           -varbindlist => [$sysUpTime],
           -callback    => [
-             \&validate_sysUpTime_cb, \$_->[1], \$_->[2]
+             \&validate_sysUpTime_cb, \$last_uptime, \$num_polls
           ]
       );
+
    }
 
    # Define a reference point for all of the polls
@@ -2698,19 +2696,21 @@ the last poll.
 
    exit 0;
 
+
    sub validate_sysUpTime_cb
    {
       my ($session, $last_uptime, $num_polls) = @_;
-
+  
       if (!defined($session->var_bind_list)) {
 
          printf("%-15s  ERROR: %s\n", $session->hostname, $session->error);
 
       } else {
-
+   
          # Validate the sysUpTime
 
-         my $uptime = $session->var_bind_list()->{$sysUpTime};
+         my $uptime = $session->var_bind_list->{$sysUpTime};
+
          if ($uptime < ${$last_uptime}) {
             printf("%-15s  WARNING: %s is less than %s\n",
                $session->hostname, 
@@ -2728,14 +2728,15 @@ the last poll.
 
       }
 
-      # Queue the next message if we have not reach MAX_POLLS
+      # Queue the next message if we have not reached $MAX_POLLS.  
+      # Since we do not provide a -callback argument, the same 
+      # callback and it's original arguments will be used.
 
-      if (++${$num_polls} <= $MAX_POLLS) {
+      if (++${$num_polls} < $MAX_POLLS) {
          my $delay = (($INTERVAL * ${$num_polls}) + $EPOC) - time();
          $session->get_request(
             -delay       => ($delay >= 0) ? $delay : 0,
-            -varbindlist => [$sysUpTime],
-            -callback    => [\&validate_sysUpTime_cb, $last_uptime, $num_polls]
+            -varbindlist => [$sysUpTime]
          );
       }
 

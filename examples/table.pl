@@ -6,9 +6,9 @@ if 0;
 
 # ============================================================================
 
-# $Id: table.pl,v 4.1 2001/11/09 14:03:52 dtown Exp $
+# $Id: table.pl,v 4.2 2002/05/06 12:30:37 dtown Exp $
 
-# Copyright (c) 2000-2001 David M. Town <dtown@cpan.org>
+# Copyright (c) 2000-2002 David M. Town <dtown@cpan.org>
 # All rights reserved.
 
 # This program is free software; you may redistribute it and/or modify it
@@ -30,7 +30,7 @@ my ($session, $error) = Net::SNMP->session(
 
 # Was the session created?
 if (!defined($session)) {
-   printf("ERROR: %s\n", $error);
+   printf("ERROR: %s.\n", $error);
    exit 1;
 }
 
@@ -47,7 +47,7 @@ if (defined($result = $session->get_table(-baseoid => $ifTable))) {
    }
    print "\n";
 } else {
-   printf("ERROR: %s\n\n", $session->error());
+   printf("ERROR: %s.\n\n", $session->error());
 }
 
 $session->close;
@@ -77,14 +77,14 @@ $session = undef;
 
 # Was the session created?
 if (!defined($session)) {
-   printf("ERROR: %s\n", $error);
+   printf("ERROR: %s.\n", $error);
    exit 1;
 }
 
 if (!defined($session->get_table(-baseoid  => $ifTable,
                                  -callback => \&print_results_cb)))
 {
-   printf("ERROR: %s\n", $session->error());
+   printf("ERROR: %s.\n", $session->error());
 }
 
 # Start the event loop
@@ -99,7 +99,7 @@ sub print_results_cb
    my ($session) = @_;
 
    if (!defined($session->var_bind_list())) {
-      printf("ERROR = %s\n", $session->error());
+      printf("ERROR: %s.\n", $session->error());
    } else {
       foreach (oid_lex_sort(keys(%{$session->var_bind_list()}))) {
          printf("%s => %s\n", $_, $session->var_bind_list()->{$_});

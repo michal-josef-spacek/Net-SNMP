@@ -2,9 +2,9 @@
 
 # ============================================================================
 
-# $Id: example4.pl,v 4.0 2001/10/15 13:16:42 dtown Exp $
+# $Id: example4.pl,v 4.1 2002/05/06 12:30:37 dtown Exp $
 
-# Copyright (c) 2000-2001 David M. Town <david.town@marconi.com>.
+# Copyright (c) 2000-2002 David M. Town <david.town@marconi.com>.
 # All rights reserved.
 
 # This program is free software; you may redistribute it and/or modify it
@@ -18,23 +18,25 @@ use Net::SNMP qw(snmp_dispatcher ticks_to_time);
 
 # List of hosts to poll
 
-my @hosts = qw(1.1.1.1 1.1.1.2 localhost);
+my @HOSTS = qw(1.1.1.1 1.1.1.2 localhost);
 
-# Poll interval (in seconds).  This value should be greater than
-# the number of retries times the timeout value.
+# Poll interval (in seconds).  This value should be greater 
+# than the number of retries plus one, times the timeout value.
 
-my $INTERVAL = 60;
+my $INTERVAL  = 60;
 
-# Maximum number of polls after the initial poll
+# Maximum number of polls, including the initial poll.
 
 my $MAX_POLLS = 10;
 
-my @sessions;
+my $sysUpTime = '1.3.6.1.2.1.1.3.0';
 
-# Create a session for each host
-foreach (@hosts) {
+# Create a session for each host and queue the first get-request.
+
+foreach my $host (@HOSTS) {
+
    my ($session, $error) = Net::SNMP->session(
-      -hostname    => $_,
+      -hostname    => $host,
       -nonblocking => 0x1,   # Create non-blocking objects
       -translate   => [
          -timeticks => 0x0   # Turn off so sysUpTime is numeric
@@ -45,20 +47,19 @@ foreach (@hosts) {
       exit 1;
    }
 
-   # Create an array of arrays which contains the new object, 
-   # the last sysUpTime, and the total number of polls.
+   # Queue the get-request, passing references to variables that
+   # will be used to store the last sysUpTime and the number of
+   # polls that this session has performed.
 
-   push(@sessions, [$session, 0, 0]);
-}
+   my ($last_uptime, $num_polls) = (0, 0);
 
-my $sysUpTime = '1.3.6.1.2.1.1.3.0';
-
-# Queue each of the queries for sysUpTime
-foreach (@sessions) {
-   $_->[0]->get_request(
+   $session->get_request(
        -varbindlist => [$sysUpTime],
-       -callback    => [\&validate_sysUpTime_cb, \$_->[1], \$_->[2]]
+       -callback    => [
+          \&validate_sysUpTime_cb, \$last_uptime, \$num_polls
+       ]
    );
+
 }
 
 # Define a reference point for all of the polls
@@ -73,15 +74,18 @@ sub validate_sysUpTime_cb
 {
    my ($session, $last_uptime, $num_polls) = @_;
 
+
    if (!defined($session->var_bind_list)) {
 
       printf("%-15s  ERROR: %s\n", $session->hostname, $session->error);
 
    } else {
-   
+
+
       # Validate the sysUpTime
 
-      my $uptime = $session->var_bind_list()->{$sysUpTime};
+      my $uptime = $session->var_bind_list->{$sysUpTime};
+
       if ($uptime < ${$last_uptime}) {
          printf("%-15s  WARNING: %s is less than %s\n",
             $session->hostname, 
@@ -99,14 +103,15 @@ sub validate_sysUpTime_cb
 
    }
 
-   # Queue the next message if we have not reach MAX_POLLS
+   # Queue the next message if we have not reached $MAX_POLLS.  
+   # Since we do not provide a -callback argument, the same 
+   # callback and it's original arguments will be used.
 
-   if (++${$num_polls} <= $MAX_POLLS) {
+   if (++${$num_polls} < $MAX_POLLS) {
       my $delay = (($INTERVAL * ${$num_polls}) + $EPOC) - time();
       $session->get_request(
          -delay       => ($delay >= 0) ? $delay : 0,
-         -varbindlist => [$sysUpTime],
-         -callback    => [\&validate_sysUpTime_cb, $last_uptime, $num_polls]
+         -varbindlist => [$sysUpTime]
       );
    }
 

@@ -1,11 +1,11 @@
 # -*- mode: perl -*- 
 # ============================================================================
 
-# $Id: ber.t,v 4.0 2001/10/15 13:40:29 dtown Exp $
+# $Id: ber.t,v 4.1 2002/05/06 12:30:37 dtown Exp $
 
 # Test of the Basic Encoding Rules used by SNMP. 
 
-# Copyright (c) 2001 David M. Town <dtown@cpan.org>.
+# Copyright (c) 2001-2002 David M. Town <dtown@cpan.org>.
 # All rights reserved.
 
 # This program is free software; you may redistribute it and/or modify it
@@ -45,7 +45,7 @@ ok(($@ || $e), '', 'Failed to create Net::SNMP::Message object');
 eval 
 {
    $m->prepare(INTEGER, 4294967295);
-   $e = $m->process;
+   $e = $m->process || $m->error;
 };
 
 ok(($@ || $e), 4294967295, 'Failed to properly handle INTEGER');
@@ -58,7 +58,7 @@ eval
 {
    $m->clear;
    $m->prepare(INTEGER, -128);
-   $e = $m->process;
+   $e = $m->process || $m->error;
 };
 
 ok(($@ || $e), -128, 'Failed to properly handle INTEGER');
@@ -71,7 +71,7 @@ eval
 {
    $m->clear;
    $m->prepare(OCTET_STRING, 'David M. Town');
-   $e = $m->process;
+   $e = $m->process || $m->error;
 };
 
 ok(($@ || $e), 'David M. Town', 'Failed to properly handle OCTET STRING');
@@ -85,7 +85,7 @@ eval
    $m->clear;
    $m->translate(TRANSLATE_OCTET_STRING);
    $m->prepare(OCTET_STRING, pack('H*', 'deadbeef'));
-   $e = $m->process;
+   $e = $m->process || $m->error;
 };
 
 ok(($@ || $e), '0xdeadbeef', 'Failed to properly handle OCTET STRING');
@@ -98,7 +98,7 @@ eval
 {
    $m->clear;
    $m->prepare(OBJECT_IDENTIFIER, '.1.3.6.1.3.4294967295.365.0.1');
-   $e = $m->process;
+   $e = $m->process || $m->error;
 };
 
 ok(
@@ -115,7 +115,7 @@ eval
 {
    $m->clear;
    $m->prepare(COUNTER64, '18446744073709551615');
-   $e = $m->process;
+   $e = $m->process || $m->error;
 };
 
 ok(($@ || $e), '18446744073709551615', 'Failed to properly handle Counter64');

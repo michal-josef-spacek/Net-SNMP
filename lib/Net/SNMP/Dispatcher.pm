@@ -3,7 +3,7 @@
 
 package Net::SNMP::Dispatcher;
 
-# $Id: Dispatcher.pm,v 1.2 2002/01/01 14:03:44 dtown Exp $
+# $Id: Dispatcher.pm,v 1.3 2002/05/06 12:30:37 dtown Exp $
 
 # Object the dispatches SNMP messages and handles the scheduling of events.
 
@@ -22,7 +22,7 @@ use Net::SNMP::Message qw(TRUE FALSE);
 
 ## Version of the Net::SNMP::Dispatcher module
 
-our $VERSION = v1.0.1;
+our $VERSION = v1.0.2;
 
 ## Package variables
 
@@ -47,10 +47,7 @@ BEGIN
    if (eval('require Time::HiRes')) {
       Time::HiRes->import('time');
    }
-}
 
-BEGIN
-{
    # Validate the creation of the Message Processing object. 
 
    if (!defined($MESSAGE_PROCESSING = Net::SNMP::MessageProcessing->instance)) {
@@ -69,8 +66,11 @@ sub activate
 {
    my ($this) = @_;
 
-   # Indicate that the Dispatcher is active  
-   # and block on select() calls.
+   # Return immediately if the Dispatcher is already active.
+   return TRUE if ($this->{_active});
+
+   # Indicate that the Dispatcher is active and block  
+   # on select() calls.  
 
    $this->{_active}   = TRUE;
    $this->{_blocking} = TRUE;
@@ -87,8 +87,11 @@ sub one_event
 {
    my ($this) = @_;
 
-   # Indicate that the Dispatcher is active  
-   # and DO NOT block on select() calls. 
+   # Return immediately if the Dispatcher is already active.
+   return TRUE if ($this->{_active});
+
+   # Indicate that the Dispatcher is active and DO NOT 
+   # block on select() calls.
    
    $this->{_active}   = TRUE; 
    $this->{_blocking} = FALSE;
@@ -110,10 +113,13 @@ sub send_pdu
       return $this->_error('Required PDU missing');
    }
 
-   # If the Dispatcher is active and there is
-   # no delay just send the message.
+   # If the dispatcher is active, there is no delay, and the head
+   # of the queue is in the active state, just send the message.
 
-   if (($this->{_active}) && (!$delay)) {
+   if (($this->{_active}) && (!$delay) &&
+       ((!defined($this->{_event_queue_h})) ||
+         ($this->{_event_queue_h}->[_ACTIVE])))
+   {
       $this->_send_pdu($pdu, $pdu->timeout, $pdu->retries);
    } else {
       $this->_schedule(
@@ -147,8 +153,8 @@ sub _new
       '_error'         => undef,  # Error message
       '_event_queue_h' => undef,  # Head of the event queue
       '_event_queue_t' => undef,  # Tail of the event queue
-      '_rin'           => '',     # Socket vector
-      '_sockets'       => {},     # List of sockets to monitor
+      '_rin'           => undef,  # Readable vector for select()
+      '_descriptors'   => {},     # List of file descriptors to monitor
    }, $class;
 }
 
@@ -170,33 +176,36 @@ sub _listen
 {
    my ($this, $transport, $callback) = @_;
 
-   if (!defined($transport) || !fileno($transport->socket)) {
+   # Transport Layer and file descriptor must be valid.
+   my $fileno;
+
+   if (!defined($transport) || !($fileno = $transport->fileno)) {
       return $this->_error('Invalid Transport Layer');
    }
 
-   # NOTE: The callback must read the data associated with
-   #       socket or the Dispatcher will continuously call
-   #       the callback and get stuck in an infinite loop.
+   # NOTE: The callback must read the data associated with the
+   #       file descriptor or the Dispatcher will continuously 
+   #       call the callback and get stuck in an infinite loop.
 
-   if (!exists($this->{_sockets}->{fileno($transport->socket)})) {
+   if (!exists($this->{_descriptors}->{$fileno})) {
 
-      DEBUG_INFO('adding socket [%d]', fileno($transport->socket));
+      DEBUG_INFO('adding descriptor [%d]', $fileno);
      
       $this->{_rin} = '' unless defined($this->{_rin});
  
-      # Add the socket to the list of sockets
-      $this->{_sockets}->{fileno($transport->socket)} = [
+      # Add the file descriptor to the list
+      $this->{_descriptors}->{$fileno} = [
          $this->_callback_create($callback), # Callback
          $transport,                         # Transport Layer 
          1                                   # Reference count
       ];
  
-      # Add the socket to the "readable" vector
-      vec($this->{_rin}, fileno($transport->socket), 1) = 1;
+      # Add the file descriptor to the "readable" vector
+      vec($this->{_rin}, $fileno, 1) = 1;
    
    } else {
       # Bump up the reference count
-      $this->{_sockets}->{fileno($transport->socket)}->[2]++;
+      $this->{_descriptors}->{$fileno}->[2]++;
    }
 
    # Return the Transport Layer reference
@@ -206,28 +215,31 @@ sub _listen
 sub _unlisten
 {
    my ($this, $transport) = @_;
+  
+   # Transport Layer and file descriptor must be valid. 
+   my $fileno; 
 
-   if (!defined($transport) || !fileno($transport->socket)) {
+   if (!defined($transport) || !($fileno = $transport->fileno)) {
       return $this->_error('Invalid Transport Layer');
    }
 
-   if (exists($this->{_sockets}->{fileno($transport->socket)})) {
+   if (exists($this->{_descriptors}->{$fileno})) {
 
       # Check reference count
-      if (--$this->{_sockets}->{fileno($transport->socket)}->[2] < 1) {
+      if (--$this->{_descriptors}->{$fileno}->[2] < 1) {
 
-         DEBUG_INFO('removing socket [%d]', fileno($transport->socket));
+         DEBUG_INFO('removing descriptor [%d]', $fileno);
 
-         # Remove the socket from the list of sockets
-         delete($this->{_sockets}->{fileno($transport->socket)});
+         # Remove the file descriptor from the list
+         delete($this->{_descriptors}->{$fileno});
 
-         # Remove the socket from the "readable" vector
-         vec($this->{_rin}, fileno($transport->socket), 1) = 0;
+         # Remove the file descriptor from the "readable" vector
+         vec($this->{_rin}, $fileno, 1) = 0;
 
-         # Undefine the vector if there are no sockets.  Some
-         # systems expect this to make select() work properly.
+         # Undefine the vector if there are no file descriptors, 
+         # some systems expect this to make select() work properly.
 
-         $this->{_rin} = undef unless keys(%{$this->{_sockets}});
+         $this->{_rin} = undef unless keys(%{$this->{_descriptors}});
       }
 
    } else {
@@ -284,6 +296,9 @@ sub _transport_timeout
 {
    my ($this, $pdu, $timeout, $retries) = @_;
 
+   # Stop listening for responses
+   $this->_unlisten($pdu->transport);
+
    if ($retries-- > 0) {
 
       # Resend a new message
@@ -291,9 +306,6 @@ sub _transport_timeout
       $this->_send_pdu($pdu, $timeout, $retries);
 
    } else {
-
-      # Stop listening for responses
-      $this->_unlisten($pdu->transport);
 
       # Delete the msgHandle 
       $MESSAGE_PROCESSING->msg_handle_delete($pdu->msg_id);
@@ -402,8 +414,9 @@ sub _event_insert
                $this->{_event_queue_t} = $event;
             } else {
                DEBUG_INFO('inserted [%s] into list', $event);
+               $e->[_NEXT]->[_PREVIOUS] = $event;
             }
-            return $e->[_NEXT] = $e->[_NEXT]->[_PREVIOUS] = $event;
+            return $e->[_NEXT] = $event;
          }
       }
 
@@ -424,8 +437,9 @@ sub _event_insert
                $this->{_event_queue_h} = $event;
             } else {
                DEBUG_INFO('inserted [%s] into list', $event);
+               $e->[_PREVIOUS]->[_NEXT] = $event; 
             }
-            return $e->[_PREVIOUS] = $e->[_PREVIOUS]->[_NEXT] = $event;
+            return $e->[_PREVIOUS] = $event;
          }
       }
 
@@ -507,21 +521,27 @@ sub _event_handle
 
    my $timeout = ($event->[_ACTIVE]) ? ($event->[_TIME] - time()) : 0;
 
-   # If the timeout is less than 0, we are running late.
+   # If the timeout is less than 0, we are running late.  In an 
+   # attempt to recover from this we do not check the status of  
+   # the file descriptors. 
+
    if ($timeout >= 0) {
       DEBUG_INFO('poll delay = %f' , $timeout);
       if (select(my $rout = $this->{_rin}, undef, undef,
                  ($this->{_blocking} ? $timeout : 0)))
       {
-         # Find out which socket has data ready
-         foreach (keys(%{$this->{_sockets}})) {
-            if (defined($rout) && vec($rout, $_, 1)) {
-               DEBUG_INFO('socket handle [%d] ready', $_);
-               $this->_callback_execute(@{$this->{_sockets}->{$_}});
-               return $event;
+         # Find out which file descriptors have data ready
+         if (defined($rout)) {
+            foreach (keys(%{$this->{_descriptors}})) {
+               if (vec($rout, $_, 1)) {
+                  DEBUG_INFO('descriptor [%d] ready', $_);
+                  $this->_callback_execute(@{$this->{_descriptors}->{$_}});
+               }
             }
+            return $event;
          }
-      } elsif ((!$this->{_blocking}) && ($timeout > 0)) {
+      }
+      if ((!$this->{_blocking}) && ($timeout > 0)) {
          return $event;
       }
    } else {

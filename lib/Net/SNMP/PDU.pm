@@ -3,7 +3,7 @@
 
 package Net::SNMP::PDU;
 
-# $Id: PDU.pm,v 1.3 2002/01/01 14:03:44 dtown Exp $
+# $Id: PDU.pm,v 1.4 2002/05/06 12:30:37 dtown Exp $
 
 # Object used to represent a SNMP PDU. 
 
@@ -21,7 +21,7 @@ use Net::SNMP::Message qw(:ALL);
 
 ## Version of the Net::SNMP::PDU module
 
-our $VERSION = v1.0.1;
+our $VERSION = v1.0.2;
 
 ## Handle importing/exporting of symbols
 
@@ -38,14 +38,10 @@ sub import
 
 our $DEBUG = FALSE;  # Debug flag
 
-our $REQUEST_ID;     # Global request-id/msgID
+## Initialize the global request-id/msgID.  
 
-INIT 
-{
-   # Initialize the global request-id/msgID.
- 
-   $REQUEST_ID = int(rand((2**16) - 1) + (time() & 0xff));
-}
+our $REQUEST_ID = int(rand((2**16) - 1) + (time() & 0xff));
+
 
 # [public methods] -----------------------------------------------------------
 
@@ -111,7 +107,7 @@ sub prepare_get_request
 
    $_[0]->_error_clear;
 
-   $_[0]->_prepare_pdu(GET_REQUEST, $_[0]->_create_oid_null_pairs($_[1] || []));
+   $_[0]->_prepare_pdu(GET_REQUEST, $_[0]->_create_oid_null_pairs($_[1]));
 }
 
 sub prepare_get_next_request
@@ -120,9 +116,7 @@ sub prepare_get_next_request
 
    $_[0]->_error_clear;
 
-   $_[0]->_prepare_pdu(
-      GET_NEXT_REQUEST, $_[0]->_create_oid_null_pairs($_[1] || [])
-   );
+   $_[0]->_prepare_pdu(GET_NEXT_REQUEST, $_[0]->_create_oid_null_pairs($_[1]));
 }
 
 sub prepare_set_request
@@ -131,9 +125,7 @@ sub prepare_set_request
 
    $_[0]->_error_clear;
 
-   $_[0]->_prepare_pdu(
-      SET_REQUEST, $_[0]->_create_oid_value_pairs($_[1] || [])
-   );
+   $_[0]->_prepare_pdu(SET_REQUEST, $_[0]->_create_oid_value_pairs($_[1]));
 }
 
 sub prepare_trap
@@ -155,7 +147,7 @@ sub prepare_trap
 
    } elsif ($_[1] !~ /^\.?\d+\.\d+(?:\.\d+)*/) {
       return $_[0]->_error(
-         'Expected enterprise as OBJECT IDENTIFIER in dotted notation'
+         'Expected enterprise as an OBJECT IDENTIFIER in dotted notation'
       );
    } else {
       $_[0]->{_enterprise} = $_[1];
@@ -177,7 +169,7 @@ sub prepare_trap
          return $_[0]->_error('Unable to resolve local agent-addr');
       }
  
-  } elsif ($_[2] !~ /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/) {
+   } elsif ($_[2] !~ /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/) {
       return $_[0]->_error('Expected agent-addr in dotted notation');
    } else {
       $_[0]->{_agent_addr} = $_[2];
@@ -219,7 +211,7 @@ sub prepare_trap
       $_[0]->{_time_stamp} = $_[5];
    }
 
-   $_[0]->_prepare_pdu(TRAP, $_[0]->_create_oid_value_pairs($_[6] || []));
+   $_[0]->_prepare_pdu(TRAP, $_[0]->_create_oid_value_pairs($_[6]));
 }
 
 sub prepare_get_bulk_request
@@ -258,28 +250,24 @@ sub prepare_get_bulk_request
 
    # Some sanity checks
 
-   $_[3] ||= [];
+   if (defined($_[3]) && (ref($_[3]) eq 'ARRAY')) {
 
-   if (ref($_[3]) ne 'ARRAY') {
-      return $_[0]->_error('Expected array reference for variable-bindings');
+      if ($_[0]->{_error_status} > @{$_[3]}) {
+         return $_[0]->_error(
+            'Non-repeaters greater than the number of variable-bindings'
+         );
+      }
+
+      if (($_[0]->{_error_status} == @{$_[3]}) && ($_[0]->{_error_index} != 0))
+      {
+         return $_[0]->_error( 
+            'Non-repeaters equals the number of variable-bindings and ' .
+            'max-repetitions is not equal to zero'
+         );
+      }
    }
 
-   if ($_[0]->{_error_status} > @{$_[3]}) {
-      return $_[0]->_error(
-         'Non-repeaters greater than the number of variable-bindings'
-      );
-   }
-
-   if (($_[0]->{_error_status} == @{$_[3]}) && ($_[0]->{_error_index} != 0)) {
-      return $_[0]->_error( 
-         'Non-repeaters equals the number of variable-bindings and ' .
-         'max-repetitions is not equal to zero'
-      );
-   }
-
-   $_[0]->_prepare_pdu(
-      GET_BULK_REQUEST, $_[0]->_create_oid_null_pairs($_[3])
-   );
+   $_[0]->_prepare_pdu(GET_BULK_REQUEST, $_[0]->_create_oid_null_pairs($_[3]));
 }
 
 sub prepare_inform_request
@@ -288,9 +276,7 @@ sub prepare_inform_request
 
    $_[0]->_error_clear;
 
-   $_[0]->_prepare_pdu(
-      INFORM_REQUEST, $_[0]->_create_oid_value_pairs($_[1] || [])
-   );
+   $_[0]->_prepare_pdu(INFORM_REQUEST, $_[0]->_create_oid_value_pairs($_[1]));
 }
 
 sub prepare_snmpv2_trap
@@ -299,9 +285,16 @@ sub prepare_snmpv2_trap
 
    $_[0]->_error_clear;
 
-   $_[0]->_prepare_pdu(
-      SNMPV2_TRAP, $_[0]->_create_oid_value_pairs($_[1] || [])
-   );
+   $_[0]->_prepare_pdu(SNMPV2_TRAP, $_[0]->_create_oid_value_pairs($_[1]));
+}
+
+sub prepare_report
+{
+#  my ($this, $trios) = @_;
+
+   $_[0]->_error_clear;
+
+   $_[0]->_prepare_pdu(REPORT, $_[0]->_create_oid_value_pairs($_[1]));
 }
 
 sub process_pdu
@@ -524,6 +517,8 @@ sub _create_oid_null_pairs
 {
 #  my ($this, $oids) = @_;
 
+   return [] unless defined($_[1]);
+
    if (ref($_[1]) ne 'ARRAY') {
       return $_[0]->_error('Expected array reference for variable-bindings');
    }
@@ -544,6 +539,8 @@ sub _create_oid_value_pairs
 {
 #  my ($this, $trios) = @_;
 
+   return [] unless defined($_[1]);
+
    if (ref($_[1]) ne 'ARRAY') {
       return $_[0]->_error('Expected array reference for variable-bindings');
    }
@@ -556,11 +553,13 @@ sub _create_oid_value_pairs
 
    my $pairs = [];
 
-   while (defined($_ = shift(@{$_[1]}))) {
-      if (!/^\.?\d+\.\d+(?:\.\d+)*/) {
+   for (my $i = 0; $i < $#{$_[1]}; $i += 3) {
+      if ($_[1]->[$i] !~ /^\.?\d+\.\d+(?:\.\d+)*/) {
          return $_[0]->_error('Expected OBJECT IDENTIFIER in dotted notation');
       }
-      push(@{$pairs}, OBJECT_IDENTIFIER, $_, shift(@{$_[1]}), shift(@{$_[1]}));
+      push(@{$pairs},
+         OBJECT_IDENTIFIER, $_[1]->[$i], $_[1]->[$i+1], $_[1]->[$i+2]
+      );
    }
 
    $pairs;

@@ -3,7 +3,7 @@
 
 package Net::SNMP::Security::USM;
 
-# $Id: USM.pm,v 1.3 2002/01/01 14:03:44 dtown Exp $
+# $Id: USM.pm,v 1.4 2002/05/06 12:30:37 dtown Exp $
 
 # Object that implements the SNMPv3 User-based Security Model.
 
@@ -28,12 +28,12 @@ use Sys::Hostname qw(hostname);
 
 use Crypt::DES();
 use Digest::MD5();
-use Digest::HMAC();
 use Digest::SHA1();
+use Digest::HMAC();
 
 ## Version of the Net::SNMP::Security::USM module
 
-our $VERSION = v1.0.1;
+our $VERSION = v1.0.2;
 
 ## Package variables
 
@@ -133,6 +133,8 @@ sub new
 
       if (/^-?version$/i) {
          $this->_version($argv{$_});
+      } elsif (/^-?debug$/i) {
+         $this->debug($argv{$_});
       } elsif ((/^-?engineid$/i) && ($this->{_authoritative})) {
          $this->_engine_id($argv{$_});
       } elsif (/^-?username$/i) {
@@ -374,7 +376,8 @@ sub process_incoming_msg
 
    # Validate the msgAuthoritativeEngineID and msgUserName
   
-   if ($this->discovered) {
+   if ($this->{_discovered}) {
+
       if ($auth_engine_id ne $this->_engine_id) {
          return $this->_error(
             'Unknown securityEngineID [%s]', unpack('H*', $auth_engine_id)
@@ -384,26 +387,50 @@ sub process_incoming_msg
       if ($user_name ne $this->_user_name) {
          return $this->_error('Unknown securityName [%s]', $user_name);
       }
-   }
 
-   # Get the securityLevel from the msgFlags
-   my $level = SECURITY_LEVEL_NOAUTHNOPRIV;
+   } else {
 
-   if ($msg->msg_flags & MSG_FLAGS_AUTH) {
-      $level = SECURITY_LEVEL_AUTHNOPRIV;
-      if ($msg->msg_flags & MSG_FLAGS_PRIV) {
-         $level = SECURITY_LEVEL_AUTHPRIV;
+      # Handle authoritativeEngineID discovery
+      if (!defined($this->_engine_id_discovery($auth_engine_id))) {
+         return $this->_error;
       }
-   } elsif ($msg->msg_flags & (~MSG_FLAGS_MASK | MSG_FLAGS_PRIV)) {
-      return $this->_error('Invalid msgFlags [0x%02x]', $msg->msg_flags);
+
    }
 
-   if ($level > $this->security_level) {
-      return $this->_error('Unsupported securityLevel [%d]', $level);
+   # Get the securityLevel of the incoming message from the msgFlags
+
+   my $security_level = SECURITY_LEVEL_NOAUTHNOPRIV;
+   my $msg_flags = $msg->msg_flags;
+
+   if ($msg_flags & MSG_FLAGS_AUTH) {
+
+      $security_level = SECURITY_LEVEL_AUTHNOPRIV;
+
+      if ($msg_flags & MSG_FLAGS_PRIV) {
+         $security_level = SECURITY_LEVEL_AUTHPRIV;
+      }
+
+   } elsif ($msg_flags & MSG_FLAGS_PRIV) {
+
+      # RFC 2572 - Section 7.2 1d: "If the authFlag is not set  
+      # and privFlag is set... ...the message is discarded..."
+
+      return $this->_error('Invalid msgFlags [0x%02x]', $msg_flags);
+   } 
+
+   # RFC 2572 - Section 7.2 1e: "Any other bits... ...are ignored."
+   if ($msg_flags & ~MSG_FLAGS_MASK) {
+      DEBUG_INFO('questionable msgFlags [0x%02x]', $msg_flags);
    }
-  
-   
-   if ($level > SECURITY_LEVEL_NOAUTHNOPRIV) {
+
+   # Validate the incoming securityLevel
+
+   if ($security_level > $this->security_level) {
+      return $this->_error('Unsupported securityLevel [%d]', $security_level);
+   }
+
+ 
+   if ($security_level > SECURITY_LEVEL_NOAUTHNOPRIV) {
 
       # Authenticate the message
       if (!defined($this->_authenticate_incoming_msg($msg, $auth_params))) { 
@@ -418,7 +445,7 @@ sub process_incoming_msg
          return $this->_error;
       }
 
-      if ($level > SECURITY_LEVEL_AUTHNOPRIV) {
+      if ($security_level > SECURITY_LEVEL_AUTHNOPRIV) {
 
          # encryptedPDU::=OCTET STRING
 
@@ -434,9 +461,6 @@ sub process_incoming_msg
       }
 
    }
-
-   # Handle authoritativeEngineID discovery
-   $this->_engine_id_discovery($auth_engine_id) unless ($this->{_discovered}); 
 
    TRUE;
 }
@@ -492,7 +516,7 @@ sub _engine_id
 {
    if (@_ == 2) {
       if ($_[1] =~ /^(?i:0x)?([a-fA-F0-9]{10,64})$/) {
-         $_[0]->{_engine_id} = pack('H*', $1);
+         $_[0]->{_engine_id} = pack('H*', length($1) % 2 ? '0'.$1 : $1);
       } else {
          $_[0]->_error('Invalid authoritativeEngineID format specified');
       }
@@ -519,7 +543,7 @@ sub _auth_key
 {
    if (@_ == 2) {
       if ($_[1] =~ /^(?i:0x)?([a-fA-F0-9]{32,40})$/) {
-         $_[0]->{_auth_key} = pack('H*', $1); 
+         $_[0]->{_auth_key} = pack('H*', length($1) % 2 ? '0'.$1 : $1); 
       } else {
          return $_[0]->_error('Invalid authKey specified');
       }
@@ -571,7 +595,7 @@ sub _priv_key
 {
    if (@_ == 2) {
       if ($_[1] =~ /^(?i:0x)?([a-fA-F0-9]{32,40})$/) {
-         $_[0]->{_priv_key} = pack('H*', $1);
+         $_[0]->{_priv_key} = pack('H*', length($1) % 2 ? '0'.$1 : $1); 
       } else {
          return $_[0]->_error('Invalid privKey specified');
       }
@@ -670,16 +694,14 @@ sub _security_params
          return $this->_error('Invalid privKey specified');
       }
       $this->{_priv_password} = undef;
-      if ($this->{_synchronized}) {
+      if ($this->{_discovered}) {
          $this->{_security_level} = SECURITY_LEVEL_AUTHPRIV;
       }
 
    } elsif ((defined($this->{_priv_password})) && ($this->{_discovered})) {
 
       $this->{_priv_key} = $this->_key_generate($this->{_priv_password});
-      if ($this->{_synchronized}) {
-         $this->{_security_level} = SECURITY_LEVEL_AUTHPRIV;
-      }
+      $this->{_security_level} = SECURITY_LEVEL_AUTHPRIV;
 
    }   
 
@@ -695,15 +717,13 @@ sub _engine_id_discovery
    return TRUE if ($this->{_authoritative});
 
    if ((length($engine_id) >= 5) && (length($engine_id) <= 32)) {
-         $this->{_engine_id} = $engine_id;
-         DEBUG_INFO('engineID = 0x%s', unpack('H*', $engine_id));
-         if (!$this->{_authoritative}) {
-            $this->{_discovered} = TRUE;
-            if (!defined($this->_security_params)) {
-               $this->{_discovered} = FALSE;
-               return $this->_error;
-            }
-         }
+      DEBUG_INFO('engineID = 0x%s', unpack('H*', $engine_id));
+      $this->{_engine_id}  = $engine_id;
+      $this->{_discovered} = TRUE;
+      if (!defined($this->_security_params)) {
+         $this->{_discovered} = FALSE;
+         return $this->_error;
+      }
    } else {
       return $this->_error(
          'Invalid msgAuthoritativeEngineID length [%d]', length($engine_id)
@@ -903,8 +923,14 @@ sub _priv_encrypt_des
       return $_[0]->_error('Required privKey not defined');
    }
 
-   # Pad the plain text if necssary
-   $_[2] .= "\000" x (8 - (length($_[2]) % 8)) if (length($_[2]) % 8);
+   # Pad the plain text if necessary.  "The actual pad value is 
+   # irrelevant..." according RFC 2574 Section 8.1.1.2.  However,
+   # there are some agents out there that expect each of the
+   # padding byte(s) be set to the size of the padding.
+
+   if ((my $pad = (8 - (length($_[2]) % 8))) < 8) {
+      $_[2] .= pack('C', $pad) x $pad;
+   }
 
    my $des = Crypt::DES->new(substr($_[0]->{_priv_key}, 0, 8));
 
