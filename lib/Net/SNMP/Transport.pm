@@ -3,11 +3,11 @@
 
 package Net::SNMP::Transport;
 
-# $Id: Transport.pm,v 1.1 2004/09/09 16:53:00 dtown Exp $
+# $Id: Transport.pm,v 1.2 2005/07/20 13:53:07 dtown Exp $
 
 # Base object for the Net::SNMP Transport Domain objects.
 
-# Copyright (c) 2004 David M. Town <dtown@cpan.org>
+# Copyright (c) 2004-2005 David M. Town <dtown@cpan.org>
 # All rights reserved.
 
 # This program is free software; you may redistribute it and/or modify it
@@ -19,7 +19,7 @@ use strict;
 
 ## Version of the Net::SNMP::Transport module
 
-our $VERSION = v1.0.1;
+our $VERSION = v1.0.2;
 
 ## Handle importing/exporting of symbols
 
@@ -183,7 +183,7 @@ sub new
    }
 
    # Return the appropriate object based on the Transport Domain.  To
-   # avoid consuming unnessary resources, load the non-default modules 
+   # avoid consuming unnecessary resources, load the non-default modules 
    # only when requested.  Some modules require non-core modules and if
    # these modules are not present, we gracefully return an error.
 
@@ -543,6 +543,11 @@ sub _new
          return wantarray ? (undef, $this->[_ERROR]) : undef;
       }
 
+      # Flag the socket as non-blocking outside of socket creation or 
+      # the object instantiation fails on some systems (e.g. MSWin32). 
+
+      $this->[_SOCKET]->blocking(FALSE);
+
       DEBUG_INFO(
          'opened %s socket [%d]', $this->name, $this->[_SOCKET]->fileno
       );
@@ -636,6 +641,7 @@ sub _error
 
 sub _error_clear
 {
+   $! = 0;
    $_[0]->[_ERROR] = undef;
 }
 

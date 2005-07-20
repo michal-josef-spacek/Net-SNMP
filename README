@@ -1,5 +1,5 @@
 
-                       Net::SNMP, version 5.0.1 
+                       Net::SNMP, version 5.1.0 
 
 NAME
 
@@ -61,14 +61,14 @@ DOCUMENTATION
 AUTHOR
 
     David M. Town <dtown@cpan.org>
-
+    
 COPYRIGHT
 
-    Copyright (c) 1998-2004 David M. Town. All rights reserved. This
+    Copyright (c) 1998-2005 David M. Town. All rights reserved. This
     program is free software; you may redistribute it and/or modify
     it under the same terms as Perl itself.
 
 RCS
 
-    $Id: README,v 5.1 2004/09/09 16:53:00 dtown Exp $
+    $Id: README,v 5.2 2005/07/20 13:53:07 dtown Exp $
 

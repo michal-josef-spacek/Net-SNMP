@@ -3,11 +3,11 @@
 
 package Net::SNMP::Security::Community;
 
-# $Id: Community.pm,v 1.4 2004/07/20 13:38:01 dtown Exp $
+# $Id: Community.pm,v 1.5 2005/07/20 13:53:07 dtown Exp $
 
 # Object that implements the SNMPv1/v2c Community-based Security Model.
 
-# Copyright (c) 2001-2004 David M. Town <dtown@cpan.org>
+# Copyright (c) 2001-2005 David M. Town <dtown@cpan.org>
 # All rights reserved.
 
 # This program is free software; you may redistribute it and/or modify it
@@ -25,7 +25,7 @@ use Net::SNMP::Message qw(
 
 ## Version of the Net::SNMP::Security::Community module
 
-our $VERSION = v1.1.0;
+our $VERSION = v1.1.1;
 
 ## Handle importing/exporting of symbols
 
@@ -107,7 +107,7 @@ sub generate_request_msg
    }
 
    # message::=SEQUENCE
-   if (!defined($msg->prepare(SEQUENCE, $msg->clear))) {
+   if (!defined($msg->prepare(SEQUENCE))) {
       return $this->_error($msg->error);
    }
 

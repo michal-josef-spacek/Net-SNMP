@@ -1,11 +1,11 @@
 # -*- mode: perl -*- 
 # ============================================================================
 
-# $Id: usm.t,v 4.2 2003/05/06 11:00:46 dtown Exp $
+# $Id: usm.t,v 4.3 2005/07/20 13:53:07 dtown Exp $
 
 # Test of the SNMPv3 User-based Security Model. 
 
-# Copyright (c) 2001-2003 David M. Town <dtown@cpan.org>.
+# Copyright (c) 2001-2005 David M. Town <dtown@cpan.org>.
 # All rights reserved.
 
 # This program is free software; you may redistribute it and/or modify it
@@ -20,21 +20,21 @@ BEGIN
 {
    $|  = 1;
    $^W = 1;
-   plan tests => 15
+   plan tests => 14
 }
 
-use Net::SNMP::Message qw(SEQUENCE OCTET_STRING);
+use Net::SNMP::Message qw(SEQUENCE OCTET_STRING FALSE);
 
 #
-# 1. Load the Net::SNMP::Security::USM module
+# Load the Net::SNMP::Security::USM module
 #
 
 eval 'use Net::SNMP::Security::USM';
 
-ok($@, '', 'Failed to load Net::SNMP::Security::USM module');
+my $skip = ($@ =~ /locate (\S+\.pm)/) ? $@ : FALSE;
 
 #
-# 2. Create the Net::SNMP::Security::USM object
+# 1. Create the Net::SNMP::Security::USM object
 #
 
 my ($u, $e); 
@@ -55,10 +55,10 @@ eval
    $u->_synchronize(10, time()) if defined($u); 
 };
 
-ok(($@ || $e), '', 'Failed to create Net::SNMP::Security::USM object');
+skip($skip, ($@ || $e), '', 'Failed to create Net::SNMP::Security::USM object');
 
 #
-# 3. Check the localized authKey
+# 2. Check the localized authKey
 #
 
 eval 
@@ -66,14 +66,15 @@ eval
    $e = unpack('H*', $u->auth_key); 
 };
 
-ok(
+skip(
+   $skip,
    ($@ || $e), 
-   '526f5eed9fcce26f8964c2930787d82b', # RFC 2574 - A.3.1 
+   '526f5eed9fcce26f8964c2930787d82b', # RFC 3414 - A.3.1 
    'Invalid authKey calculated'
 );
 
 #
-# 4. Check the localized privKey
+# 3. Check the localized privKey
 #
 
 eval 
@@ -81,14 +82,15 @@ eval
    $e = unpack('H*', $u->priv_key); 
 };
 
-ok(
+skip(
+   $skip,
    ($@ || $e), 
    '526f5eed9fcce26f8964c2930787d82b', 
    'Invalid privKey calculated'
 );
 
 #
-# 5. Create and initalize a Message
+# 4. Create and initalize a Message
 #
 
 my $m;
@@ -100,10 +102,10 @@ eval
    $e = $m->error if defined($m);
 };
 
-ok(($@ || $e), '', 'Failed to create Net::SNMP::Message object');
+skip($skip, ($@ || $e), '', 'Failed to create Net::SNMP::Message object');
 
 #
-# 6. Calculate the HMAC
+# 5. Calculate the HMAC
 #
 
 my $h;
@@ -113,10 +115,10 @@ eval
    $h = unpack('H*', $u->_auth_hmac($m)); 
 };
 
-ok($@, '', 'Calculate the HMAC failed');
+skip($skip, $@, '', 'Calculate the HMAC failed');
 
 #
-# 7. Encrypt/descrypt the Message
+# 6. Encrypt/descrypt the Message
 #
 
 eval 
@@ -131,10 +133,10 @@ eval
    substr(${$m->reference}, $len, -$len, '') if ($len -= $m->length); 
 };
 
-ok(($@ || $e), '', 'Privacy failed');
+skip($skip, ($@ || $e), '', 'Privacy failed');
 
 #
-# 8. Check the HMAC
+# 7. Check the HMAC
 #
 
 my $h2;
@@ -144,10 +146,10 @@ eval
    $h2 = unpack('H*', $u->_auth_hmac($m)); 
 };
 
-ok(($@ || $h2), $h, 'Authentication failed');
+skip($skip, ($@ || $h2), $h, 'Authentication failed');
 
 #
-# 9. Create the Net::SNMP::Security::USM object
+# 8. Create the Net::SNMP::Security::USM object
 #
 
 eval 
@@ -167,10 +169,10 @@ eval
    $u->_synchronize(10, time()) if defined($u);
 };
 
-ok(($@ || $e), '', 'Failed to create Net::SNMP::Security::USM object');
+skip($skip, ($@ || $e), '', 'Failed to create Net::SNMP::Security::USM object');
 
 #
-# 10. Check the localized authKey
+# 9. Check the localized authKey
 #
 
 eval 
@@ -178,14 +180,15 @@ eval
    $e = unpack('H*', $u->auth_key); 
 };
 
-ok(
+skip(
+   $skip,
    ($@ || $e), 
-   '6695febc9288e36282235fc7151f128497b38f3f', # RFC 2574 - A.3.2 
+   '6695febc9288e36282235fc7151f128497b38f3f', # RFC 3414 - A.3.2 
    'Invalid authKey calculated'
 );
 
 #
-# 11. Check the localized privKey
+# 10. Check the localized privKey
 #
 
 eval 
@@ -193,14 +196,15 @@ eval
    $e = unpack('H*', $u->priv_key); 
 };
 
-ok(
+skip(
+   $skip,
    ($@ || $e), 
    '6695febc9288e36282235fc7151f1284', 
    'Invalid privKey calculated'
 );
 
 #
-# 12. Create and initalize a Message
+# 11. Create and initalize a Message
 #
 
 eval 
@@ -210,10 +214,10 @@ eval
    $e = $m->error if defined($m);
 };
 
-ok(($@ || $e), '', 'Failed to create Net::SNMP::Message object');
+skip($skip, ($@ || $e), '', 'Failed to create Net::SNMP::Message object');
 
 #
-# 13. Calculate the HMAC
+# 12. Calculate the HMAC
 #
 
 eval 
@@ -221,10 +225,10 @@ eval
    $h = unpack('H*', $u->_auth_hmac($m)); 
 };
 
-ok($@, '', 'Calculate the HMAC failed');
+skip($skip, $@, '', 'Calculate the HMAC failed');
 
 #
-# 14. Encrypt/descrypt the Message
+# 13. Encrypt/descrypt the Message
 #
 
 eval 
@@ -239,10 +243,10 @@ eval
    substr(${$m->reference}, $len, -$len, '') if ($len -= $m->length);
 };
 
-ok(($@ || $e), '', 'Privacy failed');
+skip($skip, ($@ || $e), '', 'Privacy failed');
 
 #
-# 15. Check the HMAC
+# 14. Check the HMAC
 #
 
 eval 
@@ -250,6 +254,6 @@ eval
    $h2 = unpack('H*', $u->_auth_hmac($m)); 
 };
 
-ok(($@ || $h2), $h, 'Authentication failed');
+skip($skip, ($@ || $h2), $h, 'Authentication failed');
 
 # ============================================================================

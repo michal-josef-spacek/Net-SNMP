@@ -1,5 +1,22 @@
                            Net::SNMP Changes
 
+RELEASE 5.1.0 JUL-20-2005
+
+- Support of the AES privacy protocol was updated to be compliant with
+  RFC 3826 - "The Advanced Encryption Standard (AES) Cipher Algorithm
+  in the SNMP User-based Security Model".
+- Corrected an issue where any non-blocking SNMPv3 message queued prior
+  to calling snmp_dispatcher() was sent with an empty contextEngineID. 
+- The first SNMPv3 discovery message is again being sent with a zero-
+  length msgUserName as suggested by RFC 3414.
+- All sockets are now flagged as non-blocking to prevent a possible
+  deadlock due to an interaction between recv() and select().
+- The sending of messages is now bounded by the receive processing rate
+  to avoid receive buffer overflows.
+- The return value of select() is now checked for both "undef" and -1.
+- The "usm.t" tests are now skipped if any of the non-core modules
+  required by the Net::SNMP::Security::USM module are not present.
+
 RELEASE 5.0.1 SEP-09-2004
 
 - The module is now again functional with Perl 5.6.x.  Compensations
@@ -258,4 +275,4 @@ RELEASE 1.00 SEP-09-1998
 
 RCS
 
-    $Id: Changes,v 5.1 2004/09/09 16:53:00 dtown Exp $
+    $Id: Changes,v 5.2 2005/07/20 13:53:07 dtown Exp $

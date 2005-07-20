@@ -3,11 +3,11 @@
 
 package Net::SNMP::MessageProcessing;
 
-# $Id: MessageProcessing.pm,v 2.0 2004/07/20 13:31:04 dtown Exp $
+# $Id: MessageProcessing.pm,v 2.1 2005/07/20 13:53:07 dtown Exp $
 
 # Object that implements the Message Processing module.
 
-# Copyright (c) 2001-2004 David M. Town <dtown@cpan.org>
+# Copyright (c) 2001-2005 David M. Town <dtown@cpan.org>
 # All rights reserved.
 
 # This program is free software; you may redistribute it and/or modify it
@@ -23,7 +23,7 @@ use Net::SNMP::PDU qw(
 
 ## Version of the Net::SNMP::MessageProcessing module
 
-our $VERSION = v2.0.0;
+our $VERSION = v2.0.1;
 
 ## Package variables
 
@@ -37,7 +37,7 @@ our $MSG_HANDLES = {};  # Cached request messages
 
 sub instance
 {
-   $INSTANCE || ($INSTANCE = Net::SNMP::MessageProcessing->_new);
+   $INSTANCE ||= Net::SNMP::MessageProcessing->_new;
 }
 
 sub prepare_outgoing_msg
@@ -71,8 +71,11 @@ sub prepare_outgoing_msg
    if ($pdu->version == SNMP_VERSION_3) {
       
       # ScopedPDU::=SEQUENCE
+
+      if (!defined($pdu->prepare_pdu_scope)) {
+         return $this->_error($pdu->error);
+      }
       
-      # The ScopedPDU has already been prepared in the PDU object.
       # We need to copy the contextEngineID and contextName to the 
       # request message so that they are available for comparision 
       # with the response message.
@@ -360,7 +363,7 @@ sub _prepare_global_data
    }
 
    # msgGlobalData::=SEQUENCE
-   if (!defined($msg->prepare(SEQUENCE, $msg->clear))) {
+   if (!defined($msg->prepare(SEQUENCE))) {
       return $this->_error($msg->error);
    }
 

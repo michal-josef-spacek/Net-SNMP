@@ -3,11 +3,11 @@
 
 package Net::SNMP::Dispatcher;
 
-# $Id: Dispatcher.pm,v 2.0 2004/07/20 13:29:35 dtown Exp $
+# $Id: Dispatcher.pm,v 2.1 2005/07/20 13:53:07 dtown Exp $
 
 # Object the dispatches SNMP messages and handles the scheduling of events.
 
-# Copyright (c) 2001-2004 David M. Town <dtown@cpan.org>
+# Copyright (c) 2001-2005 David M. Town <dtown@cpan.org>
 # All rights reserved.
 
 # This program is free software; you may redistribute it and/or modify it
@@ -16,13 +16,14 @@ package Net::SNMP::Dispatcher;
 # ============================================================================
 
 use strict;
+use Errno;
 
 use Net::SNMP::MessageProcessing();
 use Net::SNMP::Message qw( TRUE FALSE );
 
 ## Version of the Net::SNMP::Dispatcher module
 
-our $VERSION = v2.0.0;
+our $VERSION = v3.0.0;
 
 ## Package variables
 
@@ -59,7 +60,7 @@ BEGIN
 
 sub instance
 {
-   $INSTANCE || ($INSTANCE = Net::SNMP::Dispatcher->_new);
+   $INSTANCE ||= Net::SNMP::Dispatcher->_new;
 }
 
 sub activate
@@ -117,38 +118,21 @@ sub listen
    $this->{_active}   = TRUE;
    $this->{_blocking} = TRUE;
 
-   while (1) {
+   while (defined($this->{_event_queue_h}) || keys(%{$this->{_descriptors}})) {
 
       # Handle queued events
       events: while (defined($this->{_event_queue_h})) {
          $this->_event_handle;
       }
 
+      # Block on select() until there is file descriptor activity.
       DEBUG_INFO('waiting for activity');
+      $this->_event_select(undef);
 
-      if (my $nfound = select(my $rout = $this->{_rin}, undef, undef, undef)) {
-
-         # Handle select() errors 
-         if ($nfound < 0) { 
-            if ($! =~ /^Interrupted/) {
-               goto events; # Recoverable error
-            } else {
-               die sprintf('FATAL: select() error [%s]', $!);
-            }
-         }
-
-         # Find out which file descriptors have data ready
-         if (defined($rout)) {
-            foreach (keys(%{$this->{_descriptors}})) {
-               if (vec($rout, $_, 1)) {
-                  DEBUG_INFO('descriptor [%d] ready', $_);
-                  $this->_callback_execute(@{$this->{_descriptors}->{$_}});
-               }
-            }
-         }
-
-      }
    }
+
+   # Flag the Dispatcher as not active
+   $this->{_active} = FALSE;
 }
 
 sub send_pdu
@@ -162,23 +146,33 @@ sub send_pdu
       return $this->_error('Required PDU missing');
    }
 
-   # If the Dispatcher is active and there is
-   # no delay just send the message.
+   # If the Dispatcher is active and the delay value is negative,
+   # send the message immediately.
 
-   if (($this->{_active}) && (!$delay)) {
-      $this->_send_pdu($pdu, $pdu->timeout, $pdu->retries);
-   } else {
-      $this->schedule(
-         $delay, [\&_send_pdu, $pdu, $pdu->timeout, $pdu->retries]
-      );
+   if ($delay < 0) {
+      if ($this->{_active}) {
+         return $this->_send_pdu($pdu, $pdu->timeout, $pdu->retries);
+      } 
+      $delay = 0;
    }
+
+   $this->schedule($delay, [\&_send_pdu, $pdu, $pdu->timeout, $pdu->retries]);
+
+   TRUE;
+}
+
+sub return_response_pdu
+{
+   my ($this, $pdu) = @_;
+
+   $this->send_pdu($pdu, -1);
 }
 
 sub schedule
 {
    my ($this, $time, $callback) = @_;
 
-   $this->_event_create($time, $_[0]->_callback_create($callback));
+   $this->_event_create($time, $this->_callback_create($callback));
 }
 
 sub cancel
@@ -306,19 +300,29 @@ sub _send_pdu
    my $msg = $MESSAGE_PROCESSING->prepare_outgoing_msg($pdu);
 
    if (!defined($msg)) {
-      $pdu->error($MESSAGE_PROCESSING->error);
-      $pdu->callback_execute;
+      # Inform the command generator about the Message Processing error.
+      $pdu->status_information($MESSAGE_PROCESSING->error);
       return; 
    }
 
-   # Actually send the message
+   # Actually send the message.
 
    if (!defined($msg->send)) {
+
       if ($pdu->expect_response) {
          $MESSAGE_PROCESSING->msg_handle_delete($pdu->msg_id);
       }
-      $pdu->error($msg->error);
-      $pdu->callback_execute;
+
+      # A crude attempt to recover from temporary failures.
+      if (($retries-- > 0) && ($!{EAGAIN} || $!{EWOULDBLOCK})) {
+         DEBUG_INFO('attempting recovery from temporary failure');
+         $this->schedule($timeout, [\&_send_pdu, $pdu, $timeout, $retries]);
+         return FALSE;
+      }
+
+      # Inform the command generator about the send() error.
+      $pdu->status_information($msg->error);
+
       return;
    }
 
@@ -328,14 +332,12 @@ sub _send_pdu
       $this->register($msg->transport, [\&_transport_response_received]);
       $msg->timeout_id(
          $this->schedule(
-            $timeout, 
-            [\&_transport_timeout, $pdu, $timeout, $retries] 
+            $timeout, [\&_transport_timeout, $pdu, $timeout, $retries] 
          )
       ); 
    }
 
-   # Return the message
-   $msg;
+   TRUE;
 }
 
 sub _transport_timeout
@@ -347,18 +349,19 @@ sub _transport_timeout
 
    if ($retries-- > 0) {
 
-      # Resend a new message
+      # Resend a new message.
       DEBUG_INFO('retries left %d', $retries); 
       $this->_send_pdu($pdu, $timeout, $retries);
 
    } else {
 
-      # Delete the msgHandle 
+      # Delete the msgHandle. 
       $MESSAGE_PROCESSING->msg_handle_delete($pdu->msg_id);
 
-      # Upcall 
-      $pdu->error("No response from remote host '%s'", $pdu->dstname);
-      $pdu->callback_execute;
+      # Inform the command generator about the timeout. 
+      $pdu->status_information(
+          "No response from remote host '%s'", $pdu->dstname
+      ); 
 
       return;
 
@@ -375,9 +378,7 @@ sub _transport_response_received
    die('FATAL: Invalid Transport Domain') unless ref($transport);
 
    # Create a new Message object to receive the response
-   my ($msg, $error) = Net::SNMP::Message->new(
-      -transport => $transport,
-   );
+   my ($msg, $error) = Net::SNMP::Message->new(-transport => $transport);
 
    if (!defined($msg)) {
       die sprintf('Failed to create Message object [%s]', $error);
@@ -397,22 +398,22 @@ sub _transport_response_received
       return FALSE;
    }
 
-   # Hand the message over to Message Processing
+   # Hand the message over to Message Processing.
    if (!defined($MESSAGE_PROCESSING->prepare_data_elements($msg))) {
       return $this->_error($MESSAGE_PROCESSING->error);  
    }
 
-   # Set the error if applicable 
+   # Set the error if applicable. 
    $msg->error($MESSAGE_PROCESSING->error) if ($MESSAGE_PROCESSING->error);
 
-   # Cancel the timeout
+   # Cancel the timeout.
    $this->cancel($msg->timeout_id);
 
-   # Stop waiting for responses
+   # Stop waiting for responses.
    $this->deregister($transport);
 
-   # Invoke the callback   
-   $msg->callback_execute; 
+   # Notify the command generator to process the response.
+   $msg->process_response_pdu; 
 }
 
 sub _event_create
@@ -511,16 +512,18 @@ sub _event_delete
 {
    my ($this, $event) = @_;
 
+   my $info = '';
+
    # Update the previous event
    if (defined($event->[_PREVIOUS])) {
       $event->[_PREVIOUS]->[_NEXT] = $event->[_NEXT];
    } elsif ($event eq $this->{_event_queue_h}) {
       if (defined($this->{_event_queue_h} = $event->[_NEXT])) {
-         DEBUG_INFO('defined new head [%s]', $event->[_NEXT]);
+          $info = sprintf(', defined new head [%s]', $event->[_NEXT]);
       } else {
          DEBUG_INFO('deleted [%s], list is now empty', $event);
          $this->{_event_queue_t} = undef @{$event}; 
-         return TRUE;
+         return FALSE; # Indicate queue is empty
       }
    } else {
       die('FATAL: Attempt to delete invalid Event head');
@@ -530,15 +533,16 @@ sub _event_delete
    if (defined($event->[_NEXT])) {
       $event->[_NEXT]->[_PREVIOUS] = $event->[_PREVIOUS];
    } elsif ($event eq $this->{_event_queue_t}) {
-      DEBUG_INFO('defined new tail [%s]', $event->[_PREVIOUS]);
+      $info .= sprintf(', defined new tail [%s]', $event->[_PREVIOUS]); 
       $this->{_event_queue_t} = $event->[_PREVIOUS];
    } else {
       die('FATAL: Attempt to delete invalid Event tail');
    }
 
-   DEBUG_INFO('deleted [%s]', $event);
+   DEBUG_INFO('deleted [%s]%s', $event, $info);
    undef @{$event};
 
+   # Indicate queue still has entries
    TRUE;
 }
 
@@ -546,19 +550,23 @@ sub _event_init
 {
    my ($this, $event) = @_;
 
-   # The execution time of the event needs to be updated
-   # if the event was inserted while the Dispatcher was
-   # not active.
-
    DEBUG_INFO('initializing event [%s]', $event);
 
-   if ($event->[_TIME] == 0) {
-      $this->_callback_execute($event->[_CALLBACK]);
-      $this->_event_delete($event);
-   } else {
-      $this->_event_create($event->[_TIME], $event->[_CALLBACK]);
-      $this->_event_delete($event);
-   }
+   # Save the time and callback because they will be cleared.
+   my ($time, $callback) = @{$event}[_TIME, _CALLBACK];
+
+   # Remove the event from the queue.
+   $this->_event_delete($event);
+
+   # Update the appropriate fields.
+   $event->[_ACTIVE]   = $this->{_active};
+   $event->[_TIME]     = $this->{_active} ? time() + $time : $time; 
+   $event->[_CALLBACK] = $callback;
+
+   # Insert the event back into the queue.
+   $this->_event_insert($event); 
+
+   TRUE;
 }
 
 sub _event_handle
@@ -568,53 +576,40 @@ sub _event_handle
    # Events are sorted by time, so the event at the head of the list
    # is the next event that needs to be executed.
 
-   return unless defined(my $event = $this->{_event_queue_h});
+   return FALSE unless defined(my $event = $this->{_event_queue_h});
 
    # Calculate a timeout based on the current time and the lowest 
    # event time (if the event does not need initialized).
 
    my $timeout = ($event->[_ACTIVE]) ? ($event->[_TIME] - time()) : 0;
 
-   # If the timeout is less than 0, we are running late.  In an 
-   # attempt to recover from this we do not check the status of  
-   # the file descriptors.
-
-   if ($timeout >= 0) {
-      DEBUG_INFO('poll delay = %f' , $timeout);
-      if (my $nfound = select(my $rout = $this->{_rin}, undef, undef,
-                                 ($this->{_blocking} ? $timeout : 0)))
-      {
-         # Handle select() errors
-         if ($nfound < 0) {
-            if ($! =~ /^Interrupted/) {
-               return TRUE; # Recoverable error
-            } else {
-               die sprintf('FATAL: select() error [%s]', $!);
-            }
-         }
-
-         # Find out which file descriptors have data ready
-         if (defined($rout)) {
-            foreach (keys(%{$this->{_descriptors}})) {
-               if (vec($rout, $_, 1)) {
-                  DEBUG_INFO('descriptor [%d] ready', $_);
-                  $this->_callback_execute(@{$this->{_descriptors}->{$_}});
-               }
-            }
-            return TRUE;
-         }
-      }
-      if ((!$this->{_blocking}) && ($timeout > 0)) {
-         return TRUE;
-      }
+   # If the timeout is less than 0, we are running late.  Adjust the
+   # the timeout to poll the descriptors before acting on the event. 
+   
+   if ($timeout < 0) {
+      DEBUG_INFO('event [%s], skew = %f', $event, -$timeout);
+      $timeout = 0;
    } else {
-      DEBUG_INFO('skew = %f', -$timeout);
+      DEBUG_INFO('event [%s], poll delay = %f', $event, $timeout);
    }
 
-   # If we made it here, no data was received during the poll cycle, so
-   # we take action on the object at the head of the queue.
+   # Check the file descriptors for activity.  If there has been any
+   # activity, we must return because the activity could have cancelled 
+   # the event or returned control here before the event is ready to
+   # be acted upon. 
 
-   if (!$event->[_ACTIVE]) {
+   return TRUE if ($this->_event_select($this->{_blocking} ? $timeout : 0));
+
+   # If we are not blocking and the timeout is non-zero, then it is
+   # not time to act on the event.
+
+   return TRUE if ((!$this->{_blocking}) && ($timeout > 0));
+
+   # If we made it here, we can finally act on the event.  If the event
+   # was inserted with a non-zero delay while the Dispatcher was not
+   # active, the execution time of the event needs to be updated.
+
+   if ((!$event->[_ACTIVE]) && ($event->[_TIME] > 0)) {
       return $this->_event_init($event);
    } else {
       $this->_callback_execute($event->[_CALLBACK]);
@@ -626,6 +621,41 @@ sub _event_handle
    $this->_event_delete($event);
 }
 
+sub _event_select
+{
+   my ($this, $timeout) = @_;
+
+   my $nfound = select(my $rout = $this->{_rin}, undef, undef, $timeout);
+
+   if ((!defined($nfound)) || ($nfound < 0)) {
+
+      if ($!{EINTR}) { # Recoverable error
+         return TRUE;
+      } else {
+         die sprintf('FATAL: select() error [%s]', $!);
+      }
+
+   } elsif ($nfound > 0) {
+
+      # Find out which file descriptors have data ready for reading.
+
+      if (defined($rout)) {
+         foreach (keys(%{$this->{_descriptors}})) {
+            if (vec($rout, $_, 1)) {
+               DEBUG_INFO('descriptor [%d] ready for read', $_);
+               $this->_callback_execute(@{$this->{_descriptors}->{$_}}[0,1]);
+            }
+         }
+      }
+
+      return TRUE;
+   }
+
+   # No file descriptor activity. 
+
+   FALSE; 
+}
+
 sub _callback_create
 {
    my ($this, $callback) = @_;
@@ -635,8 +665,8 @@ sub _callback_create
    # Callbacks can be passed in two different ways.  If the callback
    # has options, the callback must be passed as an ARRAY reference
    # with the first element being a CODE reference and the remaining
-   # elements the arguments.  If the callback has not options it
-   # is just passed as a CODE reference.
+   # elements the arguments.  If the callback has no options it is
+   # just passed as a CODE reference.
 
    if ((ref($callback) eq 'ARRAY') && (ref($callback->[0]) eq 'CODE')) {
       $callback;

@@ -3,11 +3,11 @@
 
 package Net::SNMP::Message;
 
-# $Id: Message.pm,v 2.1 2004/09/09 16:53:00 dtown Exp $
+# $Id: Message.pm,v 2.2 2005/07/20 13:53:07 dtown Exp $
 
 # Object used to represent a SNMP message. 
 
-# Copyright (c) 2001-2004 David M. Town <dtown@cpan.org>
+# Copyright (c) 2001-2005 David M. Town <dtown@cpan.org>
 # All rights reserved.
 
 # This program is free software; you may redistribute it and/or modify it
@@ -22,7 +22,7 @@ use Math::BigInt();
 
 ## Version of the Net::SNMP::Message module
 
-our $VERSION = v2.0.1;
+our $VERSION = v2.0.2;
 
 ## Handle importing/exporting of symbols
 
@@ -1038,7 +1038,28 @@ sub _prepare_object_identifier
 
 sub _prepare_sequence
 {
-   $_[0]->_prepare_type_length(SEQUENCE, $_[1]);
+   my ($this, $value) = @_;
+
+   if (defined($value)) {
+
+      $this->_prepare_type_length(SEQUENCE, $value);
+
+   } else {
+
+      # If the passed value is undefined, we assume that the value of
+      # the SEQUENCE is the data currently in the serial buffer.
+
+      if ($this->{_length} < 0x80) {
+         $this->_buffer_put(pack('C2', SEQUENCE, $this->{_length}));
+      } elsif ($this->{_length} <= 0xff) {
+         $this->_buffer_put(pack('C3', SEQUENCE, 0x81, $this->{_length}));
+      } elsif ($this->{_length} <= 0xffff) {
+         $this->_buffer_put(pack('CCn', SEQUENCE, 0x82, $this->{_length}));
+      } else {
+         $this->_error('Unable to prepare ASN.1 length');
+      }
+
+   }
 }
 
 sub _prepare_ipaddress
@@ -1286,7 +1307,7 @@ sub _process_integer32
 
    # Validate the length of the Integer32
    if (($length > 5) || (($length > 4) && ($bytes[0] != 0x00))) {
-      return $this->_error('%s length too long (%u bytes)',
+      return $this->_error(
          '%s length too long (%u bytes)', asn1_itoa($type), $length
       );
    }
@@ -1737,9 +1758,7 @@ sub _process_report
 
 sub asn1_ticks_to_time
 {
-   my $ticks = shift;
-
-   if (!defined($ticks)) { $ticks = 0; }
+   my $ticks = shift || 0;
 
    my $days = int($ticks / (24 * 60 * 60 * 100));
    $ticks %= (24 * 60 * 60 * 100);

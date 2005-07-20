@@ -1,11 +1,11 @@
 # -*- mode: perl -*-
 # ============================================================================
 
-# $Id: Makefile.PL,v 5.1 2004/09/09 16:53:00 dtown Exp $
+# $Id: Makefile.PL,v 5.2 2005/07/20 13:53:07 dtown Exp $
 
 # Makefile for the Perl module Net::SNMP.
 
-# Copyright (c) 1998-2004 David M. Town <dtown@cpan.org>
+# Copyright (c) 1998-2005 David M. Town <dtown@cpan.org>
 # All rights reserved.
 
 # This program is free software; you may redistribute it and/or modify it
@@ -29,7 +29,7 @@ WriteMakefile(
    ABSTRACT      => 'Object oriented interface to SNMP',
    NAME          => 'Net::SNMP',
    DISTNAME      => 'Net-SNMP',
-   VERSION       => '5.0.1',
+   VERSION       => '5.1.0',
 #  VERSION_FROM  => 'lib/Net/SNMP.pm', # Does not handle v-strings properly
    EXE_FILES	 => ['snmpkey'],
    PL_FILES      => {'snmpkey.PL' => 'snmpkey'},

@@ -3,11 +3,11 @@
 
 package Net::SNMP::PDU;
 
-# $Id: PDU.pm,v 2.0 2004/07/20 13:32:03 dtown Exp $
+# $Id: PDU.pm,v 2.1 2005/07/20 13:53:07 dtown Exp $
 
 # Object used to represent a SNMP PDU. 
 
-# Copyright (c) 2001-2004 David M. Town <dtown@cpan.org>
+# Copyright (c) 2001-2005 David M. Town <dtown@cpan.org>
 # All rights reserved.
 
 # This program is free software; you may redistribute it and/or modify it
@@ -25,7 +25,7 @@ use Net::SNMP::Transport qw( DOMAIN_UDP DOMAIN_TCPIPV4 );
 
 ## Version of the Net::SNMP::PDU module
 
-our $VERSION = v2.0.0;
+our $VERSION = v2.1.0;
 
 ## Handle importing/exporting of symbols
 
@@ -56,6 +56,7 @@ sub new
  
    $this->{_error_status}   = 0;
    $this->{_error_index}    = 0;
+   $this->{_scoped}         = FALSE;
    $this->{_var_bind_list}  = undef;
    $this->{_var_bind_names} = [];
    $this->{_var_bind_types} = undef;
@@ -322,16 +323,20 @@ sub prepare_pdu
    # Clear the buffer
    $this->_buffer_get;
 
+   # Clear the "scoped" indication
+   $this->{_scoped} = FALSE;
+
    # VarBindList::=SEQUENCE OF VarBind
    if (!defined($this->_prepare_var_bind_list($var_bind || []))) {
       return $this->_error;
    }
 
    # PDU::=SEQUENCE 
-   return $this->_error unless defined($this->_prepare_pdu_sequence($type));
+   if (!defined($this->_prepare_pdu_sequence($type))) {
+      return $this->_error;
+   }
 
-   # ScopedPDU::=SEQUENCE
-   $this->_prepare_pdu_scope;
+   TRUE;
 }
 
 sub prepare_var_bind_list
@@ -360,9 +365,6 @@ sub process_pdu
    # Clear any errors 
    $this->_error_clear;
 
-   # ScopedPDU::=SEQUENCE
-   return $this->_error unless defined($this->_process_pdu_scope);
-
    # PDU::=SEQUENCE
    return $this->_error unless defined($this->_process_pdu_sequence);
 
@@ -383,6 +385,28 @@ sub process_pdu_sequence
 sub process_var_bind_list
 {
    $_[0]->_process_var_bind_list;
+}
+
+sub status_information
+{
+   my $this = shift;
+
+   if (@_) {
+      $this->{_error} = (@_ > 1) ? sprintf(shift(@_), @_) : $_[0];
+      if ($this->debug) {
+         printf("error: [%d] %s(): %s\n", 
+            (caller(0))[2], (caller(1))[3], $this->{_error}
+         );
+      }
+      $this->callback_execute;
+   }
+
+   $this->{_error} || '';
+}
+
+sub process_response_pdu
+{
+   $_[0]->callback_execute;
 }
 
 sub expect_response
@@ -512,13 +536,18 @@ sub var_bind_types
    $this->{_var_bind_types};
 }
 
+sub scoped
+{
+   $_[0]->{_scoped};
+}
+
 # [private methods] ----------------------------------------------------------
 
 sub _prepare_pdu_scope
 {
    my ($this) = @_;
 
-   return TRUE if ($this->{_version} < SNMP_VERSION_3);
+   return TRUE if (($this->{_version} < SNMP_VERSION_3) || ($this->{_scoped}));
 
    # contextName::=OCTET STRING
    if (!defined($this->prepare(OCTET_STRING, $this->context_name))) {
@@ -531,9 +560,12 @@ sub _prepare_pdu_scope
    }
 
    # ScopedPDU::=SEQUENCE
-   $this->prepare(SEQUENCE, $this->_buffer_get);
+   if (!defined($this->prepare(SEQUENCE))) {
+       return $this->_error;
+   } 
 
-   TRUE;
+   # Indicate that this PDU has been scoped and return success.
+   $this->{_scoped} = TRUE;
 }
 
 sub _prepare_pdu_sequence
@@ -625,30 +657,33 @@ sub _prepare_var_bind_list
       );
    }
 
-   # Encode the objects from the end of the list, so they are wrapped
-   # into the packet as expected.  Also, check to make sure that the
-   # OBJECT IDENTIFIER is in the correct place.
-
-   my ($syntax_type, $syntax_value, $name_type, $name_value);
-   my $buffer = $this->_buffer_get;
+   # Initialize the "var_bind_*" data.
 
    $this->{_var_bind_list}  = {};
    $this->{_var_bind_names} = [];
-   $this->{_var_bind_types} = {}; 
+   $this->{_var_bind_types} = {};
 
+   # Use the object's buffer to build each VarBind SEQUENCE and then append
+   # it to a local buffer.  The local buffer will then be used to create 
+   # the VarBindList SEQUENCE.
+    
+   my ($buffer, $name_type, $name_value, $syntax_type, $syntax_value) = ('');
+ 
    while (@{$var_bind}) {
 
+      # Pull a quartet of ASN.1 types and values from the passed array.
+      ($name_type, $name_value, $syntax_type, $syntax_value) = 
+         splice(@{$var_bind}, 0, 4);
+
+      # Reverse the order of the fields because prepare() does a prepend.
+
       # value::=ObjectSyntax
-      $syntax_value = pop(@{$var_bind});
-      $syntax_type  = pop(@{$var_bind});
       if (!defined($this->prepare($syntax_type, $syntax_value))) {
          $this->var_bind_list(undef);
          return $this->_error;
       }
 
       # name::=ObjectName
-      $name_value = pop(@{$var_bind});
-      $name_type  = pop(@{$var_bind});
       if ($name_type != OBJECT_IDENTIFIER) {
          $this->var_bind_list(undef);
          return $this->_error('Expected OBJECT IDENTIFIER in VarBindList');
@@ -657,6 +692,15 @@ sub _prepare_var_bind_list
          $this->var_bind_list(undef);
          return $this->_error;
       }
+
+      # VarBind::=SEQUENCE
+      if (!defined($this->prepare(SEQUENCE))) {
+         $this->var_bind_list(undef);
+         return $this->_error;
+      }
+
+      # Append the VarBind to the local buffer.
+      $buffer .= $this->_buffer_get;
 
       # Populate the "var_bind_*" data so we can provide consistent
       # output for the methods regardless of whether we are a request 
@@ -669,14 +713,8 @@ sub _prepare_var_bind_list
  
       $this->{_var_bind_list}->{$name_value}  = $syntax_value;
       $this->{_var_bind_types}->{$name_value} = $syntax_type; 
-      unshift(@{$this->{_var_bind_names}}, $name_value);
+      push(@{$this->{_var_bind_names}}, $name_value);
 
-      # VarBind::=SEQUENCE 
-      if (!defined($this->prepare(SEQUENCE, $this->_buffer_get))) {
-         $this->var_bind_list(undef);
-         return $this->_error;
-      }
-      substr($buffer, 0, 0) = $this->_buffer_get;
    }
 
    # VarBindList::=SEQUENCE OF VarBind
@@ -759,7 +797,8 @@ sub _process_pdu_scope
       return $this->_error;
    } 
 
-   TRUE;
+   # Indicate that this PDU is scoped and return success.
+   $this->{_scoped} = TRUE;
 }
 
 sub _process_pdu_sequence

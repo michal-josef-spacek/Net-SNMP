@@ -3,9 +3,9 @@
 
 package Net::SNMP;
 
-# $Id: SNMP.pm,v 5.1 2004/09/09 16:53:00 dtown Exp $
+# $Id: SNMP.pm,v 5.2 2005/07/20 13:53:07 dtown Exp $
 
-# Copyright (c) 1998-2004 David M. Town <dtown@cpan.org>
+# Copyright (c) 1998-2005 David M. Town <dtown@cpan.org>
 # All rights reserved.
 
 # This program is free software; you may redistribute it and/or modify it
@@ -106,7 +106,7 @@ BEGIN
 
 ## Version of the Net::SNMP module
 
-our $VERSION = v5.0.1;
+our $VERSION = v5.1.0;
 
 ## Load our modules
 
@@ -150,7 +150,7 @@ our %EXPORT_TAGS = (
           SNMP_TRAP_PORT snmp_debug snmp_dispatcher snmp_dispatch_once
           snmp_type_ntop oid_base_match oid_lex_sort ticks_to_time ) 
    ],
-   translate      => [
+   translate   => [
       qw( TRANSLATE_NONE TRANSLATE_OCTET_STRING TRANSLATE_NULL
           TRANSLATE_TIMETICKS TRANSLATE_OPAQUE TRANSLATE_NOSUCHOBJECT
           TRANSLATE_NOSUCHINSTANCE TRANSLATE_ENDOFMIBVIEW TRANSLATE_UNSIGNED
@@ -451,7 +451,7 @@ can be specified using the B<-port> argument.  This argument is also optional
 and defaults to 161, which is the port number on which devices using 
 well-known values expect to receive SNMP request messages.  The B<-port> 
 argument will need to be specified for remote devices expecting to receive 
-SNMP notifications since these device typically default a port value of 162.
+SNMP notifications since these devices typically default to a port value of 162.
 
 By default, the source IP address and port number are assigned dynamically by
 the local device on which the Net::SNMP module is being used.  This dynamic
@@ -525,18 +525,16 @@ B<-authpassword> arguments respectively.
 The User-based Security Model described in RFC 3414 defines a single encryption
 protocol to be used for privacy.  This protocol, CBC-DES "DES" (NIST FIPS PUB 
 46-1), is used by default or if the string 'des' is passed to the 
-B<-privprotocol> argument.  By working with the Extended Security Options 
-Consortium L<http://www.snmp.com/eso/>, the module also supports additional 
-protocols which have been defined in draft specifications.  The draft 
-L<http://www.snmp.com/eso/draft-reeder-snmpv3-usm-3desede-00.txt> 
-defines the support of CBC-3DES-EDE "Triple-DES" (NIST FIPS 46-3) in the
-User-based Security Model.  This protocol can be selected using the 
-B<-privprotocol> argument with the string '3desede'.  The draft 
-L<http://www.snmp.com/eso/draft-blumenthal-aes-usm-04.txt>  
-describes the use of CFB128-AES-128/192/256 "AES" (NIST FIPS PUB 197) in the
-USM. The three AES encryption protocols, differentiated by their key sizes,
-can be selected by passing 'aescfb128', 'aescfb192', or 'aescfb256' to the
-B<-privprotocol> argument.
+B<-privprotocol> argument.  The module also supports RFC 3826 which describes
+the use of CFB128-AES-128 "AES" (NIST FIPS PUB 197) in the USM.  The AES 
+encryption protocol can be selected by passing 'aes' or 'aes128' to the 
+B<-privprotocol> argument.  By working with the Extended Security Options
+Consortium L<http://www.snmp.com/eso/>, the module also supports CBC-3DES-EDE
+"Triple-DES" (NIST FIPS 46-3) in the User-based Security Model.  This is 
+defined in the draft 
+L<http://www.snmp.com/eso/draft-reeder-snmpv3-usm-3desede-00.txt>.  The 
+Triple-DES encryption protocol can be selected using the B<-privprotocol> 
+argument with the string '3des' or '3desede'. 
 
 =back
 
@@ -2451,10 +2449,9 @@ sub _discovery_engine_id_cb
       $this->{_pdu}       = undef;
       $this->{_transport} = undef;
 
-      # Upcall any pending messages with the current error
+      # Inform the command generator about the current error.
       while (my $q = shift(@{$this->{_discovery_queue}})) {
-         $q->[0]->error($this->{_error});
-         $q->[0]->callback_execute;
+         $q->[0]->status_information($this->{_error});
       }
 
       return $this->_error;
@@ -2557,10 +2554,9 @@ sub _discovery_synchronization_cb
    $this->{_pdu}       = undef;
    $this->{_transport} = undef;
 
-   # Upcall any pending messages with the current error
+   # Inform the command generator about the current error.
    while (my $q = shift(@{$this->{_discovery_queue}})) {
-      $q->[0]->error($this->{_error});
-      $q->[0]->callback_execute;
+      $q->[0]->status_information($this->{_error});
    }
 
    $this->_error;
@@ -2645,8 +2641,10 @@ sub _get_table_cb
 
             if ($argv->{repeat_cnt} > $argv->{max_reps}) {
                $this->{_pdu}->var_bind_list(undef);
-               $this->{_pdu}->error('Loop detected with table on remote host');
-               return $this->{_pdu}->callback_execute;
+               $this->{_pdu}->status_information(
+                  'Loop detected with table on remote host'
+               ); 
+               return;
             }
 
          } else {
@@ -2664,9 +2662,9 @@ sub _get_table_cb
          # Create a new PDU. 
          if (!defined($this->_create_pdu)) {
             $this->{_pdu} = $pdu;
-            $this->{_pdu}->error($this->error);
             $this->{_pdu}->var_bind_list(undef);
-            return $this->{_pdu}->callback_execute;
+            $this->{_pdu}->status_information($this->error);
+            return;
          }
 
          # Override the callback
@@ -2685,7 +2683,8 @@ sub _get_table_cb
                )) 
             {
                $this->{_pdu}->var_bind_list(undef);
-               return $this->{_pdu}->callback_execute;
+               $this->{_pdu}->status_information($this->{_pdu}->error);
+               return; 
             }
          } else {
             if (!defined(
@@ -2695,7 +2694,8 @@ sub _get_table_cb
                ))
             {
                $this->{_pdu}->var_bind_list(undef);
-               return $this->{_pdu}->callback_execute;
+               $this->{_pdu}->status_information($this->{_pdu}->error);
+               return; 
             }
          } 
 
@@ -2720,8 +2720,8 @@ sub _get_table_cb
       );
    }
 
-   # Invoke the user defined callback.
-   $this->{_pdu}->callback_execute;
+   # Notify the command generator to process the results.
+   $this->{_pdu}->process_response_pdu;
 }
 
 sub _get_entries_cb
@@ -2986,8 +2986,8 @@ sub _get_entries_cb
 
    }
 
-   # Invoke the user defined callback.
-   $this->{_pdu}->callback_execute;
+   # Notify the command generator to process the results.
+   $this->{_pdu}->process_response_pdu;
 }
 
 sub _index_cmp($$)
@@ -3397,13 +3397,13 @@ the last poll.
    sub validate_sysUpTime_cb
    {
       my ($session, $last_uptime, $num_polls) = @_;
-  
+
       if (!defined($session->var_bind_list)) {
 
          printf("%-15s  ERROR: %s\n", $session->hostname, $session->error);
 
       } else {
-   
+
          # Validate the sysUpTime
 
          my $uptime = $session->var_bind_list->{$sysUpTime};
@@ -3468,12 +3468,12 @@ F<Socket6> and F<IO::Socket::INET6> are needed.
 
 =head1 AUTHOR
 
-David M. Town <dtown@cpan.org>
+David M. Town E<lt>dtown@cpan.orgE<gt>
 
 =head1 ACKNOWLEDGMENTS
 
 The original concept for this module was based on F<SNMP_Session.pm> 
-written by Simon Leinen <simon@switch.ch>.
+written by Simon Leinen E<lt>simon@switch.chE<gt>.
 
 The Abstract Syntax Notation One (ASN.1) encode and decode methods were 
 originally derived by example from the CMU SNMP package whose copyright 
@@ -3482,7 +3482,7 @@ All rights reserved.
 
 =head1 COPYRIGHT
 
-Copyright (c) 1998-2004 David M. Town.  All rights reserved.  This program 
+Copyright (c) 1998-2005 David M. Town.  All rights reserved.  This program 
 is free software; you may redistribute it and/or modify it under the same
 terms as Perl itself.
 

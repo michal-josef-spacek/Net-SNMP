@@ -6,9 +6,9 @@ if 0;
 
 # ============================================================================
 
-# $Id: snmpset.pl,v 2.4 2004/09/09 16:53:00 dtown Exp $
+# $Id: snmpset.pl,v 2.5 2005/07/20 13:53:07 dtown Exp $
 
-# Copyright (c) 2000-2004 David M. Town <dtown@cpan.org>
+# Copyright (c) 2000-2005 David M. Town <dtown@cpan.org>
 # All rights reserved.
 
 # This program is free software; you may redistribute it and/or modify it
@@ -16,14 +16,14 @@ if 0;
 
 # ============================================================================
 
-use Net::SNMP v5.0.0 qw(:asn1 snmp_type_ntop DEBUG_ALL);
+use Net::SNMP v5.1.0 qw(:asn1 snmp_type_ntop DEBUG_ALL);
 use Getopt::Std;
 
 use strict;
 use vars qw($SCRIPT $VERSION %OPTS);
 
 $SCRIPT  = 'snmpset';
-$VERSION = '2.2.1';
+$VERSION = '2.3.0';
 
 # Validate the command line options
 if (!getopts('a:A:c:dD:E:m:n:p:r:t:u:v:x:X:', \%OPTS)) {
@@ -153,10 +153,10 @@ Options: -v 1|2c|3      SNMP version
          -n <name>      Context Name
          -a <authproto> Authentication protocol <md5|sha>
          -A <password>  Authentication password
-         -x <privproto> Privacy protocol <des|3des|aes128|aes192|aes256>
+         -x <privproto> Privacy protocol <des|3des|aes>
          -X <password>  Privacy password
    Transport Layer:
-         -D <domain>    Domain <udp4|udp6|tcp4|tcp6>
+         -D <domain>    Domain <udp|udp6|tcp|tcp6>
          -m <octets>    Maximum message size
          -p <port>      Destination port
          -r <attempts>  Number of retries

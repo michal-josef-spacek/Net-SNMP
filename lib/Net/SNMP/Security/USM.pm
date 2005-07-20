@@ -3,11 +3,11 @@
 
 package Net::SNMP::Security::USM;
 
-# $Id: USM.pm,v 2.3 2004/07/20 13:38:01 dtown Exp $
+# $Id: USM.pm,v 2.4 2005/07/20 13:53:07 dtown Exp $
 
 # Object that implements the SNMPv3 User-based Security Model.
 
-# Copyright (c) 2001-2004 David M. Town <dtown@cpan.org>
+# Copyright (c) 2001-2005 David M. Town <dtown@cpan.org>
 # All rights reserved.
 
 # This program is free software; you may redistribute it and/or modify it
@@ -30,7 +30,7 @@ use Digest::HMAC();
 
 ## Version of the Net::SNMP::Security::USM module
 
-our $VERSION = v2.1.0;
+our $VERSION = v3.0.0;
 
 ## Handle importing/exporting of symbols
 
@@ -53,9 +53,9 @@ our %EXPORT_TAGS = (
           SECURITY_MODEL_USM )
    ],
    privprotos => [
-      qw( PRIV_PROTOCOL_NONE PRIV_PROTOCOL_DES PRIV_PROTOCOL_3DESEDE 
-          PRIV_PROTOCOL_AESCFB128 PRIV_PROTOCOL_AESCFB192 
-          PRIV_PROTOCOL_AESCFB256 )
+      qw( PRIV_PROTOCOL_NONE PRIV_PROTOCOL_DES PRIV_PROTOCOL_AESCFB128
+          PRIV_PROTOCOL_DRAFT_3DESEDE PRIV_PROTOCOL_DRAFT_AESCFB128
+          PRIV_PROTOCOL_DRAFT_AESCFB192 PRIV_PROTOCOL_DRAFT_AESCFB256 )  
    ]
 );
 
@@ -74,6 +74,11 @@ sub AUTH_PROTOCOL_HMACSHA() { '1.3.6.1.6.3.10.1.1.3' } # usmHMACSHAAuthProtocol
 sub PRIV_PROTOCOL_NONE()    { '1.3.6.1.6.3.10.1.2.1' } # usmNoPrivProtocol
 sub PRIV_PROTOCOL_DES()     { '1.3.6.1.6.3.10.1.2.2' } # usmDESPrivProtocol
 
+## RFC 3826 - The AES Cipher Algorithm in the SNMP USM 
+
+# usmAesCfb128Protocol
+sub PRIV_PROTOCOL_AESCFB128()        {  '1.3.6.1.6.3.10.1.2.4' }
+
 # The privacy protocols below have been implemented using the draft 
 # specifications intended to extend the User-based Security Model 
 # defined in RFC 3414.  Since the object definitions have not been 
@@ -84,19 +89,19 @@ sub PRIV_PROTOCOL_DES()     { '1.3.6.1.6.3.10.1.2.2' } # usmDESPrivProtocol
 # Reeder and Gudmunsson; October 1999, expired April 2000 
 
 # usm3DESPrivProtocol 
-sub PRIV_PROTOCOL_3DESEDE()   { '1.3.6.1.4.1.14832.1.1' }
+sub PRIV_PROTOCOL_DRAFT_3DESEDE()    { '1.3.6.1.4.1.14832.1.1' }
 
 # AES Cipher Algorithm in the USM <draft-blumenthal-aes-usm-04.txt>
 # Blumenthal, Maino, and McCloghrie; October 2002, expired April 2003 
 
-# usmAESCfb128PrivProtocol
-sub PRIV_PROTOCOL_AESCFB128() { '1.3.6.1.4.1.14832.1.2' } 
+# usmAESCfb128PrivProtocol 
+sub PRIV_PROTOCOL_DRAFT_AESCFB128()  { '1.3.6.1.4.1.14832.1.2' } 
 
-# usmAESCfb192PrivProtocol
-sub PRIV_PROTOCOL_AESCFB192() { '1.3.6.1.4.1.14832.1.3' }
+# usmAESCfb192PrivProtocol 
+sub PRIV_PROTOCOL_DRAFT_AESCFB192()  { '1.3.6.1.4.1.14832.1.3' } 
 
 # usmAESCfb256PrivProtocol
-sub PRIV_PROTOCOL_AESCFB256() { '1.3.6.1.4.1.14832.1.4' } 
+sub PRIV_PROTOCOL_DRAFT_AESCFB256()  { '1.3.6.1.4.1.14832.1.4' } 
 
 ## Package variables
 
@@ -296,7 +301,7 @@ sub generate_request_msg
    }
 
    # UsmSecurityParameters::= SEQUENCE
-   if (!defined($msg->prepare(SEQUENCE, $msg->clear))) {
+   if (!defined($msg->prepare(SEQUENCE))) {
       return $this->_error($msg->error);
    }
 
@@ -321,7 +326,7 @@ sub generate_request_msg
    }
 
    # message::=SEQUENCE
-   if (!defined($msg->prepare(SEQUENCE, $msg->clear))) {
+   if (!defined($msg->prepare(SEQUENCE))) {
       return $this->_error($msg->error);
    }
 
@@ -489,9 +494,9 @@ sub process_incoming_msg
          # field..."  We must prepend the snmpEngineBoots and
          # snmpEngineTime as received in order to compute the IV.
 
-         if (($this->{_priv_protocol} eq PRIV_PROTOCOL_AESCFB128) ||
-             ($this->{_priv_protocol} eq PRIV_PROTOCOL_AESCFB192) ||
-             ($this->{_priv_protocol} eq PRIV_PROTOCOL_AESCFB256))
+         if (($this->{_priv_protocol} eq PRIV_PROTOCOL_AESCFB128)       ||
+             ($this->{_priv_protocol} eq PRIV_PROTOCOL_DRAFT_AESCFB192) ||
+             ($this->{_priv_protocol} eq PRIV_PROTOCOL_DRAFT_AESCFB256))
          {
             substr($priv_params, 0, 0) = pack(
                'NN', $msg_engine_boots, $msg_engine_time
@@ -581,7 +586,7 @@ sub security_model
 
 sub security_name
 {
-   $_[0]->{_user_name};
+   $_[0]->_user_name;
 }
 
 sub discovered
@@ -797,21 +802,28 @@ sub _priv_protocol
    if (@_ == 2) {
 
       my $protocols = {
-         'des',                   PRIV_PROTOCOL_DES,
-         'cbcdes',                PRIV_PROTOCOL_DES,
-         PRIV_PROTOCOL_DES,       PRIV_PROTOCOL_DES,
-         '3desede',               PRIV_PROTOCOL_3DESEDE,
-         'cbc3desede',            PRIV_PROTOCOL_3DESEDE,
-         PRIV_PROTOCOL_3DESEDE,   PRIV_PROTOCOL_3DESEDE,
-         'aes128cfb',             PRIV_PROTOCOL_AESCFB128,
-         'aescfb128',             PRIV_PROTOCOL_AESCFB128,
-         PRIV_PROTOCOL_AESCFB128, PRIV_PROTOCOL_AESCFB128,
-         'aes192cfb',             PRIV_PROTOCOL_AESCFB192,
-         'aescfb192',             PRIV_PROTOCOL_AESCFB192,
-         PRIV_PROTOCOL_AESCFB192, PRIV_PROTOCOL_AESCFB192,
-         'aes256cfb',             PRIV_PROTOCOL_AESCFB256,
-         'aescfb256',             PRIV_PROTOCOL_AESCFB256,
-         PRIV_PROTOCOL_AESCFB256, PRIV_PROTOCOL_AESCFB256,
+         'des',                          PRIV_PROTOCOL_DES,
+         'cbcdes',                       PRIV_PROTOCOL_DES,
+         PRIV_PROTOCOL_DES,              PRIV_PROTOCOL_DES,
+         '3desede',                      PRIV_PROTOCOL_DRAFT_3DESEDE,
+         'cbc3desede',                   PRIV_PROTOCOL_DRAFT_3DESEDE,
+         PRIV_PROTOCOL_DRAFT_3DESEDE,    PRIV_PROTOCOL_DRAFT_3DESEDE,
+         'aes128cfb',                    PRIV_PROTOCOL_AESCFB128,
+         'aescfb128',                    PRIV_PROTOCOL_AESCFB128,
+         'cfbaes128',                    PRIV_PROTOCOL_AESCFB128,
+         'cfb128aes128',                 PRIV_PROTOCOL_AESCFB128,
+         PRIV_PROTOCOL_AESCFB128,        PRIV_PROTOCOL_AESCFB128,
+         PRIV_PROTOCOL_DRAFT_AESCFB128,  PRIV_PROTOCOL_AESCFB128,
+         'aes192cfb',                    PRIV_PROTOCOL_DRAFT_AESCFB192,
+         'aescfb192',                    PRIV_PROTOCOL_DRAFT_AESCFB192,
+         'cfbaes192',                    PRIV_PROTOCOL_DRAFT_AESCFB192,
+         'cfb128aes192',                 PRIV_PROTOCOL_DRAFT_AESCFB192,
+         PRIV_PROTOCOL_DRAFT_AESCFB192,  PRIV_PROTOCOL_DRAFT_AESCFB192,
+         'aes256cfb',                    PRIV_PROTOCOL_DRAFT_AESCFB256,
+         'aescfb256',                    PRIV_PROTOCOL_DRAFT_AESCFB256,
+         'cfbaes256',                    PRIV_PROTOCOL_DRAFT_AESCFB256,
+         'cfb128ae256',                  PRIV_PROTOCOL_DRAFT_AESCFB256,
+         PRIV_PROTOCOL_DRAFT_AESCFB256,  PRIV_PROTOCOL_DRAFT_AESCFB256,
       };
 
       if ($proto eq '') {
@@ -821,7 +833,13 @@ sub _priv_protocol
       my @match = grep(/^\Q$proto/i, keys(%{$protocols}));
 
       if (@match > 1) {
-         return $this->_error('Ambiguous privProtocol specified [%s]', $proto);
+         if (lc($proto) eq 'aes') {
+             $match[0] = 'aescfb128';
+         } else {
+             return $this->_error(
+                 'Ambiguous privProtocol specified [%s]', $proto
+             );
+         }
       } elsif (@match != 1) {
          return $this->_error('Unknown privProtocol specified [%s]', $proto);
       }
@@ -832,9 +850,9 @@ sub _priv_protocol
       # load the Crypt::Rijndael module.  If this module is not found, 
       # do not provide support for the AES Cipher Algorithm.
 
-      if (($this->{_priv_protocol} eq PRIV_PROTOCOL_AESCFB128) ||
-          ($this->{_priv_protocol} eq PRIV_PROTOCOL_AESCFB192) ||
-          ($this->{_priv_protocol} eq PRIV_PROTOCOL_AESCFB256))
+      if (($this->{_priv_protocol} eq PRIV_PROTOCOL_AESCFB128)       ||
+          ($this->{_priv_protocol} eq PRIV_PROTOCOL_DRAFT_AESCFB192) ||
+          ($this->{_priv_protocol} eq PRIV_PROTOCOL_DRAFT_AESCFB256))
       {
          if (defined(my $error = load_module('Crypt::Rijndael'))) {
             return $this->_error(
@@ -1139,11 +1157,11 @@ sub _auth_data_init
 {
    my $encrypt = 
    {
-      PRIV_PROTOCOL_DES,       \&_priv_encrypt_des,          
-      PRIV_PROTOCOL_3DESEDE,   \&_priv_encrypt_3desede,
-      PRIV_PROTOCOL_AESCFB128, \&_priv_encrypt_aescfbxxx,
-      PRIV_PROTOCOL_AESCFB192, \&_priv_encrypt_aescfbxxx,
-      PRIV_PROTOCOL_AESCFB256, \&_priv_encrypt_aescfbxxx
+      PRIV_PROTOCOL_DES,              \&_priv_encrypt_des,          
+      PRIV_PROTOCOL_DRAFT_3DESEDE,    \&_priv_encrypt_3desede,
+      PRIV_PROTOCOL_AESCFB128,        \&_priv_encrypt_aescfbxxx,
+      PRIV_PROTOCOL_DRAFT_AESCFB192,  \&_priv_encrypt_aescfbxxx,
+      PRIV_PROTOCOL_DRAFT_AESCFB256,  \&_priv_encrypt_aescfbxxx
    };
 
    sub _encrypt_data
@@ -1172,11 +1190,11 @@ sub _auth_data_init
 {
    my $decrypt =
    {
-      PRIV_PROTOCOL_DES,       \&_priv_decrypt_des,
-      PRIV_PROTOCOL_3DESEDE,   \&_priv_decrypt_3desede,
-      PRIV_PROTOCOL_AESCFB128, \&_priv_decrypt_aescfbxxx,
-      PRIV_PROTOCOL_AESCFB192, \&_priv_decrypt_aescfbxxx,
-      PRIV_PROTOCOL_AESCFB256, \&_priv_decrypt_aescfbxxx
+      PRIV_PROTOCOL_DES,              \&_priv_decrypt_des,
+      PRIV_PROTOCOL_DRAFT_3DESEDE,    \&_priv_decrypt_3desede,
+      PRIV_PROTOCOL_AESCFB128,        \&_priv_decrypt_aescfbxxx,
+      PRIV_PROTOCOL_DRAFT_AESCFB192,  \&_priv_decrypt_aescfbxxx,
+      PRIV_PROTOCOL_DRAFT_AESCFB256,  \&_priv_decrypt_aescfbxxx
    };
 
    sub _decrypt_data
@@ -1206,12 +1224,15 @@ sub _auth_data_init
       }
       return $_[0]->_error($_[1]->error) unless ($_[1]->length);
 
-      # See if the decrypted data starts with a SEQUENCE
-      if (!defined($_[1]->process(SEQUENCE))) {
+      # See if the decrypted data starts with a SEQUENCE 
+      # and has a reasonable length.
+
+      my $msglen = $_[1]->process(SEQUENCE);
+      if ((!defined($msglen)) || ($msglen > $_[1]->length)) {
          return $_[0]->_error('Decryption error');
       }
       $_[1]->index(0); # Reset the index
-
+      
       DEBUG_INFO('privacy passed');
 
       TRUE;
@@ -1230,11 +1251,11 @@ sub _priv_data_init
 
    my $init =
    {
-      PRIV_PROTOCOL_DES,       \&_priv_data_init_des,
-      PRIV_PROTOCOL_3DESEDE,   \&_priv_data_init_3desede,
-      PRIV_PROTOCOL_AESCFB128, \&_priv_data_init_aescfbxxx,
-      PRIV_PROTOCOL_AESCFB192, \&_priv_data_init_aescfbxxx,
-      PRIV_PROTOCOL_AESCFB256, \&_priv_data_init_aescfbxxx
+      PRIV_PROTOCOL_DES,              \&_priv_data_init_des,
+      PRIV_PROTOCOL_DRAFT_3DESEDE,    \&_priv_data_init_3desede,
+      PRIV_PROTOCOL_AESCFB128,        \&_priv_data_init_aescfbxxx,
+      PRIV_PROTOCOL_DRAFT_AESCFB192,  \&_priv_data_init_aescfbxxx,
+      PRIV_PROTOCOL_DRAFT_AESCFB256,  \&_priv_data_init_aescfbxxx
    };
 
    if (!exists($init->{$this->{_priv_protocol}})) {
@@ -1388,7 +1409,7 @@ sub _priv_encrypt_3desede
    }
    $_[1] = pack('NN', $_[0]->{_engine_boots}, $_[0]->{_priv_data}->{salt});
 
-   # 3DES-EDE for USM Section 5.1.1.1.2 - "To achieve effective 
+   # Draft 3DES-EDE for USM Section 5.1.1.1.2 - "To achieve effective 
    # bit spreading, the complete 8-octet 'salt' value SHOULD be 
    # hashed using the usmUserAuthProtocol."
 
@@ -1430,7 +1451,9 @@ sub _priv_decrypt_3desede
    }
 
    if (length($_[2]) % 8) {
-      return $_[0]->_error('3DES-EDE cipher length not multiple of block size');
+      return $_[0]->_error(
+         'CBC-3DES-EDE cipher length not multiple of block size'
+      );
    }
 
    # Create the initial vector (IV)
@@ -1625,19 +1648,19 @@ sub _priv_key_generate
 
    return $this->_error unless defined($this->{_priv_key});
 
-   if ($this->{_priv_protocol} eq PRIV_PROTOCOL_3DESEDE) {
+   if ($this->{_priv_protocol} eq PRIV_PROTOCOL_DRAFT_3DESEDE) {
 
-      # 3DES-EDE for USM Section 2.1 - "To acquire the necessary
-      # number of key bits, the password-to-key algorithm may be
-      # chained using its output as further input in order to
-      # generate an appropriate number of key bits."
+      # Draft 3DES-EDE for USM Section 2.1 - "To acquire the necessary 
+      # number of key bits, the password-to-key algorithm may be chained
+      # using its output as further input in order to generate an
+      # appropriate number of key bits."
 
       $this->{_priv_key} .= $this->_password_localize($this->{_priv_key}); 
 
-   } elsif (($this->{_priv_protocol} eq PRIV_PROTOCOL_AESCFB192) ||
-            ($this->{_priv_protocol} eq PRIV_PROTOCOL_AESCFB256))
+   } elsif (($this->{_priv_protocol} eq PRIV_PROTOCOL_DRAFT_AESCFB192) ||
+            ($this->{_priv_protocol} eq PRIV_PROTOCOL_DRAFT_AESCFB256))
    {
-      # AES in the USM Section 3.1.2.1 - "...if the size of the 
+      # Draft AES in the USM Section 3.1.2.1 - "...if the size of the 
       # localized key is not large enough to generate an encryption 
       # key... ...set Kul = Kul || Hnnn(Kul) where Hnnn is the hash 
       # function for the authentication protocol..."
@@ -1662,11 +1685,11 @@ sub _priv_key_generate
 
    my $key_len =
    {
-      PRIV_PROTOCOL_DES,        16,  # RFC 3414 Section 8.2.1
-      PRIV_PROTOCOL_3DESEDE,    32,  # 3DES-EDE for USM Section 5.2.1
-      PRIV_PROTOCOL_AESCFB128,  16,  # AES in the USM Section 3.2.1
-      PRIV_PROTOCOL_AESCFB192,  24,  # AES in the USM Section 3.2.1
-      PRIV_PROTOCOL_AESCFB256,  32   # AES in the USM Section 3.2.1
+      PRIV_PROTOCOL_DES,              16,  # RFC 3414 Section 8.2.1
+      PRIV_PROTOCOL_DRAFT_3DESEDE,    32,  # Draft 3DES for USM Section 5.2.1
+      PRIV_PROTOCOL_AESCFB128,        16,  # AES in the USM Section 3.2.1
+      PRIV_PROTOCOL_DRAFT_AESCFB192,  24,  # Draft AES in the USM Section 3.2.1
+      PRIV_PROTOCOL_DRAFT_AESCFB256,  32   # Draft AES in the USM Section 3.2.1
    };
 
    if (!exists($key_len->{$this->{_priv_protocol}})) {
@@ -1685,11 +1708,11 @@ sub _priv_key_validate
 
    my $key_len =
    {
-      PRIV_PROTOCOL_DES,        [ 16, 'DES'         ],  
-      PRIV_PROTOCOL_3DESEDE,    [ 32, '3DES-EDE'    ], 
-      PRIV_PROTOCOL_AESCFB128,  [ 16, 'AES-CFB-128' ],
-      PRIV_PROTOCOL_AESCFB192,  [ 24, 'AES-CFB-192' ],
-      PRIV_PROTOCOL_AESCFB256,  [ 32, 'AES-CFB-256' ]
+      PRIV_PROTOCOL_DES,              [ 16, 'CBC-DES'        ],  
+      PRIV_PROTOCOL_DRAFT_3DESEDE,    [ 32, 'CBC-3DES-EDE'   ], 
+      PRIV_PROTOCOL_AESCFB128,        [ 16, 'CFB128-AES-128' ],
+      PRIV_PROTOCOL_DRAFT_AESCFB192,  [ 24, 'CFB128-AES-192' ],
+      PRIV_PROTOCOL_DRAFT_AESCFB256,  [ 32, 'CFB128-AES-256' ]
    };
 
    if (!exists($key_len->{$this->{_priv_protocol}})) {
@@ -1707,26 +1730,26 @@ sub _priv_key_validate
       );
    }
   
-   if ($this->{_priv_protocol} eq PRIV_PROTOCOL_3DESEDE) {
+   if ($this->{_priv_protocol} eq PRIV_PROTOCOL_DRAFT_3DESEDE) {
 
-      # 3DES-EDE for USM Section 5.1.1.1.1 "The checks for difference 
+      # Draft 3DES-EDE for USM Section 5.1.1.1.1 "The checks for difference 
       # and weakness... ...should be performed when the key is assigned.
       # If any of the mandated tests fail, then the whole key MUST be 
       # discarded and an appropriate exception noted."
 
       if (substr($this->{_priv_key}, 0, 8) eq substr($this->{_priv_key}, 8, 8)) 
       {
-         return $this->_error('Invalid 3DES-EDE privKey [K1 equals K2]');
+         return $this->_error('Invalid CBC-3DES-EDE privKey [K1 equals K2]');
       }
 
       if (substr($this->{_priv_key}, 8, 8) eq substr($this->{_priv_key}, 16, 8))
       {
-         return $this->_error('Invalid 3DES-EDE privKey [K2 equals K3]');
+         return $this->_error('Invalid CBC-3DES-EDE privKey [K2 equals K3]');
       }
 
       if (substr($this->{_priv_key}, 0, 8) eq substr($this->{_priv_key}, 16, 8))
       {
-         return $this->_error('Invalid 3DES-EDE privKey [K1 equals K3]');
+         return $this->_error('Invalid CBC-3DES-EDE privKey [K1 equals K3]');
       }
 
    }

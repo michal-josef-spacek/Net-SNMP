@@ -3,11 +3,11 @@
 
 package Net::SNMP::Transport::TCP;
 
-# $Id: TCP.pm,v 1.0 2004/07/20 13:26:04 dtown Exp $
+# $Id: TCP.pm,v 1.1 2005/07/20 13:53:07 dtown Exp $
 
 # Object that handles the TCP/IPv4 Transport Domain for the SNMP Engine.
 
-# Copyright (c) 2004 David M. Town <dtown@cpan.org>
+# Copyright (c) 2004-2005 David M. Town <dtown@cpan.org>
 # All rights reserved.
 
 # This program is free software; you may redistribute it and/or modify it
@@ -27,7 +27,7 @@ use IO::Socket::INET qw(
 
 ## Version of the Net::SNMP::Transport::TCP module
 
-our $VERSION = v1.0.0;
+our $VERSION = v1.0.1;
 
 ## Handle importing/exporting of symbols
 
@@ -73,7 +73,7 @@ sub accept
 
    $new->[_DSTNAME] = $socket->peerhost;
    $new->[_SOCKET]  = $socket;
-   $new->[_DSTADDR] = $new->_addr_pack($socket->peerport, $socket->peeraddr);
+   $new->[_DSTADDR] = $socket->peername;
    $new->_reasm_reset;
 
    # Return the new object.
@@ -118,7 +118,7 @@ sub recv
    # use the length field in the BER-encoded SNMP message to separate 
    # multiple requests sent over a single TCP connection (framing).  
    # An SNMP engine which looses framing (for example due to ASN.1 
-   # parse errors) SHOULD close the TCP connection.
+   # parse errors) SHOULD close the TCP connection."
 
    # If the reassembly bufer is empty then there is no partial message
    # waiting for completion.  We must then process the message length

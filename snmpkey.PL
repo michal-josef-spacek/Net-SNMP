@@ -6,9 +6,9 @@ if 0;
 
 # ============================================================================
 
-# $Id: snmpkey.PL,v 1.3 2003/05/06 11:00:46 dtown Exp $
+# $Id: snmpkey.PL,v 1.4 2005/07/20 13:53:07 dtown Exp $
 
-# Copyright (c) 2001-2003 David M. Town <dtown@cpan.org>
+# Copyright (c) 2001-2005 David M. Town <dtown@cpan.org>
 # All rights reserved.
 
 # This program is free software; you may redistribute it and/or modify it
@@ -28,9 +28,9 @@ print OUT <<'AS-IS';
 
 # ============================================================================
 
-# $Id: snmpkey.PL,v 1.3 2003/05/06 11:00:46 dtown Exp $
+# $Id: snmpkey.PL,v 1.4 2005/07/20 13:53:07 dtown Exp $
 
-# Copyright (c) 2001-2003 David M. Town <dtown@cpan.org>
+# Copyright (c) 2001-2005 David M. Town <dtown@cpan.org>
 # All rights reserved.
 
 # This program is free software; you may redistribute it and/or modify it
@@ -77,15 +77,14 @@ characters (5 to 32 octets) long and can be prefixed with an optional "0x".
 
 The last two arguments are optional and can be used to determine how the
 privKey will be generated.  By default, the fourth argument assumes a value
-of 'des' corresponding to the only privacy protocol defined in the User-based
-Security Model.  The Net::SNMP module supports CBC-3DES-EDE and
-CFB128-AES-128/192/256 as alternatives to the default protocol CBC-DES.  These
-protocols can be chosen by specifying the string '3desede', 'aescfb128',
-'aescfb192', or 'aescfb256' respectively.  This choice must match the protocol
-passed to the B<-privprotocol> argument when creating the Net::SNMP object.
-The last argument can be used to specify the plain text password that is to
-be localized to create the privKey.  If this argument is not specified, the 
-authKey password is used.
+of 'des' corresponding to the default privacy protocol defined in the 
+User-based Security Model.  The Net::SNMP module supports CBC-3DES-EDE and
+CFB128-AES-128 as alternatives to the default protocol CBC-DES.  These
+protocols can be chosen by specifying the string '3des' or 'aes' respectively.
+This choice must match the protocol passed to the B<-privprotocol> argument 
+when creating the Net::SNMP object.  The last argument can be used to specify 
+the plain text password that is to be localized to create the privKey.  If 
+this argument is not specified, the authKey password is used.
 
 =head1 AUTHOR
 
@@ -93,7 +92,7 @@ David M. Town <dtown@cpan.org>
 
 =head1 COPYRIGHT
 
-Copyright (c) 2001-2003 David M. Town.  All rights reserved.  This program
+Copyright (c) 2001-2005 David M. Town.  All rights reserved.  This program
 is free software; you may redistribute it and/or modify it under the same
 terms as Perl itself.
 
@@ -107,10 +106,10 @@ L<Net::SNMP>
 
 use strict;
 
-use Net::SNMP::Security::USM 2.0.0;
+use Net::SNMP::Security::USM v3.0.0;
 
 my $SCRIPT  = 'snmpkey';
-my $VERSION = v2.0.0;
+my $VERSION = v2.1.0;
 
 # Do we have enough/too much information?
 if ((@ARGV < 3) || (@ARGV > 5)) {
@@ -149,11 +148,11 @@ sub _usage
 {
    printf("%s v%vd\n", $SCRIPT, $VERSION);
    print << "USAGE";
-Copyright (c) 2001-2003 David M. Town <dtown\@cpan.org>
+Copyright (c) 2001-2005 David M. Town <dtown\@cpan.org>
 All rights reserved.
 Usage: $SCRIPT <authProto> <password> <authEngineID> [<privProto> [<password>]]
        <authProto> = md5|sha
-       <privProto> = des|3desede|aescfb128|aescfb192|aescfb256
+       <privProto> = des|3des|aes
 USAGE
    exit 1;
 }
