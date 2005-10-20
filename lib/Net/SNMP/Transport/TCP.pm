@@ -3,7 +3,7 @@
 
 package Net::SNMP::Transport::TCP;
 
-# $Id: TCP.pm,v 1.1 2005/07/20 13:53:07 dtown Exp $
+# $Id: TCP.pm,v 2.0 2005/10/20 14:15:40 dtown Rel $
 
 # Object that handles the TCP/IPv4 Transport Domain for the SNMP Engine.
 
@@ -17,17 +17,18 @@ package Net::SNMP::Transport::TCP;
 
 use strict;
 
-use Net::SNMP::Transport qw( :_array DOMAIN_TCPIPV4 MSG_SIZE_MAXIMUM FALSE );
+use Net::SNMP::Transport qw( MSG_SIZE_MAXIMUM DOMAIN_TCPIPV4 TRUE FALSE );
 
 use Net::SNMP::Message qw( SEQUENCE );
 
-use IO::Socket::INET qw(
-   INADDR_ANY INADDR_LOOPBACK inet_aton inet_ntoa sockaddr_in
+use IO::Socket qw(
+   INADDR_ANY INADDR_LOOPBACK inet_aton sockaddr_in PF_INET SOCK_STREAM 
+   inet_ntoa
 );
 
 ## Version of the Net::SNMP::Transport::TCP module
 
-our $VERSION = v1.0.1;
+our $VERSION = v2.0.0;
 
 ## Handle importing/exporting of symbols
 
@@ -48,7 +49,15 @@ sub MSG_SIZE_DEFAULT_TCP4() { 1460 } # Ethernet(1500) - IPv4(20) - TCP(20)
 
 sub new
 {
-   shift->SUPER::_new(@_);
+   my ($this, $error) = shift->SUPER::_new(@_);
+
+   if (defined($this)) {
+      if (!defined($this->_reasm_init)) {
+         return wantarray ? (undef, $this->error) : undef;
+      }
+   }
+   
+   wantarray ? ($this, $error) : $this;
 }
 
 sub accept
@@ -57,24 +66,27 @@ sub accept
 
    $this->_error_clear;
 
-   my $socket = $this->[_SOCKET]->accept;
+   my $socket = $this->{_socket}->accept;
 
    if (!defined($socket)) {
-      return $this->_error($! || 'Unknown accept() error');
+      return $this->_perror('Failed to accept connection');
    }
 
-   DEBUG_INFO('opened %s socket [%d]', $this->name, $socket->fileno);
+   DEBUG_INFO('opened %s socket [%d]', $this->type, $socket->fileno);
 
    # Create a new object by copying the current object.
 
-   my $new = bless [ @{$this} ], ref($this); 
+   my $new = bless { %{$this} }, ref($this); 
 
    # Now update the appropriate fields.
 
-   $new->[_DSTNAME] = $socket->peerhost;
-   $new->[_SOCKET]  = $socket;
-   $new->[_DSTADDR] = $socket->peername;
-   $new->_reasm_reset;
+   $new->{_socket}        = $socket;
+   $new->{_dest_name}     = $socket->peername;
+   $new->{_dest_hostname} = $new->_address($new->{_dest_name});
+
+   if (!defined($new->_reasm_init)) {
+      return $this->_error($new->error);
+   }
 
    # Return the new object.
    $new;
@@ -82,33 +94,35 @@ sub accept
 
 sub send
 {
-#  my ($this, $buffer) = @_;
+   my $this = shift;
 
-   $_[0]->_error_clear;
+   $this->_error_clear;
 
-   if (length($_[1]) > $_[0]->[_MAXSIZE]) {
-      return $_[0]->_error('Message size exceeded maxMsgSize');
+   if (length($_[0]) > $this->{_max_msg_size}) {
+      return $this->_error('Message size exceeded maxMsgSize');
    }
 
-   if (!defined($_[0]->[_SOCKET]->connected)) {
-      return $_[0]->_error(
-         "Not connected to remote host '%s'", $_[0]->[_DSTNAME]
+   if (!defined($this->{_socket}->connected)) {
+      return $this->_error(
+         "Not connected to remote host '%s'", $this->dest_hostname
       );
    }
 
-   $_[0]->[_SOCKET]->send($_[1], 0) || $_[0]->_error($!);
+   my $bytes = $this->{_socket}->send($_[0], 0);
+
+   defined($bytes) ? $bytes : $this->_perror('Send failure');
 }
 
 sub recv
 {
-#  my ($this, $buffer) = @_;
+   my $this = shift;
 
-   $_[0]->_error_clear;
+   $this->_error_clear;
 
-   if (!defined($_[0]->[_SOCKET]->connected)) {
-      $_[0]->_reasm_reset;
-      return $_[0]->_error(
-         "Not connected to remote host '%s'", $_[0]->[_DSTNAME]
+   if (!defined($this->{_socket}->connected)) {
+      $this->_reasm_reset;
+      return $this->_error(
+         "Not connected to remote host '%s'", $this->dest_hostname
       );
    }
 
@@ -124,43 +138,43 @@ sub recv
    # waiting for completion.  We must then process the message length
    # to properly determine how much data to receive.
 
-   my $sa;
+   my $name;
 
-   if ($_[0]->[_REASM_BUFFER] eq '') {
+   if ($this->{_reasm_buffer} eq '') {
 
-      my ($msg, $error) = Net::SNMP::Message->new();
-
-      if (!defined($msg)) {
-         return $_[0]->_error('Failed to create Message object [%s]', $error);
+      if (!defined($this->{_reasm_object})) {
+         return $this->_error('Reassembly object not defined');
       }
 
       # Read enough data to parse the ASN.1 type and length.
 
-      $sa = $_[0]->[_SOCKET]->recv($_[0]->[_REASM_BUFFER], 6, 0);
+      $name = $this->{_socket}->recv($this->{_reasm_buffer}, 6, 0);
 
-      if ((!defined($sa)) || ($!)) {
-         return $_[0]->_error($! || 'Unknown recv() error');   
-      } elsif (!length($_[0]->[_REASM_BUFFER])) {
-         return $_[0]->_error(
-            "Connection closed by remote host '%s'", $_[0]->[_DSTNAME]
+      if ((!defined($name)) || ($!)) {
+         $this->_reasm_reset;
+         return $this->_perror('Receive failure');   
+      } elsif (!length($this->{_reasm_buffer})) {
+         $this->_reasm_reset;
+         return $this->_error(
+            "Connection closed by remote host '%s'", $this->dest_hostname
          );
       }
  
-      $msg->append($_[0]->[_REASM_BUFFER]);
+      $this->{_reasm_object}->append($this->{_reasm_buffer});
 
-      $_[0]->[_REASM_LENGTH] = $msg->process(SEQUENCE) || 0;   
+      $this->{_reasm_length} = $this->{_reasm_object}->process(SEQUENCE) || 0;
 
-      if ((!$_[0]->[_REASM_LENGTH]) || 
-           ($_[0]->[_REASM_LENGTH] > MSG_SIZE_MAXIMUM)) 
+      if ((!$this->{_reasm_length}) || 
+           ($this->{_reasm_length} > MSG_SIZE_MAXIMUM)) 
       {
-         $_[0]->_reasm_reset;
-         return $_[0]->_error(
-            "Message framing lost with remote host '%s'", $_[0]->[_DSTNAME]
+         $this->_reasm_reset;
+         return $this->_error(
+            "Message framing lost with remote host '%s'", $this->dest_hostname
          );
       }
 
       # Add in the bytes parsed to define the expected message length.
-      $_[0]->[_REASM_LENGTH] += $msg->index;
+      $this->{_reasm_length} += $this->{_reasm_object}->index;
 
    }
 
@@ -168,19 +182,19 @@ sub recv
    # based upon the contents of the reassembly buffer. 
 
    my $buf = '';
-   my $buf_len = length($_[0]->[_REASM_BUFFER]);
+   my $buf_len = length($this->{_reasm_buffer});
 
    # Read the rest of the message.
 
-   $sa = $_[0]->[_SOCKET]->recv($buf, ($_[0]->[_REASM_LENGTH] - $buf_len), 0);
+   $name = $this->{_socket}->recv($buf, ($this->{_reasm_length} - $buf_len), 0);
 
-   if ((!defined($sa)) || ($!)) {
-      $_[0]->_reasm_reset;
-      return $_[0]->_error($! || 'Unknown recv() error');
+   if ((!defined($name)) || ($!)) {
+      $this->_reasm_reset;
+      return $this->_perror('Receive failure');
    } elsif (!length($buf)) {
-      $_[0]->_reasm_reset;
-      return $_[0]->_error(
-         "Connection closed by remote host '%s'", $_[0]->[_DSTNAME]
+      $this->_reasm_reset;
+      return $this->_error(
+         "Connection closed by remote host '%s'", $this->dest_hostname
       );
    }
 
@@ -189,30 +203,30 @@ sub recv
    # continue to call recv() until the message is reassembled.
 
    $buf_len += length($buf);
-   $_[0]->[_REASM_BUFFER] .= $buf;
+   $this->{_reasm_buffer} .= $buf;
 
-   if ($buf_len < $_[0]->[_REASM_LENGTH]) {
+   if ($buf_len < $this->{_reasm_length}) {
       DEBUG_INFO(
          'message is incomplete (expect %u bytes, have %u bytes)',
-         $_[0]->[_REASM_LENGTH], $buf_len
+         $this->{_reasm_length}, $buf_len
       );
-      $_[1] = '';
-      return $sa || $_[0]->[_SOCKET]->connected;
+      $_[0] = '';
+      return $name || $this->{_socket}->connected;
    } 
 
    # Validate the maxMsgSize.
-   if ($buf_len > $_[0]->[_MAXSIZE]) {
-      $_[0]->_reasm_reset;
-      return $_[0]->_error('Incoming message size exceeded maxMsgSize');
+   if ($buf_len > $this->{_max_msg_size}) {
+      $this->_reasm_reset;
+      return $this->_error('Incoming message size exceeded maxMsgSize');
    }  
 
    # The message is complete, copy the buffer to the caller.
-   $_[1] = $_[0]->[_REASM_BUFFER];
+   $_[0] = $this->{_reasm_buffer};
 
    # Clear the reassembly buffer and length.
-   $_[0]->_reasm_reset;
+   $this->_reasm_reset;
  
-   $sa || $_[0]->[_SOCKET]->connected;
+   $name || $this->{_socket}->connected;
 }
 
 sub connectionless
@@ -222,19 +236,59 @@ sub connectionless
 
 sub domain
 {
-   DOMAIN_TCPIPV4;
+   DOMAIN_TCPIPV4; # transportDomainTcpIpv4
 }
 
-sub name 
+sub type 
 {
-   'TCP/IPv4';
+   'TCP/IPv4'; # tcpIpv4(5)
+}
+
+sub agent_addr
+{
+   $_[0]->_address($_[0]->{_socket}->sockname || $_[0]->{_sock_name});
 }
 
 # [private methods] ----------------------------------------------------------
 
+sub _protocol_name
+{
+   'tcp';
+}
+
 sub _msg_size_default
 {
    MSG_SIZE_DEFAULT_TCP4;
+}
+
+sub _reasm_init
+{
+   my ($this) = @_;
+
+   my $error;
+
+   ($this->{_reasm_object}, $error) = Net::SNMP::Message->new;
+
+   if (!defined($this->{_reasm_object})) {
+      return $this->_error('Failed to create reassembly object: %s', $error);
+   }
+
+   $this->_reasm_reset;
+
+   TRUE;
+}
+
+sub _reasm_reset
+{
+   my ($this) = @_;
+
+   if (defined($this->{_reasm_object})) {
+      $this->{_reasm_object}->error(undef);
+      $this->{_reasm_object}->clear;
+   }
+
+   $this->{_reasm_buffer} = '';
+   $this->{_reasm_length} = 0;
 }
 
 sub _addr_any
@@ -247,39 +301,67 @@ sub _addr_loopback
    INADDR_LOOPBACK;
 }
 
-sub _addr_aton
+sub _hostname_resolve
 {
-   inet_aton($_[1]);
-}
+   my ($this, $host, $nh) = @_;
 
-sub _addr_ntoa
-{
-   inet_ntoa($_[1]);
-}
+   $nh->{addr} = undef;
 
-sub _addr_pack
-{
-   shift;
-   sockaddr_in(@_);
-}
+   # See if the the service/port was included in the address.
 
-sub _serv_aton
-{
-   my ($this, $serv) = @_;
+   my $serv = ($host =~ s/:([\w\(\)\/]+)$//) ? $1 : undef;
 
-   if ($serv !~ /^\d+$/) {
-      getservbyname($serv, 'tcp');
-   } elsif ($serv <= 65535) {
-      $serv;
-   } else {
-      return;
+   if (defined($serv) && (!defined($this->_service_resolve($serv, $nh)))) {
+      return $this->_error('Failed to resolve %s service', $this->type);
    }
+
+   # Resolve the address.
+
+   if (!defined($nh->{addr} = inet_aton($_[1] = $host))) {
+      $this->_error("Unable to resolve %s address '%s'", $this->type, $host);
+   } else {
+      $nh->{addr};
+   }
+}
+
+sub _name_pack
+{
+   sockaddr_in($_[1]->{port}, $_[1]->{addr});
 }
 
 sub _socket_create
 {
-   shift;
-   IO::Socket::INET->new(Proto => 'tcp', @_);
+   IO::Socket->new->socket(PF_INET, SOCK_STREAM, (getprotobyname('tcp'))[2]);
+}
+
+sub _address
+{
+   inet_ntoa($_[0]->_addr($_[1]));
+}
+
+sub _addr
+{
+   (sockaddr_in($_[1]))[1];
+}
+
+sub _port
+{
+   (sockaddr_in($_[1]))[0];
+}
+
+sub _taddress
+{
+   sprintf('%s:%d', $_[0]->_address($_[1]), $_[0]->_port($_[1]));
+}
+
+sub _taddr
+{
+   $_[0]->_addr($_[1]) . pack('n', $_[0]->_port($_[1]));
+}
+
+sub _tdomain
+{
+    DOMAIN_TCPIPV4; # transportDomainTcpIpv4
 }
 
 sub DEBUG_INFO

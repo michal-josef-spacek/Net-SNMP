@@ -3,11 +3,11 @@
 
 package Net::SNMP::Transport::UDP;
 
-# $Id: UDP.pm,v 2.0 2004/07/20 13:27:44 dtown Exp $
+# $Id: UDP.pm,v 3.0 2005/10/20 14:16:05 dtown Rel $
 
 # Object that handles the UDP/IPv4 Transport Domain for the SNMP Engine.
 
-# Copyright (c) 2001-2004 David M. Town <dtown@cpan.org>
+# Copyright (c) 2001-2005 David M. Town <dtown@cpan.org>
 # All rights reserved.
 
 # This program is free software; you may redistribute it and/or modify it
@@ -17,15 +17,16 @@ package Net::SNMP::Transport::UDP;
 
 use strict;
 
-use Net::SNMP::Transport qw( :_array DOMAIN_UDP );
+use Net::SNMP::Transport qw( DOMAIN_UDPIPV4 );
 
-use IO::Socket::INET qw(
-   INADDR_ANY INADDR_LOOPBACK inet_aton inet_ntoa sockaddr_in
+use IO::Socket qw(
+   INADDR_ANY INADDR_LOOPBACK inet_aton PF_INET SOCK_DGRAM sockaddr_in 
+   inet_ntoa
 );
 
 ## Version of the Net::SNMP::Transport::UDP module
 
-our $VERSION = v2.0.0;
+our $VERSION = v3.0.0;
 
 ## Handle importing/exporting of symbols
 
@@ -51,43 +52,64 @@ sub new
 
 sub send
 {
-#  my ($this, $buffer) = @_;
+   my $this = shift;
 
-   $_[0]->_error_clear;
+   $this->_error_clear;
 
-   if (length($_[1]) > $_[0]->[_MAXSIZE]) {
-      return $_[0]->_error('Message size exceeded maxMsgSize');
+   if (length($_[0]) > $this->{_max_msg_size}) {
+      return $this->_error('Message size exceeded maxMsgSize');
    }
-  
-   $_[0]->[_SOCKET]->send($_[1], 0, $_[0]->[_DSTADDR]) || $_[0]->_error($!);
+
+   my $bytes = $this->{_socket}->send($_[0], 0, $this->{_dest_name});
+
+   defined($bytes) ? $bytes : $this->_perror('Send failure');
 }
 
 sub recv
 {
-#  my ($this, $buffer) = @_;
+   my $this = shift;
 
-   $_[0]->_error_clear;
+   $this->_error_clear;
 
-   my $sa = $_[0]->[_SOCKET]->recv($_[1], $_[0]->_shared_maxsize, 0);
+   my $name = $this->{_socket}->recv($_[0], $this->_shared_max_size, 0);
 
-   if (!defined($sa)) {
-      return $_[0]->_error($! || 'Unknown recv() error')
-   }
-
-   $sa;
+   defined($name) ? $name : $this->_perror('Receive failure');
 }
 
 sub domain
 {
-   DOMAIN_UDP;
+   DOMAIN_UDPIPV4; # transportDomainUdpIpv4
 }
 
-sub name 
+sub type 
 {
-   'UDP/IPv4';
+   'UDP/IPv4'; # udpIpv4(1)
+}
+
+sub agent_addr 
+{
+   my ($this) = @_;
+
+   $this->_error_clear;
+
+   my $name = $this->{_socket}->sockname || $this->{_sock_name};
+
+   if ($this->{_socket}->connect($this->{_dest_name})) {
+      $name = $this->{_socket}->sockname || $this->{_sock_name};
+      if (!$this->{_socket}->connect((pack('x') x length($name)))) {
+         $this->_perror('Failed to disconnect');
+      }
+   }
+
+   $this->_address($name);
 }
 
 # [private methods] ----------------------------------------------------------
+
+sub _protocol_name
+{
+   'udp';
+}
 
 sub _msg_size_default
 {
@@ -104,39 +126,67 @@ sub _addr_loopback
    INADDR_LOOPBACK;
 }
 
-sub _addr_aton
+sub _hostname_resolve
 {
-   inet_aton($_[1]);
-}
+   my ($this, $host, $nh) = @_;
 
-sub _addr_ntoa
-{
-   inet_ntoa($_[1]);
+   $nh->{addr} = undef;
+
+   # See if the the service/port was included in the address.
+
+   my $serv = ($host =~ s/:([\w\(\)\/]+)$//) ? $1 : undef;
+
+   if (defined($serv) && (!defined($this->_service_resolve($serv, $nh)))) {
+      return $this->_error('Failed to resolve %s service', $this->type);
+   }
+
+   # Resolve the address.
+
+   if (!defined($nh->{addr} = inet_aton($_[1] = $host))) {
+      $this->_error("Unable to resolve %s address '%s'", $this->type, $host);
+   } else {
+      $nh->{addr};
+   }
 } 
 
-sub _addr_pack
+sub _name_pack
 {
-   shift;
-   sockaddr_in(@_);
-}
-
-sub _serv_aton
-{
-   my ($this, $serv) = @_;
-
-   if ($serv !~ /^\d+$/) {
-      getservbyname($serv, 'udp');
-   } elsif ($serv <= 65535) {
-      $serv;
-   } else {
-      return;
-   }
+   sockaddr_in($_[1]->{port}, $_[1]->{addr});
 }
 
 sub _socket_create
 {
-   shift;
-   IO::Socket::INET->new(Proto => 'udp', @_);
+   IO::Socket->new->socket(PF_INET, SOCK_DGRAM, (getprotobyname('udp'))[2]);
+}
+
+sub _address
+{
+   inet_ntoa($_[0]->_addr($_[1]));
+}
+
+sub _addr
+{
+   (sockaddr_in($_[1]))[1];
+}
+
+sub _port
+{
+   (sockaddr_in($_[1]))[0];
+}
+
+sub _taddress
+{
+   sprintf('%s:%d', $_[0]->_address($_[1]), $_[0]->_port($_[1]));
+}
+
+sub _taddr
+{
+   $_[0]->_addr($_[1]) . pack('n', $_[0]->_port($_[1]));
+}
+
+sub _tdomain
+{
+    DOMAIN_UDPIPV4; 
 }
 
 sub DEBUG_INFO

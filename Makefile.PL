@@ -1,7 +1,7 @@
 # -*- mode: perl -*-
 # ============================================================================
 
-# $Id: Makefile.PL,v 5.2 2005/07/20 13:53:07 dtown Exp $
+# $Id: Makefile.PL,v 5.3 2005/10/20 14:17:01 dtown Rel $
 
 # Makefile for the Perl module Net::SNMP.
 
@@ -29,7 +29,7 @@ WriteMakefile(
    ABSTRACT      => 'Object oriented interface to SNMP',
    NAME          => 'Net::SNMP',
    DISTNAME      => 'Net-SNMP',
-   VERSION       => '5.1.0',
+   VERSION       => '5.2.0',
 #  VERSION_FROM  => 'lib/Net/SNMP.pm', # Does not handle v-strings properly
    EXE_FILES	 => ['snmpkey'],
    PL_FILES      => {'snmpkey.PL' => 'snmpkey'},
@@ -40,7 +40,7 @@ WriteMakefile(
       Digest::HMAC => '1.00'
    },   
    dist          => { 
-      CI       => 'ci -u -m\"Changes for v$(VERSION)\"',
+      CI       => 'ci -u -sRel -m\"Changes for v$(VERSION)\"',
       COMPRESS => 'gzip --best', 
       SUFFIX   => 'gz' 
    },

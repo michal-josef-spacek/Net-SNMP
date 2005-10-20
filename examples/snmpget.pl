@@ -6,7 +6,7 @@ if 0;
 
 # ============================================================================
 
-# $Id: snmpget.pl,v 2.4 2005/07/20 13:53:07 dtown Exp $
+# $Id: snmpget.pl,v 2.4 2005/07/20 13:53:07 dtown Rel $
 
 # Copyright (c) 2000-2005 David M. Town <dtown@cpan.org>
 # All rights reserved.

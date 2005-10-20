@@ -3,11 +3,11 @@
 
 package Net::SNMP::Transport::TCP6;
 
-# $Id: TCP6.pm,v 1.1 2004/09/09 16:53:00 dtown Exp $
+# $Id: TCP6.pm,v 2.0 2005/10/20 14:15:51 dtown Rel $
 
 # Object that handles the TCP/IPv6 Transport Domain for the SNMP Engine.
 
-# Copyright (c) 2004 David M. Town <dtown@cpan.org>
+# Copyright (c) 2004-2005 David M. Town <dtown@cpan.org>
 # All rights reserved.
 
 # This program is free software; you may redistribute it and/or modify it
@@ -17,18 +17,18 @@ package Net::SNMP::Transport::TCP6;
 
 use strict;
 
-use Net::SNMP::Transport::TCP qw( DOMAIN_TCPIPV6 _SOCKET );
+use Net::SNMP::Transport::TCP qw( DOMAIN_TCPIPV6 DOMAIN_TCPIPV6Z );
 
-use IO::Socket::INET6;
+use IO::Socket qw( SOCK_STREAM );
 
-use Socket6 qw(
-   AF_INET6 in6addr_any in6addr_loopback inet_pton getaddrinfo inet_ntop 
-   sockaddr_in6
-); 
+use Socket6 0.19 qw(
+   in6addr_any in6addr_loopback getaddrinfo PF_INET6 pack_sockaddr_in6_all
+   getnameinfo NI_NUMERICHOST NI_NUMERICSERV unpack_sockaddr_in6_all
+);
 
 ## Version of the Net::SNMP::Transport::TCP6 module
 
-our $VERSION = v1.0.1;
+our $VERSION = v2.0.0;
 
 ## Handle importing/exporting of symbols
 
@@ -49,24 +49,62 @@ sub MSG_SIZE_DEFAULT_TCP6() { 1440 } # Ethernet(1500) - IPv6(40) - TCP(20)
 
 sub domain
 {
-   DOMAIN_TCPIPV6;
+   DOMAIN_TCPIPV6; # transportDomainTcpIpv6
 }
 
-sub name 
+sub type 
 {
-  'TCP/IPv6';
+   'TCP/IPv6'; # tcpIpv6(6)
 }
 
-sub srcaddr
+sub agent_addr
 {
-   return in6addr_any unless (my $name = $_[0]->[_SOCKET]->sockname);
-   (sockaddr_in6($name))[1];
+   '0.0.0.0';
 }
 
-sub recvaddr
+sub sock_flowinfo
 {
-   return in6addr_any unless (my $name = $_[0]->[_SOCKET]->peername);
-   (sockaddr_in6($name))[1];
+   $_[0]->_flowinfo($_[0]->sock_name);
+}
+
+sub sock_scope_id
+{
+   $_[0]->_scope_id($_[0]->sock_name);
+}
+
+sub sock_tzone
+{
+   $_[0]->sock_scope_id;
+}
+
+sub dest_flowinfo
+{
+   $_[0]->_flowinfo($_[0]->dest_name);
+}
+
+sub dest_scope_id
+{
+   $_[0]->_scope_id($_[0]->dest_name);
+}
+
+sub dest_tzone
+{
+   $_[0]->dest_scope_id;
+}
+
+sub recv_flowinfo
+{
+   $_[0]->_flowinfo($_[0]->peer_name);
+}
+
+sub recv_scope_id
+{
+   $_[0]->_scope_id($_[0]->peer_name);
+}
+
+sub peer_tzone
+{
+   $_[0]->peer_scope_id;
 }
 
 # [private methods] ----------------------------------------------------------
@@ -86,54 +124,102 @@ sub _addr_loopback
    in6addr_loopback; 
 }
 
-sub _addr_aton
+sub _hostname_resolve
 {
-   my ($this, $addr) = @_;
+   my ($this, $host, $nh) = @_;
 
-   if ($addr =~ /:/) {
+   $nh->{addr} = undef;
 
-      inet_pton(AF_INET6, $addr); 
+   # See if the service/port was included in the address.
 
-   } else {
-   
-      my @info = getaddrinfo($addr, '');
-      
-      if (@info == 1) {
-         DEBUG_INFO('getaddrinfo(): %s', $info[0]);
-         return undef;
-      }
+   my $serv = ($host =~ s/^\[(.+)\]:([\w\(\)\/]+)$/$1/) ? $2 : undef;
 
-      while (@info >= 5) {
-         my ($family, $type, $proto, $sin, $cname) = splice(@info, 0, 5);  
-         DEBUG_INFO(
-            'family = %d, type = %d, proto = %d, sin = %s, cname = %s', 
-             $family, $type, $proto, unpack('H*', $sin), ($cname || $addr)
-         );
-         if ($family == AF_INET6) {
-            return (sockaddr_in6($sin))[1];
-         }
-      }
-
-      undef;
+   if (defined($serv) && (!defined($this->_service_resolve($serv, $nh)))) {
+      return $this->_error('Failed to resolve %s service', $this->type);
    }
 
+   # See if the scope zone index was included in the address.
+
+   $nh->{scope_id} = ($host =~ s/%(\d+)$//) ? $1 : 0;
+
+   # Resolve the address.
+
+   my @info = getaddrinfo(($_[1] = $host), '', PF_INET6);
+
+   if (@info >= 5) {
+      $nh->{addr} = $this->_addr($info[3]);
+      $nh->{flowinfo} = $this->_flowinfo($info[3]);
+      $nh->{scope_id} ||= $this->_scope_id($info[3]);
+   } else {
+      DEBUG_INFO('getaddrinfo(): %s', $info[0]);
+      if ((my @host = split(':', $host)) == 2) { # <hostname>:<service>
+         $this->_hostname_resolve(($_[1] = sprintf('[%s]:%s', @host)), $nh);
+      }
+   }
+
+   if (!defined($nh->{addr})) {
+      $this->_error("Unable to resolve %s address '%s'", $this->type, $host);
+   } else {
+      $nh->{addr};
+   }
 }
 
-sub _addr_ntoa
+sub _name_pack
 {
-   inet_ntop(AF_INET6, $_[1]);
-}
-
-sub _addr_pack
-{
-   shift; 
-   sockaddr_in6(@_); 
+   pack_sockaddr_in6_all(
+      $_[1]->{port}, $_[1]->{flowinfo} || 0, 
+      $_[1]->{addr}, $_[1]->{scope_id} || 0 
+   );
 }
 
 sub _socket_create
 {
-   shift;
-   IO::Socket::INET6->new(Proto => 'tcp', @_);
+   IO::Socket->new->socket(PF_INET6, SOCK_STREAM, (getprotobyname('tcp'))[2]);
+}
+
+sub _address
+{
+   my $a = (getnameinfo($_[1], (NI_NUMERICHOST | NI_NUMERICSERV)))[0];
+   $a =~ m/(.*)%(?:\d+)$/ ? $1 : $a;
+}
+
+sub _addr
+{
+   (unpack_sockaddr_in6_all($_[1]))[2];
+}
+
+sub _port
+{
+   (unpack_sockaddr_in6_all($_[1]))[0];
+}
+
+sub _taddress
+{
+   my $s = $_[0]->_scope_id($_[1]);
+   $s = $s ? sprintf('%%%d', $s) : '';
+   sprintf('[%s%s]:%d', $_[0]->_address($_[1]), $s, $_[0]->_port($_[1]));
+}
+
+sub _taddr
+{
+   my $s = $_[0]->_scope_id($_[1]);
+   $s = $s ? pack('N', $s) : '';
+   $_[0]->_addr($_[1]) . $s . pack('n', $_[0]->_port($_[1]));
+}
+
+sub _tdomain
+{
+   $_[0]->_scope_id($_[1]) ? DOMAIN_TCPIPV6Z : DOMAIN_TCPIPV6;
+}
+
+sub _scope_id
+{
+   (unpack_sockaddr_in6_all($_[1]))[3];
+}
+
+sub _flowinfo
+{
+   (unpack_sockaddr_in6_all($_[1]))[1];
 }
 
 sub DEBUG_INFO

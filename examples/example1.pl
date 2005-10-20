@@ -2,7 +2,7 @@
 
 # ============================================================================
 
-# $Id: example1.pl,v 4.0 2001/10/15 13:13:17 dtown Exp $
+# $Id: example1.pl,v 4.0 2001/10/15 13:13:17 dtown Rel $
 
 # Copyright (c) 2000-2001 David M. Town <dtown@cpan.org>
 # All rights reserved.

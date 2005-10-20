@@ -6,7 +6,7 @@ if 0;
 
 # ============================================================================
 
-# $Id: snmpkey.PL,v 1.4 2005/07/20 13:53:07 dtown Exp $
+# $Id: snmpkey.PL,v 1.4 2005/07/20 13:53:07 dtown Rel $
 
 # Copyright (c) 2001-2005 David M. Town <dtown@cpan.org>
 # All rights reserved.
@@ -28,7 +28,7 @@ print OUT <<'AS-IS';
 
 # ============================================================================
 
-# $Id: snmpkey.PL,v 1.4 2005/07/20 13:53:07 dtown Exp $
+# $Id: snmpkey.PL,v 1.4 2005/07/20 13:53:07 dtown Rel $
 
 # Copyright (c) 2001-2005 David M. Town <dtown@cpan.org>
 # All rights reserved.

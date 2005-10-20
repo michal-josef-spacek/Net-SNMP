@@ -3,7 +3,7 @@
 
 package Net::SNMP::Security::USM;
 
-# $Id: USM.pm,v 2.4 2005/07/20 13:53:07 dtown Exp $
+# $Id: USM.pm,v 3.1 2005/10/20 14:17:01 dtown Rel $
 
 # Object that implements the SNMPv3 User-based Security Model.
 
@@ -30,7 +30,7 @@ use Digest::HMAC();
 
 ## Version of the Net::SNMP::Security::USM module
 
-our $VERSION = v3.0.0;
+our $VERSION = v3.0.1;
 
 ## Handle importing/exporting of symbols
 
@@ -148,6 +148,10 @@ sub new
          $this->_auth_protocol(delete($argv{$_}));
       } elsif (/^-?privprotocol$/i) {
          $this->_priv_protocol(delete($argv{$_}));
+      }
+
+      if (defined($this->{_error})) {
+         return wantarray ? (undef, $this->{_error}) : undef;
       }
    }
 

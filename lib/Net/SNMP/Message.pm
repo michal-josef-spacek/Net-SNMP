@@ -3,7 +3,7 @@
 
 package Net::SNMP::Message;
 
-# $Id: Message.pm,v 2.2 2005/07/20 13:53:07 dtown Exp $
+# $Id: Message.pm,v 2.3 2005/10/20 14:17:01 dtown Rel $
 
 # Object used to represent a SNMP message. 
 
@@ -22,7 +22,7 @@ use Math::BigInt();
 
 ## Version of the Net::SNMP::Message module
 
-our $VERSION = v2.0.2;
+our $VERSION = v2.0.3;
 
 ## Handle importing/exporting of symbols
 
@@ -417,7 +417,7 @@ sub msg_security_model
 {
    my ($this, $model) = @_;
 
-   # RFC 3412 - msgSecurityModel INTEGER (1..2147483647)
+   # RFC 3412 - msgSecurityModel::=INTEGER (1..2147483647)
 
    if (@_ == 2) {
       if (!defined($model)) {
@@ -590,9 +590,20 @@ sub transport
    $this->{_transport};
 }
 
+sub hostname
+{
+   defined($_[0]->{_transport}) ? $_[0]->{_transport}->dest_hostname : '';
+}
+
 sub dstname
 {
-   defined($_[0]->{_transport}) ? $_[0]->{_transport}->dstname : '';
+   warn
+      sprintf(
+         "dstname() is deprecated, use hostname() instead at %s line %d.\n",
+         (caller(0))[1,2]
+      );
+
+   $_[0]->hostname;
 }
 
 sub max_msg_size
@@ -632,14 +643,12 @@ sub send
       return $this->_error('No Transport Domain defined');
    }
 
-   DEBUG_INFO(
-      'address %s, port %d', 
-      $this->{_transport}->dsthost, $this->{_transport}->dstport
-   );
+   DEBUG_INFO('transport address %s', $this->{_transport}->dest_taddress);
    $this->_buffer_dump;
 
-   $this->{_transport}->send($this->{_buffer}) || 
-      $this->_error($this->{_transport}->error);
+   my $bytes = $this->{_transport}->send($this->{_buffer});
+
+   defined($bytes) ? $bytes : $this->_error($this->{_transport}->error);
 }
 
 sub recv 
@@ -652,19 +661,16 @@ sub recv
       return $this->_error('No Transport Domain defined');
    }
 
-   my $sa = $this->{_transport}->recv($this->{_buffer});
+   my $name = $this->{_transport}->recv($this->{_buffer});
 
-   if (defined($sa)) {
+   if (defined($name)) {
 
       $this->{_length} = CORE::length($this->{_buffer});
 
-      DEBUG_INFO(
-         'address %s, port %d',
-         $this->{_transport}->recvhost, $this->{_transport}->recvport
-      );
+      DEBUG_INFO('transport address %s', $this->{_transport}->peer_taddress);
       $this->_buffer_dump;
 
-      $sa;
+      $name;
 
    } else {
 
@@ -967,7 +973,7 @@ sub _prepare_object_identifier
    # RFC 2578 Section 3.5 - "...there are at most 128 sub-identifiers..."
    if (@subids > 128) {
       return $this->_error(
-         'Exceeded maximum of 128 sub-identifiers in an OBJECT IDENTIFIER'
+         'Exceeded the maximum of 128 sub-identifiers in an OBJECT IDENTIFIER'
       );
    }
 
@@ -1038,23 +1044,28 @@ sub _prepare_object_identifier
 
 sub _prepare_sequence
 {
-   my ($this, $value) = @_;
+   $_[0]->_prepare_implicit_sequence(SEQUENCE, $_[1]);
+}
+
+sub _prepare_implicit_sequence
+{
+   my ($this, $type, $value) = @_;
 
    if (defined($value)) {
 
-      $this->_prepare_type_length(SEQUENCE, $value);
+      $this->_prepare_type_length($type, $value);
 
    } else {
 
       # If the passed value is undefined, we assume that the value of
-      # the SEQUENCE is the data currently in the serial buffer.
+      # the IMPLICIT SEQUENCE is the data currently in the serial buffer.
 
       if ($this->{_length} < 0x80) {
-         $this->_buffer_put(pack('C2', SEQUENCE, $this->{_length}));
+         $this->_buffer_put(pack('C2', $type, $this->{_length}));
       } elsif ($this->{_length} <= 0xff) {
-         $this->_buffer_put(pack('C3', SEQUENCE, 0x81, $this->{_length}));
+         $this->_buffer_put(pack('C3', $type, 0x81, $this->{_length}));
       } elsif ($this->{_length} <= 0xffff) {
-         $this->_buffer_put(pack('CCn', SEQUENCE, 0x82, $this->{_length}));
+         $this->_buffer_put(pack('CCn', $type, 0x82, $this->{_length}));
       } else {
          $this->_error('Unable to prepare ASN.1 length');
       }
@@ -1182,22 +1193,22 @@ sub _prepare_endofmibview
 
 sub _prepare_get_request
 {
-   $_[0]->_prepare_type_length(GET_REQUEST, $_[1]);
+   $_[0]->_prepare_implicit_sequence(GET_REQUEST, $_[1]);
 }
 
 sub _prepare_get_next_request
 {
-   $_[0]->_prepare_type_length(GET_NEXT_REQUEST, $_[1]);
+   $_[0]->_prepare_implicit_sequence(GET_NEXT_REQUEST, $_[1]);
 }
 
 sub _prepare_get_response
 {
-   $_[0]->_prepare_type_length(GET_RESPONSE, $_[1]);
+   $_[0]->_prepare_implicit_sequence(GET_RESPONSE, $_[1]);
 }
 
 sub _prepare_set_request
 {
-   $_[0]->_prepare_type_length(SET_REQUEST, $_[1]);
+   $_[0]->_prepare_implicit_sequence(SET_REQUEST, $_[1]);
 }
 
 sub _prepare_trap
@@ -1208,7 +1219,7 @@ sub _prepare_trap
       return $this->_error('Trap-PDU only supported in SNMPv1');
    }
 
-   $this->_prepare_type_length(TRAP, $value);
+   $this->_prepare_implicit_sequence(TRAP, $value);
 }
 
 sub _prepare_get_bulk_request
@@ -1219,7 +1230,7 @@ sub _prepare_get_bulk_request
       return $this->_error('GetBulkRequest-PDU not supported in SNMPv1');
    }
 
-   $this->_prepare_type_length(GET_BULK_REQUEST, $value);
+   $this->_prepare_implicit_sequence(GET_BULK_REQUEST, $value);
 }
 
 sub _prepare_inform_request
@@ -1230,7 +1241,7 @@ sub _prepare_inform_request
       return $this->_error('InformRequest-PDU not supported in SNMPv1');
    }
 
-   $this->_prepare_type_length(INFORM_REQUEST, $value);
+   $this->_prepare_implicit_sequence(INFORM_REQUEST, $value);
 }
 
 sub _prepare_v2_trap
@@ -1241,7 +1252,7 @@ sub _prepare_v2_trap
       return $this->_error('SNMPv2-Trap-PDU not supported in SNMPv1');
    }
 
-   $this->_prepare_type_length(SNMPV2_TRAP, $value);
+   $this->_prepare_implicit_sequence(SNMPV2_TRAP, $value);
 }
 
 sub _prepare_report
@@ -1252,7 +1263,7 @@ sub _prepare_report
       return $this->_error('Report-PDU not supported in SNMPv1');
    }
 
-   $this->_prepare_type_length(REPORT, $value);
+   $this->_prepare_implicit_sequence(REPORT, $value);
 }
 
 #
@@ -1323,13 +1334,13 @@ sub _process_integer32
 
    if ($negative) {
       if (($type == INTEGER) || (!($this->{_translate} & TRANSLATE_UNSIGNED))) {
-         sprintf('%d', $int32);
+         unpack('l', pack('l', $int32));
       } else {
          DEBUG_INFO('translating negative %s value', asn1_itoa($type));
-         sprintf('%u', $int32);
+         unpack('L', pack('l', $int32));
       }
    } else {
-      sprintf('%u', $int32);
+      unpack('L', pack('L', $int32));
    }
 }
 

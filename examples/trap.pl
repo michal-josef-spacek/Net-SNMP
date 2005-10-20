@@ -6,7 +6,7 @@ if 0;
 
 # ============================================================================
 
-# $Id: trap.pl,v 4.1 2002/05/06 12:30:37 dtown Exp $
+# $Id: trap.pl,v 4.1 2002/05/06 12:30:37 dtown Rel $
 
 # Copyright (c) 2000-2002 David M. Town <dtown@cpan.org>
 # All rights reserved.

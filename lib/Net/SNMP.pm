@@ -3,7 +3,7 @@
 
 package Net::SNMP;
 
-# $Id: SNMP.pm,v 5.2 2005/07/20 13:53:07 dtown Exp $
+# $Id: SNMP.pm,v 5.3 2005/10/20 14:17:01 dtown Rel $
 
 # Copyright (c) 1998-2005 David M. Town <dtown@cpan.org>
 # All rights reserved.
@@ -106,7 +106,7 @@ BEGIN
 
 ## Version of the Net::SNMP module
 
-our $VERSION = v5.1.0;
+our $VERSION = v5.2.0;
 
 ## Load our modules
 
@@ -382,7 +382,7 @@ sub open
    $this->_error_clear;
 
    # Keep a copy of the hostname 
-   $this->{_hostname} = $this->{_transport}->dstname;
+   $this->{_hostname} = $this->{_transport}->dest_hostname;
 
    # Perform SNMPv3 authoritative engine discovery
    $this->_discovery if ($this->version == SNMP_VERSION_3);
@@ -393,7 +393,7 @@ sub open
 =head2 session() - create a new Net::SNMP object
 
    ($session, $error) = Net::SNMP->session(
-                           [-hostname      => $hostname,] 
+                           [-hostname      => $hostname,]
                            [-port          => $port,]
                            [-localaddr     => $localaddr,]
                            [-localport     => $localport,]
@@ -405,13 +405,13 @@ sub open
                            [-maxmsgsize    => $octets,]
                            [-translate     => $translate,]
                            [-debug         => $bitmask,]
-                           [-community     => $community,]   # v1/v2c  
-                           [-username      => $username,]    # v3  
-                           [-authkey       => $authkey,]     # v3  
-                           [-authpassword  => $authpasswd,]  # v3  
-                           [-authprotocol  => $authproto,]   # v3  
-                           [-privkey       => $privkey,]     # v3  
-                           [-privpassword  => $privpasswd,]  # v3  
+                           [-community     => $community,]   # v1/v2c
+                           [-username      => $username,]    # v3
+                           [-authkey       => $authkey,]     # v3
+                           [-authpassword  => $authpasswd,]  # v3
+                           [-authprotocol  => $authproto,]   # v3
+                           [-privkey       => $privkey,]     # v3
+                           [-privpassword  => $privpasswd,]  # v3
                            [-privprotocol  => $privproto,]   # v3
                         );
 
@@ -442,24 +442,37 @@ value to one of the following strings: 'udp6', 'udp/ipv6'; 'tcp', 'tcp4',
 the strings 'udp', 'udp4', or 'udp/ipv4' which correspond to the default
 Transport Domain of UDP/IPv4.
 
-The destination device can be specified using the B<-hostname> argument.  The
-B<-hostname> argument accepts either an IP network hostname or an IP address.
-The IP address is expected in dotted notation when using IPv4 and in
-presentation format when using IPv6.  The B<-hostname> argument is optional
-and defaults to "localhost".  The destination port number or service name
-can be specified using the B<-port> argument.  This argument is also optional
-and defaults to 161, which is the port number on which devices using 
-well-known values expect to receive SNMP request messages.  The B<-port> 
-argument will need to be specified for remote devices expecting to receive 
-SNMP notifications since these devices typically default to a port value of 162.
+The transport address of the destination SNMP device can be specified using
+the B<-hostname> argument.  This argument is optional and defaults to
+"localhost".  The destination port number can be specified as part of the
+transport address or by using the B<-port> argument.  Either a numeric port
+number or a textual service name can be specified.  A numeric port number in
+parentheses can optionally follow the service name.  This port number will
+be used if the service name cannot be resolved.  If the destination port number
+is not specified, the well-known SNMP port number 161 is used.
 
-By default, the source IP address and port number are assigned dynamically by
-the local device on which the Net::SNMP module is being used.  This dynamic
-assignment can be overridden by using the B<-localaddr> and B<-localport>
-arguments.  These values default to I<INADDR_ANY> (or I<in6addr_any> for IPv6)
-and 0 respectively.  The B<-localaddr> argument will accept either an IP
-network hostname or an IP address.  In either case the address must correspond
-to a valid address of an interface on the local device.
+By default the source transport address and port number are assigned 
+dynamically by the local device on which the Net::SNMP module is being used.
+This dynamic assignment can be overridden by using the B<-localaddr> and
+B<-localport> arguments.  These arguments accept the same values as the
+B<-hostname> and B<-port> arguments respectively.  The resolved address must
+correspond to a valid address of an interface on the local device.
+
+When using an IPv4 Transport Domain, the transport address can be specified
+as either an IP network hostname or an IPv4 address in standard dotted notation.
+The port information can be optionally appended to the hostname or address
+delimited by a colon.  The accepted IPv4 transport address formats are 
+C<address>, C<address:port>, C<hostname>, and C<hostname:port>.
+
+When using an IPv6 Transport Domain, the transport address can be specified
+as an IP hostname (which will be looked up as a DNS quad-A record) or an IPv6
+address in presentation format.  The port information can optionally be 
+included following a colon after the hostname or address.  When including this
+information after an IPv6 address, the address must be enclosed in square 
+brackets.  The scope zone index (described in RFC 4007) can be specified after
+the address as a decimal value delimited by a percent sign.  The accepted
+transport address formats for IPv6 are C<address>, C<address%zone>,
+C<[address]:port>, C<[address%zone]:port>, C<hostname>, and C<hostname:port>.
 
 =item Security Model Arguments
 
@@ -600,6 +613,12 @@ sub snmp_dispatcher()
 
 sub snmp_event_loop()
 {
+   warn
+      sprintf(
+         "snmp_event_loop() is deprecated, use snmp_dispatcher() instead at " .
+         "%s line %d.\n", (caller(0))[1,2]
+      );
+
    snmp_dispatcher;
 }
 
@@ -650,7 +669,7 @@ sub get_request : locked : method
       return $this->_error;
    }
 
-   if (!defined($this->_create_pdu)) {
+   if (!defined($this->_pdu_create)) {
       return $this->_error;
    }
 
@@ -703,7 +722,7 @@ sub get_next_request : locked : method
       return $this->_error;
    }
 
-   if (!defined($this->_create_pdu)) {
+   if (!defined($this->_pdu_create)) {
       return $this->_error;
    }
 
@@ -759,7 +778,7 @@ sub set_request : locked : method
       return $this->_error;
    }
 
-   if (!defined($this->_create_pdu)) {
+   if (!defined($this->_pdu_create)) {
       return $this->_error;
    }
 
@@ -797,10 +816,10 @@ value is expected to be an OBJECT IDENTIFER in dotted notation.
 =item *
 
 When the Transport Domain is UDP/IPv4 or TCP/IPv4, the default value for the
-trap B<-agentaddr> is the IP address associated with the hostname on which the 
-script is running or the address specified by the B<-localaddr> option.  For 
-other Transport Domains the B<-agentaddr> is defaulted to "0.0.0.0".  When 
-specified, the agent-addr is expected to be an IpAddress in dotted notation. 
+trap B<-agentaddr> is the IP address associated with the interface on which 
+the trap will be transmitted.  For other Transport Domains the B<-agentaddr>
+is defaulted to "0.0.0.0".  When specified, the agent-addr is expected to be
+an IpAddress in dotted notation.
 
 =item *
 
@@ -866,7 +885,7 @@ sub trap : locked : method
       return $this->_error;
    }
 
-   if (!defined($this->_create_pdu)) {
+   if (!defined($this->_pdu_create)) {
       return $this->_error;
    }
 
@@ -949,7 +968,7 @@ sub get_bulk_request : locked : method
       return $this->_error;
    }
 
-   if (!defined($this->_create_pdu)) {
+   if (!defined($this->_pdu_create)) {
       return $this->_error;
    }
 
@@ -1023,7 +1042,7 @@ sub inform_request : locked : method
       return $this->_error;
    }
 
-   if (!defined($this->_create_pdu)) {
+   if (!defined($this->_pdu_create)) {
       return $this->_error;
    }
 
@@ -1097,7 +1116,7 @@ sub snmpv2_trap : locked : method
       return $this->_error;
    }
 
-   if (!defined($this->_create_pdu)) {
+   if (!defined($this->_pdu_create)) {
       return $this->_error;
    }
 
@@ -1179,7 +1198,7 @@ sub get_table : locked : method
    }
 
    # Create a new PDU.
-   if (!defined($this->_create_pdu)) {
+   if (!defined($this->_pdu_create)) {
       return $this->_error;
    }
 
@@ -1420,7 +1439,7 @@ sub get_entries : locked : method
    }   
 
    # Create a new PDU.
-   if (!defined($this->_create_pdu)) {
+   if (!defined($this->_pdu_create)) {
       return $this->_error;
    }
 
@@ -1847,8 +1866,8 @@ sub translate : locked : method
          while (defined($arg = shift(@argv))) {
             if ($arg =~ /^-?all$/i) {
                $this->_translate_mask(shift(@argv), TRANSLATE_ALL);
-            } elsif ($arg =~ /^-?none$/i) { # no-op
-               $this->_translate_mask(shift(@argv), TRANSLATE_NONE);
+            } elsif ($arg =~ /^-?none$/i) { 
+               $this->_translate_mask(!(shift(@argv)), TRANSLATE_ALL);
             } elsif ($arg =~ /^-?octet_?string$/i) {
                $this->_translate_mask(shift(@argv), TRANSLATE_OCTET_STRING);
             } elsif ($arg =~ /^-?null$/i) {
@@ -2120,7 +2139,7 @@ sub _send_pdu
    ($this->{_nonblocking}) ? TRUE : $this->var_bind_list;
 }
 
-sub _create_pdu
+sub _pdu_create
 {
    my ($this) = @_;
 
@@ -2402,7 +2421,7 @@ sub _discovery
    # zero length, and the varBindList left empty."
 
    # Create a new PDU
-   if (!defined($this->_create_pdu)) {
+   if (!defined($this->_pdu_create)) {
       return $this->_error;
    }
 
@@ -2483,7 +2502,7 @@ sub _discovery_engine_id_cb
    # an authenticated Request message..."
 
    # Create a new PDU
-   if (!defined($this->_create_pdu)) {
+   if (!defined($this->_pdu_create)) {
       return $this->_error;
    }
 
@@ -2660,7 +2679,7 @@ sub _get_table_cb
          my $pdu = $this->{_pdu};
 
          # Create a new PDU. 
-         if (!defined($this->_create_pdu)) {
+         if (!defined($this->_pdu_create)) {
             $this->{_pdu} = $pdu;
             $this->{_pdu}->var_bind_list(undef);
             $this->{_pdu}->status_information($this->error);
@@ -2914,7 +2933,7 @@ sub _get_entries_cb
          my $pdu = $this->{_pdu};
 
          # Create a new PDU
-         if (!defined($this->_create_pdu)) {
+         if (!defined($this->_pdu_create)) {
             $this->{_pdu} = $pdu;
             $this->{_pdu}->error($this->error); 
             goto callback_complete;
@@ -3461,8 +3480,8 @@ non-core module F<Crypt::Rijndael> is needed.
 
 =item *
 
-To use UDP/IPv6 or TCP/IPv6 as a Transport Domain, the non-core modules 
-F<Socket6> and F<IO::Socket::INET6> are needed.
+To use UDP/IPv6 or TCP/IPv6 as a Transport Domain, the non-core module 
+F<Socket6> is needed.
 
 =back
 

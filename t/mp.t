@@ -1,7 +1,7 @@
 # -*- mode: perl -*- 
 # ============================================================================
 
-# $Id: mp.t,v 4.1 2004/09/09 16:53:00 dtown Exp $
+# $Id: mp.t,v 4.1 2004/09/09 16:53:00 dtown Rel $
 
 # Test of the Message Processing Model. 
 

@@ -1,7 +1,7 @@
 # -*- mode: perl -*- 
 # ============================================================================
 
-# $Id: ber.t,v 4.1 2002/05/06 12:30:37 dtown Exp $
+# $Id: ber.t,v 4.1 2002/05/06 12:30:37 dtown Rel $
 
 # Test of the Basic Encoding Rules used by SNMP. 
 

@@ -1,5 +1,5 @@
 
-                       Net::SNMP, version 5.1.0 
+                       Net::SNMP, version 5.2.0 
 
 NAME
 
@@ -51,7 +51,7 @@ REQUIREMENTS
     protocol, the non-core module Crypt::Rijndael is needed.
 
     To use UDP/IPv6 or TCP/IPv6 as a Transport Domain, the non-core 
-    modules Socket6 and IO::Socket::INET6 are needed.
+    module Socket6 is needed.
 
 DOCUMENTATION
 
@@ -70,5 +70,5 @@ COPYRIGHT
 
 RCS
 
-    $Id: README,v 5.2 2005/07/20 13:53:07 dtown Exp $
+    $Id: README,v 5.3 2005/10/20 14:17:01 dtown Rel $
 

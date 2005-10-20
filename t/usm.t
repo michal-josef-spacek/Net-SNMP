@@ -1,7 +1,7 @@
 # -*- mode: perl -*- 
 # ============================================================================
 
-# $Id: usm.t,v 4.3 2005/07/20 13:53:07 dtown Exp $
+# $Id: usm.t,v 4.3 2005/07/20 13:53:07 dtown Rel $
 
 # Test of the SNMPv3 User-based Security Model. 
 

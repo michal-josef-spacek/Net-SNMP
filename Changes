@@ -1,5 +1,17 @@
                            Net::SNMP Changes
 
+RELEASE 5.2.0 OCT-20-2005
+
+- Removed the dependency on the IO::Socket::INET and IO::Socket::INET6
+  modules.  The IO::Socket module is now used for all socket objects.
+- The port information can now be included as part of the transport
+  address specified with the session() Transport Domain arguments.
+- Added support for specifying the scope zone index for IPv6 addresses
+  as described in RFC 4007 - "IPv6 Scoped Address Architecture".
+- The default value for the agent-addr in SNMPv1 Trap-PDUs is now the
+  IP address associated with the interface on which the trap will be
+  transmitted.
+
 RELEASE 5.1.0 JUL-20-2005
 
 - Support of the AES privacy protocol was updated to be compliant with
@@ -275,4 +287,4 @@ RELEASE 1.00 SEP-09-1998
 
 RCS
 
-    $Id: Changes,v 5.2 2005/07/20 13:53:07 dtown Exp $
+    $Id: Changes,v 5.3 2005/10/20 14:17:01 dtown Rel $

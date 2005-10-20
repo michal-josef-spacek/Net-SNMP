@@ -3,7 +3,7 @@
 
 package Net::SNMP::Dispatcher;
 
-# $Id: Dispatcher.pm,v 2.1 2005/07/20 13:53:07 dtown Exp $
+# $Id: Dispatcher.pm,v 3.1 2005/10/20 14:17:01 dtown Rel $
 
 # Object the dispatches SNMP messages and handles the scheduling of events.
 
@@ -23,7 +23,7 @@ use Net::SNMP::Message qw( TRUE FALSE );
 
 ## Version of the Net::SNMP::Dispatcher module
 
-our $VERSION = v3.0.0;
+our $VERSION = v3.0.1;
 
 ## Package variables
 
@@ -360,7 +360,7 @@ sub _transport_timeout
 
       # Inform the command generator about the timeout. 
       $pdu->status_information(
-          "No response from remote host '%s'", $pdu->dstname
+          "No response from remote host '%s'", $pdu->hostname
       ); 
 
       return;

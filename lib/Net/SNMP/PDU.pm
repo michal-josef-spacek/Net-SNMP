@@ -3,7 +3,7 @@
 
 package Net::SNMP::PDU;
 
-# $Id: PDU.pm,v 2.1 2005/07/20 13:53:07 dtown Exp $
+# $Id: PDU.pm,v 2.2 2005/10/20 14:17:01 dtown Rel $
 
 # Object used to represent a SNMP PDU. 
 
@@ -18,14 +18,14 @@ package Net::SNMP::PDU;
 use strict;
 
 use Net::SNMP::Message qw( 
-   :types asn1_itoa SNMP_VERSION_3 ENTERPRISE_SPECIFIC TRUE FALSE 
+   :types :versions asn1_itoa ENTERPRISE_SPECIFIC TRUE FALSE 
 );
 
-use Net::SNMP::Transport qw( DOMAIN_UDP DOMAIN_TCPIPV4 );
+use Net::SNMP::Transport qw( DOMAIN_UDPIPV4 DOMAIN_TCPIPV4 );
 
 ## Version of the Net::SNMP::PDU module
 
-our $VERSION = v2.1.0;
+our $VERSION = v2.1.1;
 
 ## Handle importing/exporting of symbols
 
@@ -176,12 +176,12 @@ sub prepare_trap
       # Layer.  If not, we return an error.
 
       if (defined($this->{_transport})) {
-         if (($this->{_transport}->domain ne DOMAIN_UDP) &&
+         if (($this->{_transport}->domain ne DOMAIN_UDPIPV4) &&
              ($this->{_transport}->domain ne DOMAIN_TCPIPV4)) 
          {
             $this->{_agent_addr} = '0.0.0.0';
          } else {   
-            $this->{_agent_addr} = $this->{_transport}->srcname;
+            $this->{_agent_addr} = $this->{_transport}->agent_addr;
             delete($this->{_agent_addr}) if ($this->{_agent_addr} eq '0.0.0.0');
          }
       }
@@ -429,14 +429,54 @@ sub pdu_type
    $_[0]->{_pdu_type};
 }
 
-sub error_status
+sub error_status 
 {
-   $_[0]->{_error_status};
+   my ($this, $status) = @_;
+
+   # error-status::=INTEGER { noError(0) .. inconsistentName(18) } 
+
+   if (@_ == 2) {
+      if (!defined($status)) {
+         return $this->_error('error-status not defined');
+      }
+      if (($status < 0) || 
+          ($status > (($this->version > SNMP_VERSION_1) ? 18 : 5))) 
+      {
+         return $this->_error('Invalid error-status value [%s]', $status);
+      }
+      $this->{_error_status} = $status;
+   }
+
+   $this->{_error_status} || 0; # noError(0)
 }
 
 sub error_index
 {
-   $_[0]->{_error_index};
+   my ($this, $index) = @_;
+
+   # error-index::=INTEGER (0..max-bindings) 
+
+   if (@_ == 2) {
+      if (!defined($index)) {
+         return $this->_error('error-index not defined');
+      }
+      if (($index < 0) || ($index > 2147483647)) {
+         return $this->_error('Invalid error-index value [%s]', $index);
+      }
+      $this->{_error_index} = $index;
+   }
+
+   $this->{_error_index} || 0; 
+}
+
+sub non_repeaters
+{
+   $_[0]->{_error_status} || 0; # non-repeaters::=INTEGER (0..max-bindings)
+}
+
+sub max_repetitions 
+{
+   $_[0]->{_error_index}  || 0; # max-repetitions::=INTEGER (0..max-bindings)
 }
 
 sub enterprise
@@ -636,7 +676,7 @@ sub _prepare_pdu_sequence
    }
 
    # PDUs::=CHOICE 
-   if (!defined($this->prepare($this->{_pdu_type}, $this->_buffer_get))) {
+   if (!defined($this->prepare($this->{_pdu_type}))) {
       return $this->_error;
    }
 

@@ -3,7 +3,7 @@
 
 package Net::SNMP::Security::Community;
 
-# $Id: Community.pm,v 1.5 2005/07/20 13:53:07 dtown Exp $
+# $Id: Community.pm,v 1.5 2005/07/20 13:53:07 dtown Rel $
 
 # Object that implements the SNMPv1/v2c Community-based Security Model.
 
