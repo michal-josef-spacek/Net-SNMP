@@ -3,15 +3,15 @@
 
 package Net::SNMP::Security;
 
-# $Id: Security.pm,v 1.6 2004/07/20 13:38:01 dtown Rel $
+# $Id: Security.pm,v 2.0 2009/09/09 15:05:33 dtown Rel $
 
 # Base object that implements the Net::SNMP Security Models.
 
-# Copyright (c) 2001-2004 David M. Town <dtown@cpan.org>
+# Copyright (c) 2001-2009 David M. Town <dtown@cpan.org>
 # All rights reserved.
 
 # This program is free software; you may redistribute it and/or modify it
-# under the same terms as Perl itself.
+# under the same terms as the Perl 5 programming language system itself.
 
 # ============================================================================
 
@@ -23,22 +23,20 @@ use Net::SNMP::Message qw(
 
 ## Version of the Net::SNMP::Security module
 
-our $VERSION = v1.1.0;
+our $VERSION = v2.0.0;
 
 ## Handle importing/exporting of symbols
 
-use Exporter();
+use base qw( Exporter );
 
-our @ISA = qw( Exporter );
-
-our @EXPORT_OK;
+our @EXPORT_OK = qw( DEBUG_INFO );
 
 our %EXPORT_TAGS = (
    levels => [
       qw( SECURITY_LEVEL_NOAUTHNOPRIV SECURITY_LEVEL_AUTHNOPRIV
           SECURITY_LEVEL_AUTHPRIV )
    ],
-   models => [ 
+   models => [
       qw( SECURITY_MODEL_ANY SECURITY_MODEL_SNMPV1 SECURITY_MODEL_SNMPV2C
           SECURITY_MODEL_USM )
    ]
@@ -56,20 +54,16 @@ our $AUTOLOAD;       # Used by the AUTOLOAD method
 
 #perl2exe_include    Net::SNMP::Security::USM
 
-## Load the module for the default Security Model.
-
-require Net::SNMP::Security::Community;
-
 # [public methods] -----------------------------------------------------------
 
-sub new 
+sub new
 {
    my ($class, %argv) = @_;
 
    my $version = SNMP_VERSION_1;
 
    # See if a SNMP version has been passed
-   foreach (keys %argv) {
+   for (keys %argv) {
       if (/^-?version$/i) {
          if (($argv{$_} == SNMP_VERSION_1)  ||
              ($argv{$_} == SNMP_VERSION_2C) ||
@@ -80,21 +74,26 @@ sub new
       }
    }
 
-   # Return the appropriate object based on the SNMP version.  To avoid
-   # consuming unnessary resources, load the User-based Security Model
-   # only when requested.  The Net::SNMP::Security::USM module requires 
-   # four non-core modules.  If any of these modules are not present, we 
-   # gracefully return an error.
+   # Return the appropriate object based upon the SNMP version.  To
+   # avoid consuming unnecessary resources, only load the appropriate
+   # module when requested.   The Net::SNMP::Security::USM module
+   # requires four non-core modules.  If any of these modules are not
+   # present, we gracefully return an error.
 
    if ($version == SNMP_VERSION_3) {
+
       if (defined(my $error = load_module('Net::SNMP::Security::USM'))) {
-         wantarray ? (undef, 'SNMPv3 support unavailable ' . $error) : undef;
-      } else {
-         Net::SNMP::Security::USM->new(%argv);
+         $error = 'SNMPv3 support is unavailable ' . $error;
+         return wantarray ? (undef, $error) : undef;
       }
-   } else {
-      Net::SNMP::Security::Community->new(%argv);
+
+      return Net::SNMP::Security::USM->new(%argv);
    }
+
+   # Load the default Security module without eval protection.
+
+   require Net::SNMP::Security::Community;
+   return  Net::SNMP::Security::Community->new(%argv);
 }
 
 sub version
@@ -102,45 +101,45 @@ sub version
    my ($this) = @_;
 
    if (@_ > 1) {
-      $this->_error_clear;
-      return $this->_error('SNMP version is not modifiable');
+      $this->_error_clear();
+      return $this->_error('The SNMP version is not modifiable');
    }
 
-   $this->{_version};
+   return $this->{_version};
 }
 
 sub discovered
 {
-   TRUE; 
+   return TRUE;
 }
 
 sub security_model
 {
    # RFC 3411 - SnmpSecurityModel::=TEXTUAL-CONVENTION
 
-   SECURITY_MODEL_ANY; 
+   return SECURITY_MODEL_ANY;
 }
 
 sub security_level
 {
    # RFC 3411 - SnmpSecurityLevel::=TEXTUAL-CONVENTION
 
-   SECURITY_LEVEL_NOAUTHNOPRIV;
+   return SECURITY_LEVEL_NOAUTHNOPRIV;
 }
 
 sub security_name
 {
-   '';
+   return q{};
 }
 
 sub debug
 {
-   (@_ == 2) ? $DEBUG = ($_[1]) ? TRUE : FALSE : $DEBUG;
+   return (@_ == 2) ? $DEBUG = ($_[1]) ? TRUE : FALSE : $DEBUG;
 }
 
 sub error
 {
-   $_[0]->{_error} || '';
+   return $_[0]->{_error} || q{};
 }
 
 sub AUTOLOAD
@@ -151,13 +150,18 @@ sub AUTOLOAD
 
    $AUTOLOAD =~ s/.*://;
 
-   if (ref($this)) {
-      $this->_error(
-         'Feature not supported by this Security Model [%s]', $AUTOLOAD
+   if (ref $this) {
+      $this->_error_clear();
+      return $this->_error(
+         'The method "%s" is not supported by this Security Model', $AUTOLOAD
       );
    } else {
-      die sprintf('Unsupported function call [%s]', $AUTOLOAD);
+      require Carp;
+      Carp::croak(sprintf 'The function "%s" is not supported', $AUTOLOAD);
    }
+
+   # Never get here.
+   return;
 }
 
 # [private methods] ----------------------------------------------------------
@@ -166,12 +170,11 @@ sub _error
 {
    my $this = shift;
 
-   if (!defined($this->{_error})) {
-      $this->{_error} = (@_ > 1) ? sprintf(shift(@_), @_) : $_[0]; 
-      if ($this->debug) {
-         printf("error: [%d] %s(): %s\n",
-            (caller(0))[2], (caller(1))[3], $this->{_error}
-         );
+   if (!defined $this->{_error}) {
+      $this->{_error} = (@_ > 1) ? sprintf(shift(@_), @_) : $_[0];
+      if ($this->debug()) {
+         printf "error: [%d] %s(): %s\n",
+                (caller 0)[2], (caller 1)[3], $this->{_error};
       }
    }
 
@@ -180,7 +183,7 @@ sub _error
 
 sub _error_clear
 {
-   $_[0]->{_error} = undef;
+   return $_[0]->{_error} = undef;
 }
 
 {
@@ -200,43 +203,44 @@ sub _error_clear
       # NOTE: Contrary to our typical convention, a return value of "undef"
       # actually means success and a defined value means error.
 
-      return $modules{$module} if (exists($modules{$module}));
+      return $modules{$module} if exists $modules{$module};
 
-      if (!eval("require $module")) {
-         if ($@ =~ /locate (\S+\.pm)/) {
+      if (!eval "require $module") {
+         if ($@ =~ m/locate (\S+\.pm)/) {
             $modules{$module} = err_msg('(Required module %s not found)', $1);
+         } elsif ($@ =~ m/(.*)\n/) {
+            $modules{$module} = err_msg('(%s)', $1);
          } else {
             $modules{$module} = err_msg('(%s)', $@);
          }
       } else {
          $modules{$module} = undef;
       }
+
+      return $modules{$module};
    }
 }
 
-sub err_msg(@)
+sub err_msg
 {
    my $msg = (@_ > 1) ? sprintf(shift(@_), @_) : $_[0];
 
    if ($DEBUG) {
-      printf("error: [%d] %s(): %s\n", (caller(0))[2], (caller(1))[3], $msg);
+      printf "error: [%d] %s(): %s\n", (caller 0)[2], (caller 1)[3], $msg;
    }
 
-   $msg;
+   return $msg;
 }
 
 sub DEBUG_INFO
 {
-   return unless $DEBUG;
+   return if (!$DEBUG);
 
-   printf(
-      sprintf('debug: [%d] %s(): ', (caller(0))[2], (caller(1))[3]) .
+   return printf
+      sprintf('debug: [%d] %s(): ', (caller 0)[2], (caller 1)[3]) .
       ((@_ > 1) ? shift(@_) : '%s') .
       "\n",
-      @_
-   );
-
-   $DEBUG;
+      @_;
 }
 
 # ============================================================================

@@ -1,15 +1,15 @@
 # -*- mode: perl -*- 
 # ============================================================================
 
-# $Id: mp.t,v 4.1 2004/09/09 16:53:00 dtown Rel $
+# $Id: mp.t,v 6.0 2009/09/09 15:07:49 dtown Rel $
 
 # Test of the Message Processing Model. 
 
-# Copyright (c) 2001-2004 David M. Town <dtown@cpan.org>.
+# Copyright (c) 2001-2009 David M. Town <dtown@cpan.org>.
 # All rights reserved.
 
 # This program is free software; you may redistribute it and/or modify it
-# under the same terms as Perl itself.
+# under the same terms as the Perl 5 programming language system itself.
 
 # ============================================================================
 
@@ -34,12 +34,12 @@ use Net::SNMP::Transport;
 
 my $m;
 
-eval 
-{ 
-   $m = Net::SNMP::MessageProcessing->instance; 
-}; 
+eval
+{
+   $m = Net::SNMP::MessageProcessing->instance();
+};
 
-ok($@, '', 'Failed to get Message Processing instance');
+ok(defined $m, 1, 'Failed to get Net::SNMP::MessageProcessing instance');
 
 #
 # 2. Create a Security object
@@ -47,12 +47,12 @@ ok($@, '', 'Failed to get Message Processing instance');
 
 my ($s, $e);
 
-eval 
-{ 
-   ($s, $e) = Net::SNMP::Security->new(-version => SNMP_VERSION_2C); 
+eval
+{
+   ($s, $e) = Net::SNMP::Security->new(-version => SNMP_VERSION_2C);
 };
 
-ok(($@ || $e), '', 'Failed to create Security object');
+ok(($@ || $e), q{}, 'Failed to create Net::SNMP::Security object');
 
 #
 # 3. Create a Transport Layer object
@@ -60,12 +60,12 @@ ok(($@ || $e), '', 'Failed to create Security object');
 
 my $t;
 
-eval 
-{ 
-   ($t, $e) = Net::SNMP::Transport->new; 
+eval
+{
+   ($t, $e) = Net::SNMP::Transport->new();
 };
 
-ok(($@ || $e), '', 'Failed to create Transport Layer object'); 
+ok(($@ || $e), q{}, 'Failed to create Net::SNMP::Transport object');
 
 #
 # 4. Create a PDU object
@@ -73,51 +73,51 @@ ok(($@ || $e), '', 'Failed to create Transport Layer object');
 
 my $p;
 
-eval 
-{ 
+eval
+{
    ($p, $e) = Net::SNMP::PDU->new(
       -version   => SNMP_VERSION_2C,
       -transport => $t,
-      -security  => $s
-   ); 
+      -security  => $s,
+   );
 };
 
-ok(($@ || $e), '', 'Failed to create PDU object');
+ok(($@ || $e), q{}, 'Failed to create Net::SNMP::PDU object');
 
 #
 # 5. Prepare the PDU
 #
 
-eval 
-{ 
-   $p->prepare_set_request(['1.3.6.1.2.1.1.4.0', OCTET_STRING, 'dtown']); 
-   $e = $p->error;
+eval
+{
+   $p->prepare_set_request(['1.3.6.1.2.1.1.4.0', OCTET_STRING, 'dtown']);
+   $e = $p->error();
 };
 
-ok(($@ || $e), '', 'Failed to prepare set-request');
+ok(($@ || $e), q{}, 'Failed to prepare set-request');
 
 #
 # 6. Prepare the Message
 #
 
-eval 
+eval
 {
    $p = $m->prepare_outgoing_msg($p);
-   $e = $m->error;
+   $e = $m->error();
 };
 
-ok(($@ || $e), '', 'Failed to prepare Message');
+ok(($@ || $e), q{}, 'Failed to prepare Message');
 
 #
 # 7. Process the message (should get error)
 #
 
-eval 
+eval
 {
    $m->prepare_data_elements($p);
-   $e = $m->error;
+   $e = $m->error();
 };
 
-ok(($@ || $e), qr/Expected/, 'Failed to process Message');
+ok(($@ || $e), qr/expected/i, 'Failed to process Message');
 
 # ============================================================================

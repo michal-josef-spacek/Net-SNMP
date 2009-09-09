@@ -3,15 +3,15 @@
 
 package Net::SNMP;
 
-# $Id: SNMP.pm,v 5.3 2005/10/20 14:17:01 dtown Rel $
+# $Id: SNMP.pm,v 6.0 2009/09/09 15:05:33 dtown Rel $
 
-# Copyright (c) 1998-2005 David M. Town <dtown@cpan.org>
+# Copyright (c) 1998-2009 David M. Town <dtown@cpan.org>
 # All rights reserved.
 
 # This program is free software; you may redistribute it and/or modify it
-# under the same terms as Perl itself.
+# under the same terms as the Perl 5 programming language system itself.
 
-# Release 4.0.0 of the Net::SNMP module is dedicated to those who died in 
+# Release 4.0.0 of the Net::SNMP module was dedicated to those who died in 
 # the September 11, 2001 terrorist attacks on the United States of America.
 
 # ============================================================================
@@ -99,27 +99,26 @@ use strict;
 
 ## Validate the version of Perl
 
-BEGIN 
+BEGIN
 {
-   die('Perl version 5.6.0 or greater is required') if ($] < 5.006);
+   die 'Perl version 5.6.0 or greater is required' if ($] < 5.006);
 }
 
 ## Version of the Net::SNMP module
 
-our $VERSION = v5.2.0;
+our $VERSION = 'v6.0.0';
+    $VERSION = eval $VERSION;
 
 ## Load our modules
 
 use Net::SNMP::Dispatcher();
-use Net::SNMP::PDU qw( :ALL );
+use Net::SNMP::PDU qw( :ALL !DEBUG_INFO );
 use Net::SNMP::Security();
 use Net::SNMP::Transport qw( :ports );
 
 ## Handle importing/exporting of symbols
 
-use Exporter();
-
-our @ISA = qw( Exporter );
+use base qw( Exporter );
 
 our @EXPORT = qw(
    INTEGER INTEGER32 OCTET_STRING OBJECT_IDENTIFIER IPADDRESS COUNTER
@@ -130,32 +129,32 @@ our @EXPORT = qw(
 our @EXPORT_OK = qw( snmp_event_loop oid_context_match );
 
 our %EXPORT_TAGS = (
-   asn1        => [ 
+   asn1        => [
       qw( INTEGER INTEGER32 OCTET_STRING NULL OBJECT_IDENTIFIER SEQUENCE
           IPADDRESS COUNTER COUNTER32 GAUGE GAUGE32 UNSIGNED32 TIMETICKS
           OPAQUE COUNTER64 NOSUCHOBJECT NOSUCHINSTANCE ENDOFMIBVIEW
           GET_REQUEST GET_NEXT_REQUEST GET_RESPONSE SET_REQUEST TRAP
           GET_BULK_REQUEST INFORM_REQUEST SNMPV2_TRAP REPORT )
    ],
-   debug       => [ 
+   debug       => [
       qw( DEBUG_ALL DEBUG_NONE DEBUG_MESSAGE DEBUG_TRANSPORT DEBUG_DISPATCHER
           DEBUG_PROCESSING DEBUG_SECURITY snmp_debug )
    ],
-   generictrap => [ 
+   generictrap => [
       qw( COLD_START WARM_START LINK_DOWN LINK_UP AUTHENTICATION_FAILURE
           EGP_NEIGHBOR_LOSS ENTERPRISE_SPECIFIC )
    ],
    snmp        => [
       qw( SNMP_VERSION_1 SNMP_VERSION_2C SNMP_VERSION_3 SNMP_PORT 
           SNMP_TRAP_PORT snmp_debug snmp_dispatcher snmp_dispatch_once
-          snmp_type_ntop oid_base_match oid_lex_sort ticks_to_time ) 
+          snmp_type_ntop oid_base_match oid_lex_cmp oid_lex_sort ticks_to_time )
    ],
    translate   => [
       qw( TRANSLATE_NONE TRANSLATE_OCTET_STRING TRANSLATE_NULL
           TRANSLATE_TIMETICKS TRANSLATE_OPAQUE TRANSLATE_NOSUCHOBJECT
           TRANSLATE_NOSUCHINSTANCE TRANSLATE_ENDOFMIBVIEW TRANSLATE_UNSIGNED
           TRANSLATE_ALL )
-   ]
+   ],
 );
 
 Exporter::export_ok_tags( qw( asn1 debug generictrap snmp translate ) );
@@ -164,30 +163,38 @@ $EXPORT_TAGS{ALL} = [ @EXPORT_OK ];
 
 ## Debugging bit masks
 
-sub DEBUG_ALL()        { 0xff }  # All
-sub DEBUG_NONE()       { 0x00 }  # None
-sub DEBUG_MESSAGE()    { 0x02 }  # Message/PDU encoding/decoding
-sub DEBUG_TRANSPORT()  { 0x04 }  # Transport Layer
-sub DEBUG_DISPATCHER() { 0x08 }  # Dispatcher
-sub DEBUG_PROCESSING() { 0x10 }  # Message Processing
-sub DEBUG_SECURITY()   { 0x20 }  # Security
+sub DEBUG_ALL         { 0xff }  # All
+sub DEBUG_NONE        { 0x00 }  # None
+sub DEBUG_MESSAGE     { 0x02 }  # Message/PDU encoding/decoding
+sub DEBUG_TRANSPORT   { 0x04 }  # Transport Layer
+sub DEBUG_DISPATCHER  { 0x08 }  # Dispatcher
+sub DEBUG_PROCESSING  { 0x10 }  # Message Processing
+sub DEBUG_SECURITY    { 0x20 }  # Security
 
 ## Package variables
 
-our $DEBUG = DEBUG_NONE;         # Debug mask 
+our $DEBUG = DEBUG_NONE;        # Debug mask 
 
-our $DISPATCHER;                 # Dispatcher instance
+our $DISPATCHER;                # Dispatcher instance
 
-our $BLOCKING = 0;               # Count of blocking objects
+our $BLOCKING = 0;              # Count of blocking objects
 
-our $NONBLOCKING = 0;            # Count of non-blocking objects
+our $NONBLOCKING = 0;           # Count of non-blocking objects
 
 BEGIN
 {
-   # Validate the creation of the Dispatcher object. 
+   # Validate the creation of the Dispatcher object.
 
-   if (!defined($DISPATCHER = Net::SNMP::Dispatcher->instance)) {
-      die('FATAL: Failed to create Dispatcher instance');
+   if (!defined ($DISPATCHER = Net::SNMP::Dispatcher->instance())) {
+      die 'FATAL: Failed to create Dispatcher instance';
+   }
+
+   # In older versions of Perl, the UNIVERSAL::VERSION() method does not
+   # handle version defined as v-strings gracefully.  We provide our
+   # own handling of versions to account for this.
+
+   if ($] < 5.009) {
+      *VERSION = \&require_version;
    }
 }
 
@@ -288,80 +295,83 @@ represents the "default" context.
 
 =cut
 
-sub new
 {
-   my ($class, %argv) = @_;
-
-   # Create a new data structure for the object
-   my $this = bless {
-        '_callback'          =>  undef,           # Callback
-        '_context_engine_id' =>  undef,           # contextEngineID
-        '_context_name'      =>  undef,           # contextName
-        '_delay'             =>  0,               # Message delay
-        '_hostname'          =>  '',              # Hostname
-        '_discovery_queue'   =>  [],              # Pending message queue
-        '_error'             =>  undef,           # Error message
-        '_nonblocking'       =>  FALSE,           # Blocking/non-blocking flag
-        '_pdu'               =>  undef,           # Message/PDU object
-        '_security'          =>  undef,           # Security Model object
-        '_translate'         =>  TRANSLATE_ALL,   # Translation mask 
-        '_transport'         =>  undef,           # Transport Domain object
-        '_transport_argv'    =>  [],              # Transport constructor argv
-        '_version'           =>  SNMP_VERSION_1,  # SNMP version
-   }, $class;
-
-   # Parse the passed arguments 
-
-   my @transport = qw(
-      -domain -dstaddr -dstport -hostname -localaddr -localport 
-      -maxmsgsize -mtu -port -retries -srcaddr -srcport -timeout 
+   my @trans_argv = qw(
+      hostname (?:de?st|peer)?(?:addr|port) (?:src|sock|local)(?:addr|port)
+      maxmsgsize mtu retries timeout domain listen
    );
-   
-   foreach (keys %argv) {
 
-      if (/^-?debug$/i) {
-         $this->debug(delete($argv{$_}));
-      } elsif (/^-?nonblocking$/i) {
-         $this->{_nonblocking} = (delete($argv{$_})) ? TRUE : FALSE;
-      } elsif (/^-?translate$/i) {
-         $this->translate(delete($argv{$_}));
-      } elsif (/^-?version$/i) {
-         $this->_version($argv{$_});
-      } else {
-         # Pull out arguments associated with the Transport Domain 
-         my $key   = $_;
-         my @match = grep(/^-?\Q$key\E$/i, @transport);
-         if (@match == 1) {
-            push(@{$this->{_transport_argv}}, $match[0], delete($argv{$key}));
+   sub new
+   {
+      my ($class, %argv) = @_;
+
+      # Create a new data structure for the object
+      my $this = bless {
+           '_callback'          =>  undef,           # Callback
+           '_context_engine_id' =>  undef,           # contextEngineID
+           '_context_name'      =>  undef,           # contextName
+           '_delay'             =>  0,               # Message delay
+           '_hostname'          =>  q{},             # Hostname
+           '_discovery_queue'   =>  [],              # Pending message queue
+           '_error'             =>  undef,           # Error message
+           '_nonblocking'       =>  FALSE,           # [Non-]blocking flag
+           '_pdu'               =>  undef,           # Message/PDU object
+           '_security'          =>  undef,           # Security Model object
+           '_translate'         =>  TRANSLATE_ALL,   # Translation mask 
+           '_transport'         =>  undef,           # Transport Domain object
+           '_transport_argv'    =>  [],              # Transport object argv
+           '_version'           =>  SNMP_VERSION_1,  # SNMP version
+      }, $class;
+
+      # Parse the passed arguments 
+
+      for (keys %argv) {
+
+         if (/^-?debug$/i) {
+            $this->debug(delete $argv{$_});
+         } elsif (/^-?nonblocking$/i) {
+            $this->{_nonblocking} = (delete $argv{$_}) ? TRUE : FALSE;
+         } elsif (/^-?translate$/i) {
+            $this->translate(delete $argv{$_});
+         } elsif (/^-?version$/i) {
+            $this->_version($argv{$_});
+         } else {
+            # Pull out arguments associated with the Transport Domain. 
+            my $key = $_;
+            for (@trans_argv) {
+               if ($key =~ /^-?$_$/i) {
+                  push @{$this->{_transport_argv}}, $key, delete $argv{$key};
+                  last;
+               }
+            }
          }
+
+         if (defined $this->{_error}) {
+            $this->_object_type_validate();
+            return wantarray ? (undef, $this->{_error}) : undef;
+         }
+
       }
 
-      if (defined($this->{_error})) {
-         $this->_object_type_count;
+      # We must validate the object type to prevent blocking and
+      # non-blocking object from existing at the same time.
+
+      if (!defined $this->_object_type_validate()) {
          return wantarray ? (undef, $this->{_error}) : undef;
       }
 
+      # Create a Security Model object
+
+      ($this->{_security}, $this->{_error}) = Net::SNMP::Security->new(%argv);
+      if (!defined $this->{_security}) {
+         return wantarray ? (undef, $this->{_error}) : undef;
+      }
+      $this->_error_clear();
+
+      # Return the object and empty error message (in list context)
+      return wantarray ? ($this, q{}) : $this;
    }
 
-   # Create a Security Model object
-
-   ($this->{_security}, $this->{_error}) = Net::SNMP::Security->new(%argv); 
-   if (!defined($this->{_security})) {
-      $this->_object_type_count;
-      return wantarray ? (undef, $this->{_error}) : undef;
-   }
-   $this->_error_clear;
-
-   # We must validate the object type to prevent blocking and 
-   # non-blocking object from existing at the same time.
- 
-   if (!defined($this->_object_type_validate)) {
-      $this->_object_type_count;
-      return wantarray ? (undef, $this->{_error}) : undef;
-   }
-     
-   # Return the object and empty error message (in list context)
-   wantarray ? ($this, '') : $this;
 }
 
 sub open
@@ -369,25 +379,27 @@ sub open
    my ($this) = @_;
 
    # Clear any previous errors
-   $this->_error_clear;
+   $this->_error_clear();
 
    # Create a Transport Domain object
    ($this->{_transport}, $this->{_error}) = Net::SNMP::Transport->new(
       @{$this->{_transport_argv}}
    );
 
-   if (!defined($this->{_transport})) {
-      return $this->_error;
+   if (!defined $this->{_transport}) {
+      return $this->_error();
    }
-   $this->_error_clear;
+   $this->_error_clear();
 
    # Keep a copy of the hostname 
-   $this->{_hostname} = $this->{_transport}->dest_hostname;
+   $this->{_hostname} = $this->{_transport}->dest_hostname();
 
-   # Perform SNMPv3 authoritative engine discovery
-   $this->_discovery if ($this->version == SNMP_VERSION_3);
+   # Perform SNMPv3 authoritative engine discovery.
+   if ($this->version() == SNMP_VERSION_3) {
+      $this->_perform_discovery();
+   }
 
-   $this->{_transport};
+   return defined($this->{_error}) ? $this->_error() : $this->{_transport};
 }
 
 =head2 session() - create a new Net::SNMP object
@@ -542,10 +554,10 @@ B<-privprotocol> argument.  The module also supports RFC 3826 which describes
 the use of CFB128-AES-128 "AES" (NIST FIPS PUB 197) in the USM.  The AES 
 encryption protocol can be selected by passing 'aes' or 'aes128' to the 
 B<-privprotocol> argument.  By working with the Extended Security Options
-Consortium L<http://www.snmp.com/eso/>, the module also supports CBC-3DES-EDE
-"Triple-DES" (NIST FIPS 46-3) in the User-based Security Model.  This is 
-defined in the draft 
-L<http://www.snmp.com/eso/draft-reeder-snmpv3-usm-3desede-00.txt>.  The 
+Consortium L<http://www.snmp.com/protocol/eso.shtml>, the module also supports
+CBC-3DES-EDE "Triple-DES" (NIST FIPS 46-3) in the User-based Security Model.
+This is defined in the draft
+L<http://www.snmp.com/eso/draft-reeder-snmpv3-usm-3desede-00.txt>.  The
 Triple-DES encryption protocol can be selected using the B<-privprotocol> 
 argument with the string '3des' or '3desede'. 
 
@@ -555,29 +567,29 @@ argument with the string '3des' or '3desede'.
 
 =cut
 
-sub session 
+sub session
 {
    my $class = shift;
 
    my ($this, $error) = $class->new(@_);
 
-   if (defined($this)) {
-      if (!defined($this->open)) {
-         return wantarray ? (undef, $this->error) : undef;
+   if (defined $this) {
+      if (!defined $this->open()) {
+         return wantarray ? (undef, $this->error()) : undef;
       }
    }
 
-   wantarray ? ($this, $error) : $this;
+   return wantarray ? ($this, $error) : $this;
 }
 
 sub manager
 {
-   shift->session(@_);
+   goto &session;
 }
 
 =head2 close() - clear the Transport Domain associated with the object
 
-   $session->close; 
+   $session->close(); 
 
 This method clears the Transport Domain and any errors associated with the 
 object.  Once closed, the Net::SNMP object can no longer be used to send or 
@@ -589,9 +601,10 @@ sub close : locked : method
 {
    my ($this) = @_;
 
-   $this->_error_clear;
+   $this->_error_clear();
    $this->{_pdu}       = undef;
    $this->{_transport} = undef;
+   return;
 }
 
 =head2 snmp_dispatcher() - enter the non-blocking object event loop
@@ -606,25 +619,21 @@ exported as the stand alone function C<snmp_dispatcher()> by default
 
 =cut
 
-sub snmp_dispatcher() 
+sub snmp_dispatcher
 {
-   $DISPATCHER->activate;
+   return $DISPATCHER->loop();
 }
 
-sub snmp_event_loop()
+sub snmp_event_loop
 {
-   warn
-      sprintf(
-         "snmp_event_loop() is deprecated, use snmp_dispatcher() instead at " .
-         "%s line %d.\n", (caller(0))[1,2]
-      );
-
-   snmp_dispatcher;
+   require Carp;
+   Carp::croak('snmp_event_loop() is obsolete, use snmp_dispatcher() instead');
+   goto &snmp_dispatcher;
 }
 
-sub snmp_dispatch_once()
+sub snmp_dispatch_once
 {
-   $DISPATCHER->one_event;
+   return $DISPATCHER->one_event();
 }
 
 =head2 get_request() - send a SNMP get-request to the remote agent
@@ -641,7 +650,7 @@ This method performs a SNMP get-request query to gather data from the remote
 agent on the host associated with the Net::SNMP object.  The message is built
 using the list of OBJECT IDENTIFIERs in dotted notation passed to the method
 as an array reference using the B<-varbindlist> argument.  Each OBJECT 
-IDENTIFER is placed into a single SNMP GetRequest-PDU in the same order that 
+IDENTIFIER is placed into a single SNMP GetRequest-PDU in the same order that 
 it held in the original list.
 
 A reference to a hash is returned in blocking mode which contains the contents
@@ -656,28 +665,28 @@ sub get_request : locked : method
 {
    my $this = shift;
 
-   $this->_error_clear;
+   $this->_error_clear();
 
    my @argv;
 
-   if (!defined($this->_prepare_argv([qw( -callback
+   if (!defined $this->_prepare_argv([qw( -callback
                                           -delay
                                           -contextengineid
                                           -contextname 
-                                          -varbindlist     )], \@_, \@argv))) 
+                                          -varbindlist     )], \@_, \@argv))
    {
-      return $this->_error;
+      return $this->_error();
    }
 
-   if (!defined($this->_pdu_create)) {
-      return $this->_error;
+   if (!defined $this->_create_pdu()) {
+      return $this->_error();
    }
 
-   if (!defined($this->{_pdu}->prepare_get_request(@argv))) {
-      return $this->_error($this->{_pdu}->error);
+   if (!defined $this->{_pdu}->prepare_get_request(@argv)) {
+      return $this->_error($this->{_pdu}->error());
    }
 
-   $this->_send_pdu;
+   return $this->_send_pdu();
 }
 
 =head2 get_next_request() - send a SNMP get-next-request to the remote agent
@@ -709,28 +718,28 @@ sub get_next_request : locked : method
 {
    my $this = shift;
 
-   $this->_error_clear; 
+   $this->_error_clear();
 
    my @argv;
 
-   if (!defined($this->_prepare_argv([qw( -callback
+   if (!defined $this->_prepare_argv([qw( -callback
                                           -delay
                                           -contextengineid
                                           -contextname 
-                                          -varbindlist     )], \@_, \@argv))) 
+                                          -varbindlist     )], \@_, \@argv))
    {
-      return $this->_error;
+      return $this->_error();
    }
 
-   if (!defined($this->_pdu_create)) {
-      return $this->_error;
+   if (!defined $this->_create_pdu()) {
+      return $this->_error();
    }
 
-   if (!defined($this->{_pdu}->prepare_get_next_request(@argv))) {
-      return $this->_error($this->{_pdu}->error);
+   if (!defined $this->{_pdu}->prepare_get_next_request(@argv)) {
+      return $this->_error($this->{_pdu}->error());
    }
 
-   $this->_send_pdu;
+   return $this->_send_pdu();
 }
 
 =head2 set_request() - send a SNMP set-request to the remote agent
@@ -765,28 +774,28 @@ sub set_request : locked : method
 {
    my $this = shift;
 
-   $this->_error_clear; 
+   $this->_error_clear();
 
    my @argv;
 
-   if (!defined($this->_prepare_argv([qw( -callback
+   if (!defined $this->_prepare_argv([qw( -callback
                                           -delay
                                           -contextengineid
                                           -contextname 
-                                          -varbindlist     )], \@_, \@argv))) 
+                                          -varbindlist     )], \@_, \@argv))
    {
-      return $this->_error;
+      return $this->_error();
    }
 
-   if (!defined($this->_pdu_create)) {
-      return $this->_error;
+   if (!defined $this->_create_pdu()) {
+      return $this->_error();
    }
 
-   if (!defined($this->{_pdu}->prepare_set_request(@argv))) {
-      return $this->_error($this->{_pdu}->error);
+   if (!defined $this->{_pdu}->prepare_set_request(@argv)) {
+      return $this->_error($this->{_pdu}->error());
    }
 
-   $this->_send_pdu;
+   return $this->_send_pdu();
 }
 
 =head2 trap() - send a SNMP trap to the remote manager
@@ -870,32 +879,32 @@ sub trap : locked : method
 {
    my $this = shift;
 
-   $this->_error_clear;
+   $this->_error_clear();
 
    my @argv;
 
-   if (!defined($this->_prepare_argv([qw( -delay
+   if (!defined $this->_prepare_argv([qw( -delay
                                           -enterprise
                                           -agentaddr
                                           -generictrap
                                           -specifictrap
                                           -timestamp
-                                          -varbindlist  )], \@_, \@argv)))
+                                          -varbindlist  )], \@_, \@argv))
    {
-      return $this->_error;
+      return $this->_error();
    }
 
-   if (!defined($this->_pdu_create)) {
-      return $this->_error;
+   if (!defined $this->_create_pdu()) {
+      return $this->_error();
    }
 
-   if (!defined($this->{_pdu}->prepare_trap(@argv))) {
-      return $this->_error($this->{_pdu}->error);
+   if (!defined $this->{_pdu}->prepare_trap(@argv)) {
+      return $this->_error($this->{_pdu}->error());
    }
 
-   $this->_send_pdu;
+   $this->_send_pdu();
 
-   defined($this->{_error}) ? $this->_error : TRUE;
+   return defined($this->{_error}) ? $this->_error() : TRUE;
 }
 
 =head2 get_bulk_request() - send a SNMP get-bulk-request to the remote agent
@@ -953,30 +962,30 @@ sub get_bulk_request : locked : method
 {
    my $this = shift;
 
-   $this->_error_clear; 
+   $this->_error_clear();
 
    my @argv;
 
-   if (!defined($this->_prepare_argv([qw( -callback
+   if (!defined $this->_prepare_argv([qw( -callback
                                           -delay
                                           -contextengineid
                                           -contextname
                                           -nonrepeaters 
                                           -maxrepetitions 
-                                          -varbindlist     )], \@_, \@argv))) 
+                                          -varbindlist     )], \@_, \@argv))
    {
-      return $this->_error;
+      return $this->_error();
    }
 
-   if (!defined($this->_pdu_create)) {
-      return $this->_error;
+   if (!defined $this->_create_pdu()) {
+      return $this->_error();
    }
 
-   if (!defined($this->{_pdu}->prepare_get_bulk_request(@argv))) {
-      return $this->_error($this->{_pdu}->error);
+   if (!defined $this->{_pdu}->prepare_get_bulk_request(@argv)) {
+      return $this->_error($this->{_pdu}->error());
    }
 
-   $this->_send_pdu;
+   return $this->_send_pdu();
 }
 
 =head2 inform_request() - send a SNMP inform-request to the remote manager
@@ -1029,28 +1038,28 @@ sub inform_request : locked : method
 {
    my $this = shift;
 
-   $this->_error_clear;
+   $this->_error_clear();
 
    my @argv;
 
-   if (!defined($this->_prepare_argv([qw( -callback
+   if (!defined $this->_prepare_argv([qw( -callback
                                           -delay
                                           -contextengineid
                                           -contextname 
-                                          -varbindlist     )], \@_, \@argv))) 
+                                          -varbindlist     )], \@_, \@argv))
    {
-      return $this->_error;
+      return $this->_error();
    }
 
-   if (!defined($this->_pdu_create)) {
-      return $this->_error;
+   if (!defined $this->_create_pdu()) {
+      return $this->_error();
    }
 
-   if (!defined($this->{_pdu}->prepare_inform_request(@argv))) {
-      return $this->_error($this->{_pdu}->error);
+   if (!defined $this->{_pdu}->prepare_inform_request(@argv)) {
+      return $this->_error($this->{_pdu}->error());
    }
 
-   $this->_send_pdu;
+   return $this->_send_pdu();
 }
 
 =head2 snmpv2_trap() - send a SNMP snmpV2-trap to the remote manager
@@ -1104,29 +1113,29 @@ sub snmpv2_trap : locked : method
 {
    my $this = shift;
 
-   $this->_error_clear;
+   $this->_error_clear();
 
    my @argv;
 
-   if (!defined($this->_prepare_argv([qw( -delay
+   if (!defined $this->_prepare_argv([qw( -delay
                                           -contextengineid
                                           -contextname
-                                          -varbindlist )], \@_, \@argv))) 
+                                          -varbindlist )], \@_, \@argv))
    {
-      return $this->_error;
+      return $this->_error();
    }
 
-   if (!defined($this->_pdu_create)) {
-      return $this->_error;
+   if (!defined $this->_create_pdu()) {
+      return $this->_error();
    }
 
-   if (!defined($this->{_pdu}->prepare_snmpv2_trap(@argv))) {
-      return $this->_error($this->{_pdu}->error);
+   if (!defined $this->{_pdu}->prepare_snmpv2_trap(@argv)) {
+      return $this->_error($this->{_pdu}->error());
    }
 
-   $this->_send_pdu;
+   $this->_send_pdu();
 
-   defined($this->{_error}) ? $this->_error : TRUE;
+   return defined($this->{_error}) ? $this->_error() : TRUE;
 }
 
 =head2 get_table() - retrieve a table from the remote agent
@@ -1169,7 +1178,7 @@ sub get_table : locked : method
 {
    my $this = shift;
 
-   $this->_error_clear; 
+   $this->_error_clear();
 
    my @argv;
 
@@ -1177,98 +1186,94 @@ sub get_table : locked : method
    # see if the first argument is an OBJECT IDENTIFIER and then
    # act accordingly.
 
-   if ((@_) && ($_[0] =~ /^\.?\d+\.\d+(?:\d+)*/)) {
-      unshift(@_, '-baseoid');
+   if ((@_) && ($_[0] =~ m/^\.?\d+(?:\.\d+)* *$/)) {
+      unshift @_, '-baseoid'; # XXX: Side effects?
    }
 
-   if (!defined($this->_prepare_argv([qw( -callback
+   if (!defined $this->_prepare_argv([qw( -callback
                                           -delay
                                           -contextengineid
                                           -contextname 
                                           -baseoid         
-                                          -maxrepetitions  )], \@_, \@argv))) 
+                                          -maxrepetitions  )], \@_, \@argv))
    {
-      return $this->_error;
+      return $this->_error();
    }
 
-   if ($argv[0] !~ /^\.?\d+\.\d+(?:\d+)*/) {
+   if ($argv[0] !~ m/^\.?\d+(?:\.\d+)* *$/) {
       return $this->_error(
-         'Expected base OBJECT IDENTIFIER in dotted notation'
+         'The base OBJECT IDENTIFIER "%s" is expected in dotted decimal ' .
+         'notation', $argv[0]
       );
    }
 
    # Create a new PDU.
-   if (!defined($this->_pdu_create)) {
-      return $this->_error;
+   if (!defined $this->_create_pdu()) {
+      return $this->_error();
    }
 
    # Create table of values that need passed along with the
    # callbacks.  This just prevents a big argument list.
 
-   my %argv = (
-      base_oid   => $argv[0], 
-      callback   => $this->{_pdu}->callback,
+   my $argv = {
+      base_oid   => $argv[0],
+      callback   => $this->{_pdu}->callback(),
+      max_reps   => 5, # Also used as a limit for loop detection.
       repeat_cnt => 0,
       table      => undef,
       types      => undef,
       use_bulk   => FALSE
-   );
+   };
 
    # Override the callback now that we have stored it.
    $this->{_pdu}->callback(
-      sub {
+      sub
+      {
          $this->{_pdu} = $_[0];
-         $this->_error_clear;
-         $this->_error($this->{_pdu}->error) if $this->{_pdu}->error;
-         $this->_get_table_cb(\%argv); 
+         $this->_error_clear();
+         if ($this->{_pdu}->error()) {
+            $this->_error($this->{_pdu}->error());
+         }
+         $this->_get_table_cb($argv);
+         return;
       }
    );
 
    # Determine if we are going to use get-next-requests or get-bulk-requests
    # based on the SNMP version and the -maxrepetitions argument.
 
-   if ($this->version == SNMP_VERSION_1) {
-      if (defined($argv[1])) {
+   if ($this->version() == SNMP_VERSION_1) {
+      if (defined $argv[1]) {
          return $this->_error(
-            'A max-repetitions value is not applicable when using SNMPv1'
+            'The max-repetitions argument is not applicable when using SNMPv1'
          );
       }
    } else {
-      $argv{use_bulk} = (defined($argv[1]) && $argv[1] <= 1) ? FALSE : TRUE;
-   }    
-
-   # Create either a get-next-request or get-bulk-request PDU.
-
-   if (!$argv{use_bulk}) {
-
-      # Set max_reps to be used as a limit for loop detection.
-      $argv{max_reps} = 5;
-
-      if (!defined($this->{_pdu}->prepare_get_next_request([$argv[0]]))) {
-         return $this->_error($this->{_pdu}->error);
-      }
-
-   } else {
-
-      # Store the max-repetitions value to be used.
-
-      if (defined($argv[1])) {
-         $argv{max_reps} = $argv[1];
-      } else {
-         $argv{max_reps} = $this->_msg_size_max_reps;
-      }
-
-      if (!defined(
-            $this->{_pdu}->prepare_get_bulk_request(
-                0, $argv{max_reps}, [$argv[0]]
-            )
-         )) 
-      {
-         return $this->_error($this->{_pdu}->error);
+      if (!defined $argv[1]) {
+         $argv->{use_bulk} = TRUE;
+         $argv->{max_reps} = $this->_msg_size_max_reps();
+      } elsif ($argv[1] > 1) {
+         $argv->{use_bulk} = TRUE;
+         $argv->{max_reps} = $argv[1];
       }
    }
 
-   $this->_send_pdu;
+   # Create either a get-next-request or get-bulk-request PDU.
+
+   if ($argv->{use_bulk}) {
+      if (!defined $this->{_pdu}->prepare_get_bulk_request(0,
+                                                           $argv->{max_reps},
+                                                           [$argv[0]]))
+      {
+         return $this->_error($this->{_pdu}->error());
+      }
+   } else {
+      if (!defined $this->{_pdu}->prepare_get_next_request([$argv[0]])) {
+         return $this->_error($this->{_pdu}->error());
+      }
+   }
+
+   return $this->_send_pdu();
 }
 
 =head2 get_entries() - retrieve table entries from the remote agent
@@ -1298,8 +1303,8 @@ notation if the index associated with the entry so requires.  If the
 B<-startindex> is specified, it will be include as part of the query results.
 If no B<-startindex> is specified, the first request message will be sent
 without an index.  To insure that the B<-startindex> is included, the last
-subidentifier in the index is decremented by one.  If the last subidentifier
-has a value of zero, the subidentifier is removed from the index.
+sub-identifier in the index is decremented by one.  If the last sub-identifier
+has a value of zero, the sub-identifier is removed from the index.
 
 The optional B<-endindex> argument can be specified as a single decimal value
 or in dotted notation.  If the B<-endindex> is specified, it will be included 
@@ -1326,13 +1331,13 @@ sub get_entries : locked : method
 {
    my $this = shift;
 
-   $this->_error_clear;
+   $this->_error_clear();
 
    my @argv;
 
    # Validate the passed arguments.  
 
-   if (!defined($this->_prepare_argv([qw( -callback
+   if (!defined $this->_prepare_argv([qw( -callback
                                           -delay
                                           -contextengineid
                                           -contextname
@@ -1341,17 +1346,17 @@ sub get_entries : locked : method
                                           -startindex
                                           -endindex  
                                           -maxrepetitions       
-                                          -rowcallback     )], \@_, \@argv)))
+                                          -rowcallback     )], \@_, \@argv))
    {
-      return $this->_error;
+      return $this->_error();
    }
 
-   if (ref($argv[1]) ne 'ARRAY') {
-      return $this->_error('Expected array reference for column list');
+   if (ref $argv[1] ne 'ARRAY') {
+      return $this->_error('The columns argument expects an array reference');
    }
 
-   if (!scalar(@{$argv[1]})) {
-      return $this->_error('Empty column list specified');
+   if (!scalar @{$argv[1]}) {
+      return $this->_error('An empty columns list was specified');
    }
 
    # The syntax of get_entries() changes between release 4.1.0 and
@@ -1359,166 +1364,192 @@ sub get_entries : locked : method
    # syntax is being used if the "-entryoid" argument is present
    # and we silently convert to the new syntax.  
 
-   if (defined($argv[0])) {
+   if (defined $argv[0]) {
 
-      if ($argv[0] !~ /^\.?\d+\.\d+(?:\.\d+)*$/) {
+      # XXX: Argument deprecated after v5.2.0.
+
+      require Carp;
+      Carp::carp(
+         'The entryoid argument is deprecated, use the columns argument ' .
+         'with a list of column OBJECT IDENTIFIERs'
+      );
+
+      if ($argv[0] !~ m/^\.?\d+(?:\.\d+)* *$/) {
          return $this->_error(
-            'Expected entry OBJECT IDENTIFIER in dotted notation'
+            'The entryoid value "%s" is expected in dotted decimal notation',
+            $argv[0]
          );
       }
 
       my $columns = {};
 
       for (@{$argv[1]}) {
-         if (!/^\d+$/) {
+         if (!m/^\d+$/) {
             return $this->_error(
-               'Expected positive numeric value in column list [%s]', $_
+               'The columns list value "%s" is expected in positive numeric ' .
+               'format', $_
             );
          }
-         if (exists($columns->{$_})) {
-            return $this->_error('Duplicate entry in column list [%s]', $_);
+         if (exists $columns->{$_}) {
+            return $this->_error(
+               'The columns list value "%s" is duplicated in the columns list',
+               $_
+            );
          } else {
             $columns->{$_} = $_;
          }
       }
 
-      # Now create the new syntax for the columns list
+      # Now create the new syntax for the columns list.
 
       $argv[1] = [];
 
-      for (sort { $a <=> $b } (keys(%{$columns}))) {
-         push(@{$argv[1]}, join('.', $argv[0], $_));      
+      for (sort { $a <=> $b } (keys %{$columns})) {
+         push @{$argv[1]}, join q{.}, $argv[0], $_;
       }
 
    }
 
    # Validate the column list. 
- 
+
    for (@{$argv[1]}) {
-      if (!/^\.?\d+\.\d+(?:\.\d+)*$/) {
+      if (!m/^\.?\d+(?:\.\d+)* *$/) {
          return $this->_error(
-            'Expected column OBJECT IDENTIFIER in dotted notation [%s]', $_
+            'The columns list OBJECT IDENTIFIER "%s" is expected in dotted ' .
+            'decimal notation', $_
          );
       }
    }
 
-   my $start_index = '';
+   my $start_index = undef;
 
-   if (defined($argv[2])) {
-      if ($argv[2] !~ /^\d+(?:\.\d+)*$/) {
-         return $this->_error('Expected start index in dotted notation');
+   if (defined $argv[2]) {
+      if ($argv[2] !~ m/^\d+(?:\.\d+)*$/) {
+         return $this->_error(
+            'The start index "%s" is expected in dotted decimal notation',
+            $argv[2]
+         );
       }
-      my @subids = split('\.', $argv[2]);
-      if ($subids[-1] > 0) { 
+      my @subids = split m/\./, $argv[2];
+      if ($subids[-1] > 0) {
          $subids[-1]--;
       } else {
-         pop(@subids);
+         pop @subids;
       }
-      $start_index = (@subids) ? join('.', @subids) : '';
+      $start_index = (@subids) ? join(q{.}, @subids) : q{};
    }
 
-   if (defined($argv[3])) {
+   if (defined $argv[3]) {
       if ($argv[3] !~ /^\d+(?:\.\d+)*$/) {
-         return $this->_error('Expected end index in dotted notation');
+         return $this->_error(
+             'The end index "%s" is expected in dotted decimal notation',
+             $argv[3]
+         );
       }
-      if (defined($argv[2])) {
-         if (_index_cmp($argv[2], $argv[3]) > 0) {
-            return $this->_error('End index cannot be less than start index');
+      if (defined $argv[2]) {
+         if (oid_lex_cmp($argv[2], $argv[3]) > 0) {
+            return $this->_error(
+               'The end index cannot be less than the start index'
+            );
          }
       }
    }
 
    # Undocumented and unsupported "-rowcallback" argument.
 
-   if (defined($argv[5])) {
-      if (ref($argv[5]) eq 'CODE') {
+   if (defined $argv[5]) {
+      if (ref $argv[5] eq 'CODE') {
          $argv[5] = [$argv[5]];
       } elsif ((ref($argv[5]) ne 'ARRAY') || (ref($argv[5]->[0]) ne 'CODE')) {
-         return $this->_error('Invalid row callback format');
+         return $this->_error('The syntax of the row callback is invalid');
       }
-   }   
+   }
 
    # Create a new PDU.
-   if (!defined($this->_pdu_create)) {
-      return $this->_error;
+   if (!defined $this->_create_pdu()) {
+      return $this->_error();
    }
 
    # Create table of values that need passed along with the
    # callbacks.  This just prevents a big argument list.
 
-   my %argv = (
-      callback     => $this->{_pdu}->callback,
+   my $argv = {
+      callback     => $this->{_pdu}->callback(),
       columns      => $argv[1],
       end_index    => $argv[3],
       entries      => undef,
-      last_index   => '0', 
+      last_index   => undef,
+      max_reps     => 0,
       row_callback => $argv[5],
       start_index  => $argv[2],
       types        => undef,
-      use_bulk     => FALSE 
-   );
+      use_bulk     => FALSE
+   };
 
    # Override the callback now that we have stored it.
    $this->{_pdu}->callback(
-      sub {
+      sub
+      {
          $this->{_pdu} = $_[0];
-         $this->_error_clear;
-         $this->_error($this->{_pdu}->error) if $this->{_pdu}->error;
-         $this->_get_entries_cb(\%argv);
+         $this->_error_clear();
+         if ($this->{_pdu}->error()) {
+            $this->_error($this->{_pdu}->error());
+         }
+         $this->_get_entries_cb($argv);
+         return;
       }
    );
-   
-   # Create the varBindList by indexing each column with the start index.
 
-   my $vbl = [ map { join('.', $_, $start_index) } @{$argv{columns}} ]; 
+   # Create the varBindList by indexing each column with the start index.
+   my $vbl =
+   [
+      map {
+         (defined $start_index) ? join q{.}, $_, $start_index : $_
+      } @{$argv->{columns}}
+   ];
 
    # Determine if we are going to use get-next-requests or get-bulk-requests
    # based on the SNMP version and the -maxrepetitions argument.
 
-   if ($this->version == SNMP_VERSION_1) {
-      if (defined($argv[4])) {
+   if ($this->version() == SNMP_VERSION_1) {
+      if (defined $argv[4]) {
          return $this->_error(
-            'A max-repetitions value is not applicable when using SNMPv1'
+            'The max-repetitions argument is not applicable when using SNMPv1'
          );
       }
    } else {
-      $argv{use_bulk} = (defined($argv[4]) && $argv[4] <= 1) ? FALSE : TRUE;
+      if (!defined $argv[4]) {
+         $argv->{use_bulk} = TRUE;
+         # Scale the max-repetitions based on the number of columns.
+         $argv->{max_reps} =
+            int($this->_msg_size_max_reps() / @{$argv->{columns}}) + 1;
+      } elsif ($argv[4] > 1) {
+         $argv->{use_bulk} = TRUE;
+         $argv->{max_reps} = $argv[4];
+      }
    }
 
    # Create either a get-next-request or get-bulk-request PDU.
 
-   if (!$argv{use_bulk}) {
-
-      if (!defined($this->{_pdu}->prepare_get_next_request($vbl))) {
-         return $this->_error($this->{_pdu}->error);
-      }
-
-   } else {
-
-      # Store the max-repetitions value to be used.
-
-      if (defined($argv[4])) {
-         $argv{max_reps} = $argv[4];
-      } else {
-         # Scale the max-repetitions based on the number of columns.
-         $argv{max_reps} =
-            int($this->_msg_size_max_reps / @{$argv{columns}}) + 1;
-      }
-
-      if (!defined(
-            $this->{_pdu}->prepare_get_bulk_request(0, $argv{max_reps}, $vbl)
-         ))
+   if ($argv->{use_bulk}) {
+      if (!defined $this->{_pdu}->prepare_get_bulk_request(0,
+                                                           $argv->{max_reps},
+                                                           $vbl))
       {
-         return $this->_error($this->{_pdu}->error);
+         return $this->_error($this->{_pdu}->error());
+      }
+   } else {
+      if (!defined $this->{_pdu}->prepare_get_next_request($vbl)) {
+         return $this->_error($this->{_pdu}->error());
       }
    }
 
-   $this->_send_pdu;
+   return $this->_send_pdu();
 }
 
 =head2 version() - get the SNMP version from the object
 
-   $rfc_version = $session->version;
+   $rfc_version = $session->version();
 
 This method returns the current value for the SNMP version associated with
 the object.  The returned value is the corresponding version number defined by
@@ -1532,14 +1563,14 @@ sub version : locked : method
 {
    my ($this) = @_;
 
-   return $this->_error('SNMP version is not modifiable') if (@_ == 2);
+   return $this->_error('The SNMP version is not modifiable') if (@_ == 2);
 
-   $this->{_version}; 
+   return $this->{_version};
 }
 
 =head2 error() - get the current error message from the object
 
-   $error_message = $session->error;
+   $error_message = $session->error();
 
 This method returns a text string explaining the reason for the last error.
 An empty string is returned if no error has occurred.
@@ -1548,12 +1579,12 @@ An empty string is returned if no error has occurred.
 
 sub error : locked : method
 {
-   $_[0]->{_error} || '';
+   return $_[0]->{_error} || q{};
 }
 
 =head2 hostname() - get the hostname associated with the object
 
-   $hostname = $session->hostname;
+   $hostname = $session->hostname();
 
 This method returns the hostname string that is associated with the object 
 as it was passed to the C<session()> constructor.
@@ -1562,12 +1593,12 @@ as it was passed to the C<session()> constructor.
 
 sub hostname : locked : method
 {
-   $_[0]->{_hostname};
+   return $_[0]->{_hostname};
 }
 
 =head2 error_status() - get the current SNMP error-status from the object
 
-   $error_status = $session->error_status;
+   $error_status = $session->error_status();
 
 This method returns the numeric value of the error-status contained in the 
 last SNMP message received by the object.
@@ -1576,12 +1607,12 @@ last SNMP message received by the object.
 
 sub error_status : locked : method
 {
-   defined($_[0]->{_pdu}) ? $_[0]->{_pdu}->error_status : 0;
+   return defined($_[0]->{_pdu}) ? $_[0]->{_pdu}->error_status() : 0;
 }
 
 =head2 error_index() - get the current SNMP error-index from the object
 
-   $error_index = $session->error_index;
+   $error_index = $session->error_index();
 
 This method returns the numeric value of the error-index contained in the 
 last SNMP message received by the object.
@@ -1590,12 +1621,12 @@ last SNMP message received by the object.
 
 sub error_index : locked : method
 {
-   defined($_[0]->{_pdu}) ? $_[0]->{_pdu}->error_index : 0;
+   return defined($_[0]->{_pdu}) ? $_[0]->{_pdu}->error_index() : 0;
 }
 
 =head2 var_bind_list() - get the hash reference for the VarBindList values 
 
-   $values = $session->var_bind_list;
+   $values = $session->var_bind_list();
 
 This method returns a hash reference created using the ObjectName and the 
 ObjectSyntax pairs in the VarBindList of the last SNMP message received by 
@@ -1604,20 +1635,20 @@ notation corresponding to each ObjectName in the VarBindList.  If any of the
 OBJECT IDENTIFIERs passed to the request method began with a leading dot, all
 of the OBJECT IDENTIFIER hash keys will be prefixed with a leading dot.  If 
 duplicate OBJECT IDENTIFIERs are present in the VarBindList they will be 
-padded with spaces to make them an uniq hash key.  The value of each hash entry
-is set equal to the value of the corresponding ObjectSyntax.  The undefined
-value is returned if there has been a failure.
+padded with spaces to make them an unique hash key.  The value of each hash
+entry is set equal to the value of the corresponding ObjectSyntax.  The
+undefined value is returned if there has been a failure.
 
 =cut
 
 sub var_bind_list : locked : method
 {
-   defined($_[0]->{_pdu}) ? $_[0]->{_pdu}->var_bind_list : undef;
+   return defined($_[0]->{_pdu}) ? $_[0]->{_pdu}->var_bind_list() : undef;
 }
 
 =head2 var_bind_names() - get the array of the ObjectNames in the VarBindList
 
-   @names = $session->var_bind_names;
+   @names = $session->var_bind_names();
 
 This method returns an array containing the OBJECT IDENTIFIERs corresponding
 to the ObjectNames in the VarBindList in the order that they were received
@@ -1632,12 +1663,12 @@ a failure.
 
 sub var_bind_names : locked : method
 {
-   defined($_[0]->{_pdu}) ? @{$_[0]->{_pdu}->var_bind_names} : ();
+   return defined($_[0]->{_pdu}) ? @{$_[0]->{_pdu}->var_bind_names()} : ();
 }
 
 =head2 var_bind_types() - get the hash reference for the VarBindList ASN.1 types
 
-   $types = $session->var_bind_types;
+   $types = $session->var_bind_types();
 
 This method returns a hash reference created using the ObjectName and the ASN.1
 type of the ObjectSyntax in the VarBindList of the last SNMP message received
@@ -1652,7 +1683,7 @@ is returned if there has been a failure.
 
 sub var_bind_types : locked : method
 {
-   defined($_[0]->{_pdu}) ? $_[0]->{_pdu}->var_bind_types : undef;
+   return defined($_[0]->{_pdu}) ? $_[0]->{_pdu}->var_bind_types() : undef;
 }
 
 =head2 timeout() - set or get the current timeout period for the object 
@@ -1675,13 +1706,15 @@ sub timeout : locked : method
 {
    my $this = shift;
 
-   if (!defined($this->{_transport})) {
-      return $this->_error('No Transport Domain defined');
+   if (!defined $this->{_transport}) {
+      return $this->_error('The session is closed');
    }
 
-   my $timeout = $this->{_transport}->timeout(@_);
+   if (defined (my $timeout = $this->{_transport}->timeout(@_))) {
+      return $timeout;
+   }
 
-   defined($timeout) ? $timeout : $this->_error($this->{_transport}->error);
+   return $this->_error($this->{_transport}->error());
 }
 
 =head2 retries() - set or get the current retry count for the object
@@ -1703,13 +1736,15 @@ sub retries : locked : method
 {
    my $this = shift;
 
-   if (!defined($this->{_transport})) {
-      return $this->_error('No Transport Domain defined');
+   if (!defined $this->{_transport}) {
+      return $this->_error('The session is closed');
    }
 
-   my $retries = $this->{_transport}->retries(@_);
+   if (defined (my $retries = $this->{_transport}->retries(@_))) {
+      return $retries;
+   }
 
-   defined($retries) ? $retries : $this->_error($this->{_transport}->error);
+   return $this->_error($this->{_transport}->error());
 }
 
 =head2 max_msg_size() - set or get the current maxMsgSize for the object
@@ -1738,18 +1773,20 @@ sub max_msg_size : locked : method
 {
    my $this = shift;
 
-   if (!defined($this->{_transport})) {
-      return $this->_error('No Transport Domain defined');
+   if (!defined $this->{_transport}) {
+      return $this->_error('The session is closed');
    }
 
-   my $max_size = $this->{_transport}->max_msg_size(@_);
+   if (defined (my $max_size = $this->{_transport}->max_msg_size(@_))) {
+      return $max_size;
+   }
 
-   defined($max_size) ? $max_size : $this->_error($this->{_transport}->error);
+   return $this->_error($this->{_transport}->error());
 }
 
 sub mtu
 {
-   shift->max_msg_size(@_);
+   goto &max_msg_size;
 }
 
 =head2 translate() - enable or disable the translation mode for the object
@@ -1758,7 +1795,7 @@ sub mtu
                         $mode |
                         [ # Perl anonymous ARRAY reference 
                            ['-all'            => $mode0,]
-                           ['-octetstring     => $mode1,]
+                           ['-octetstring'    => $mode1,]
                            ['-null'           => $mode2,]
                            ['-timeticks'      => $mode3,]
                            ['-opaque'         => $mode4,]
@@ -1777,10 +1814,12 @@ form.  By default the following translations occur:
 
 =item *
 
-OCTET STRINGs and Opaques containing non-printable ASCII characters are 
-converted into a hexadecimal representation prefixed with "0x".  B<NOTE:>  
-The following ASCII control characters are considered to be printable by
-the module:  NUL(0x00), HT(0x09), LF(0x0A), FF(0x0C), and CR(0x0D). 
+OCTET STRINGs and Opaques containing any octet which is not part of the
+character set defined as a DisplayString in RFC 2679 are converted into a
+hexadecimal representation prefixed with "0x".  The control codes NUL(0x00),
+BEL(0x07), BS(0x08), HT(0x09), LF(0x0A), VT(0x0b), FF(0x0C), and CR(0x0D)
+are part of the character set and will not trigger translation.  The sequence
+'CR x' for any x other than LF or NUL is illegal and will trigger translation.
 
 =item *
 
@@ -1793,23 +1832,17 @@ NULL values return the string "NULL" instead of an empty string.
 =item *
 
 noSuchObject exception values return the string "noSuchObject" instead of an
-empty string.  If translation is not enabled, the SNMP error-status field
-is set to 128 which is equal to the exported definition NOSUCHOBJECT (see 
-L<"EXPORTS">).
+empty string.
 
 =item *
 
 noSuchInstance exception values return the string "noSuchInstance" instead of 
-an empty string.  If translation is not enabled, the SNMP error-status field
-is set to 129 which is equal to the exported definition NOSUCHINSTANCE (see 
-L<"EXPORTS">).
+an empty string.
 
 =item *
 
 endOfMibView exception values return the string "endOfMibView" instead of an
-empty string.  If translation is not enabled, the SNMP error-status field
-is set to 130 which is equal to the exported definition ENDOFMIBVIEW (see 
-L<"EXPORTS">).
+empty string.
 
 =item *
 
@@ -1847,54 +1880,57 @@ sub translate : locked : method
 {
    my ($this, $mask) = @_;
 
-   if (@_ == 2) {
-
-      if (ref($mask) ne 'ARRAY') {
-
-         # Behave like we did before, do (not) translate everything
-         $this->_translate_mask($_[1], TRANSLATE_ALL);
-
-      } else {
-
-         # Allow the user to turn off and on specific translations.  An
-         # array is used so the order of the arguments controls how the
-         # mask is defined.
-
-         my @argv = @{$mask};
-         my $arg;
-
-         while (defined($arg = shift(@argv))) {
-            if ($arg =~ /^-?all$/i) {
-               $this->_translate_mask(shift(@argv), TRANSLATE_ALL);
-            } elsif ($arg =~ /^-?none$/i) { 
-               $this->_translate_mask(!(shift(@argv)), TRANSLATE_ALL);
-            } elsif ($arg =~ /^-?octet_?string$/i) {
-               $this->_translate_mask(shift(@argv), TRANSLATE_OCTET_STRING);
-            } elsif ($arg =~ /^-?null$/i) {
-               $this->_translate_mask(shift(@argv), TRANSLATE_NULL);
-            } elsif ($arg =~ /^-?timeticks$/i) {
-               $this->_translate_mask(shift(@argv), TRANSLATE_TIMETICKS);
-            } elsif ($arg =~ /^-?opaque$/i) {
-               $this->_translate_mask(shift(@argv), TRANSLATE_OPAQUE);
-            } elsif ($arg =~ /^-?nosuchobject$/i) {
-               $this->_translate_mask(shift(@argv), TRANSLATE_NOSUCHOBJECT);
-            } elsif ($arg =~ /^-?nosuchinstance$/i) {
-               $this->_translate_mask(shift(@argv), TRANSLATE_NOSUCHINSTANCE);
-            } elsif ($arg =~ /^-?endofmibview$/i) {
-               $this->_translate_mask(shift(@argv), TRANSLATE_ENDOFMIBVIEW);
-            } elsif ($arg =~ /^-?unsigned$/i) {
-               $this->_translate_mask(shift(@argv), TRANSLATE_UNSIGNED);
-            } else {
-               return $this->_error("Invalid translate argument '%s'", $arg);
-            }
-         }
-
-      }
-
-      DEBUG_INFO("translate = 0x%02x", $this->{_translate});
+   if (@_ != 2) {
+      return $this->{_translate};
    }
 
-   $this->{_translate};
+   if (ref($mask) ne 'ARRAY') {
+
+      # Behave like we did before, do (not) translate everything
+      $this->_translate_mask($_[1], TRANSLATE_ALL);
+
+   } else {
+
+      # Allow the user to turn off and on specific translations.  An
+      # array is used so the order of the arguments controls how the
+      # mask is defined.
+
+      my @argv = @{$mask};
+      my $arg;
+
+      while (defined ($arg = shift @argv)) {
+         if ($arg =~ /^-?all$/i) {
+            $this->_translate_mask(shift(@argv), TRANSLATE_ALL);
+         } elsif ($arg =~ /^-?none$/i) {
+            $this->_translate_mask(!(shift @argv), TRANSLATE_ALL);
+         } elsif ($arg =~ /^-?octet_?string$/i) {
+            $this->_translate_mask(shift(@argv), TRANSLATE_OCTET_STRING);
+         } elsif ($arg =~ /^-?null$/i) {
+            $this->_translate_mask(shift(@argv), TRANSLATE_NULL);
+         } elsif ($arg =~ /^-?timeticks$/i) {
+            $this->_translate_mask(shift(@argv), TRANSLATE_TIMETICKS);
+         } elsif ($arg =~ /^-?opaque$/i) {
+            $this->_translate_mask(shift(@argv), TRANSLATE_OPAQUE);
+         } elsif ($arg =~ /^-?nosuchobject$/i) {
+            $this->_translate_mask(shift(@argv), TRANSLATE_NOSUCHOBJECT);
+         } elsif ($arg =~ /^-?nosuchinstance$/i) {
+            $this->_translate_mask(shift(@argv), TRANSLATE_NOSUCHINSTANCE);
+         } elsif ($arg =~ /^-?endofmibview$/i) {
+            $this->_translate_mask(shift(@argv), TRANSLATE_ENDOFMIBVIEW);
+         } elsif ($arg =~ /^-?unsigned$/i) {
+            $this->_translate_mask(shift(@argv), TRANSLATE_UNSIGNED);
+         } else {
+            return $this->_error(
+               'The translate argument "%s" is unknown', $arg
+            );
+         }
+      }
+
+   }
+
+   DEBUG_INFO('translate mask = 0x%02x', $this->{_translate});
+
+   return $this->{_translate};
 }
 
 =head2 debug() - set or get the debug mode for the module 
@@ -1949,43 +1985,43 @@ sub debug
 
       $DEBUG = ($mask =~ /^\d+$/) ? $mask : ($mask) ? DEBUG_ALL : DEBUG_NONE;
 
-      eval { Net::SNMP::Message->debug($DEBUG & DEBUG_MESSAGE);              }; 
-      eval { Net::SNMP::Transport->debug($DEBUG & DEBUG_TRANSPORT);          }; 
+      eval { Net::SNMP::Message->debug($DEBUG & DEBUG_MESSAGE);              };
+      eval { Net::SNMP::Transport->debug($DEBUG & DEBUG_TRANSPORT);          };
       eval { Net::SNMP::Dispatcher->debug($DEBUG & DEBUG_DISPATCHER);        };
-      eval { Net::SNMP::MessageProcessing->debug($DEBUG & DEBUG_PROCESSING); }; 
+      eval { Net::SNMP::MessageProcessing->debug($DEBUG & DEBUG_PROCESSING); };
       eval { Net::SNMP::Security->debug($DEBUG & DEBUG_SECURITY);            };
 
    }
 
-   $DEBUG;
+   return $DEBUG;
 }
 
-sub snmp_debug($)
+sub snmp_debug
 {
-   debug(undef, $_[0]);
+   return debug(undef, $_[0]);
 }
 
 sub pdu : locked : method
 {
-   $_[0]->{_pdu};
+   return $_[0]->{_pdu};
 }
 
 sub nonblocking : locked : method
 {
-   $_[0]->{_nonblocking};
+   return $_[0]->{_nonblocking};
 }
 
 sub security : locked : method
 {
-   $_[0]->{_security};
+   return $_[0]->{_security};
 }
 
 sub transport : locked : method
 {
-   $_[0]->{_transport};
+   return $_[0]->{_transport};
 }
 
-=head1 FUNCTIONS
+=head1 SUBROUTINES
 
 =head2 oid_base_match() - determine if an OID has a specified OID base 
 
@@ -2000,25 +2036,53 @@ GetResponse-PDU is no longer in the desired MIB tree branch.
 
 =cut
 
-sub oid_base_match($$)
+sub oid_base_match
 {
    my ($base, $oid) = @_;
 
-   $base || return FALSE;
-   $oid  || return FALSE;
+   defined $base || return FALSE;
+   defined $oid  || return FALSE;
 
    $base =~ s/^\.//o;
    $oid  =~ s/^\.//o;
 
-   $base = pack('N*', split('\.', $base));
-   $oid  = pack('N*', split('\.', $oid));
+   $base = pack 'N*', split m/\./, $base;
+   $oid  = pack 'N*', split m/\./, $oid;
 
-   (substr($oid, 0, length($base)) eq $base) ? TRUE : FALSE;
+   return (substr($oid, 0, length $base) eq $base) ? TRUE : FALSE;
 }
 
-sub oid_context_match($$)
+sub oid_context_match
 {
-   oid_base_match($_[0], $_[1]);
+   require Carp;
+   Carp::carp(
+       'oid_context_match() is deprecated, use oid_base_match() instead'
+   );
+
+   goto &oid_base_match;
+}
+
+=head2 oid_lex_cmp() - compare two OBJECT IDENTIFIERs lexicographically
+
+   $cmp = oid_lex_cmp($oid1, $oid2);
+
+This function takes two OBJECT IDENTIFIERs in dotted notation and returns one
+of the values 1, 0, -1 if $oid1 is respectively lexicographically greater,
+equal, or less than $oid2.
+
+=cut 
+
+sub oid_lex_cmp
+{
+   my ($aa, $bb) = @_;
+
+   for ($aa, $bb) {
+      s/^\.//;
+      s/ /\.0/g;
+      $_ = pack 'N*', split m/\./;
+   }
+
+   return $aa cmp $bb;
 }
 
 =head2 oid_lex_sort() - sort a list of OBJECT IDENTIFIERs lexicographically
@@ -2030,18 +2094,21 @@ the listed sorted in lexicographical order.
 
 =cut
 
-sub oid_lex_sort(@)
+sub oid_lex_sort
 {
-   return @_ unless (@_ > 1);
+   if (@_ <= 1) {
+      return @_;
+   }
 
-   map  { $_->[0] } 
-   sort { $a->[1] cmp $b->[1] } 
-   map  {
-      my $oid = $_; 
-      $oid =~ s/^\.//o;
-      $oid =~ s/ /\.0/og;
-      [$_, pack('N*', split('\.', $oid))]
-   } @_;
+   return map { $_->[0] }
+             sort { $a->[1] cmp $b->[1] }
+                map
+                {
+                   my $oid = $_;
+                   $oid =~ s/^\.//;
+                   $oid =~ s/ /\.0/g;
+                   [$_, pack 'N*', split m/\./, $oid]
+                } @_;
 }
 
 =head2 snmp_type_ntop() - convert an ASN.1 type to presentation format
@@ -2050,14 +2117,14 @@ sub oid_lex_sort(@)
 
 This function takes an ASN.1 type octet and returns a text string suitable for
 presentation.  Some ASN.1 type definitions map to the same octet value when
-encoded.  This method cannot distinquish between these multiple mappings and
+encoded.  This method cannot distinguish between these multiple mappings and
 the most basic type name will be returned.
 
 =cut
 
-sub snmp_type_ntop($)
+sub snmp_type_ntop
 {
-   asn1_itoa($_[0]);
+   goto &asn1_itoa;
 }
 
 =head2 ticks_to_time() - convert TimeTicks to formatted time
@@ -2072,27 +2139,9 @@ and seconds format according to the value of the TimeTicks argument.
 
 =cut
 
-sub ticks_to_time($)
+sub ticks_to_time
 {
-   asn1_ticks_to_time($_[0]);
-}
-
-sub VERSION
-{
-   # Provide our own VERSION method so that the version returns 
-   # as a floating point number instead of a v-string.
-
-   my $version = eval { 
-      sprintf('%d.%03d%03d', unpack('C3', shift->UNIVERSAL::VERSION(@_))); 
-   };
-
-   if ($@) {
-      local $_ = $@;
-      s/at(.*)/sprintf("at %s line %s\n", (caller(0))[1], (caller(0))[2])/es;
-      die $_;
-   } 
-
-   $version;
+   goto &asn1_ticks_to_time;
 }
 
 sub DESTROY
@@ -2100,16 +2149,16 @@ sub DESTROY
    my ($this) = @_;
 
    # We decrement the object type count when the object goes out of
-   # existance.  We assume that _object_type_count() was called for
+   # existance.  We assume that _object_type_validate() was called for
    # every creation or else we die.
 
    if ($this->{_nonblocking}) {
       if (--$NONBLOCKING < 0) {
-         die('FATAL: Invalid non-blocking object count');
+         die 'FATAL: Invalid non-blocking object count';
       }
    } else {
       if (--$BLOCKING < 0) {
-         die('FATAL: Invalid blocking object count');
+         die 'FATAL: Invalid blocking object count';
       }
    }
 }
@@ -2124,8 +2173,8 @@ sub _send_pdu
    # authoritative SNMP engine.  If we are, queue the PDU if we are 
    # running in non-blocking mode.
 
-   if (($this->{_nonblocking}) && (!$this->{_security}->discovered)) {
-      push(@{$this->{_discovery_queue}}, [$this->{_pdu}, $this->{_delay}]);
+   if ($this->{_nonblocking} && !$this->{_security}->discovered()) {
+      push @{$this->{_discovery_queue}}, [$this->{_pdu}, $this->{_delay}];
       return TRUE;
    }
 
@@ -2133,13 +2182,15 @@ sub _send_pdu
    $DISPATCHER->send_pdu($this->{_pdu}, $this->{_delay});
 
    # Activate the dispatcher if we are blocking
-   snmp_dispatcher() unless ($this->{_nonblocking});
+   if (!$this->{_nonblocking}) {
+      snmp_dispatcher();
+   }
 
    # Return according to blocking mode 
-   ($this->{_nonblocking}) ? TRUE : $this->var_bind_list;
+   return ($this->{_nonblocking}) ? TRUE : $this->var_bind_list();
 }
 
-sub _pdu_create
+sub _create_pdu
 {
    my ($this) = @_;
 
@@ -2149,61 +2200,57 @@ sub _pdu_create
       -security  => $this->{_security},
       -transport => $this->{_transport},
       -translate => $this->{_translate},
-      -callback  => $this->_callback_closure,
-      defined($this->{_context_engine_id}) ? 
+      -callback  => $this->_callback_closure(),
+      -requestid => $DISPATCHER->msg_handle_alloc(),
+      defined($this->{_context_engine_id}) ?
          (-contextengineid => $this->{_context_engine_id}) : (),
       defined($this->{_context_name}) ?
          (-contextname     => $this->{_context_name})      : (),
    );
 
-   if (!defined($this->{_pdu})) {
-      return $this->_error;
+   if (!defined $this->{_pdu}) {
+      return $this->_error();
    }
-   $this->_error_clear;
+   $this->_error_clear();
 
    # Return the PDU
-   $this->{_pdu};
+   return $this->{_pdu};
 }
-    
 
-sub _version
 {
-#  my ($this, $version) = @_;
-
-   # Clear any previous error message
-   $_[0]->_error_clear;
-
-   # Allow the user some flexability
-   my $supported = {
-      '1'       => SNMP_VERSION_1,
-      'v1'      => SNMP_VERSION_1,
-      'snmpv1'  => SNMP_VERSION_1,
-      '2c'      => SNMP_VERSION_2C,
-      'v2c'     => SNMP_VERSION_2C,
-      'snmpv2c' => SNMP_VERSION_2C,
-      '3'       => SNMP_VERSION_3,
-      'v3'      => SNMP_VERSION_3,
-      'snmpv3'  => SNMP_VERSION_3
+   my $versions = {
+      '(?:snmp)?v?1',     SNMP_VERSION_1,
+      '(?:snmp)?v?2c?',   SNMP_VERSION_2C,
+      '(?:snmp)?v?3',     SNMP_VERSION_3,
    };
 
-   if (@_ == 2) {
-      my @match = grep(/^\Q$_[1]/i, keys(%{$supported})); 
-      if (@match > 1) {
-         return $_[0]->_error('Ambiguous SNMP version [%s]', $_[1]);
+   sub _version
+   {
+      my ($this, $version) = @_;
+
+      # XXX: The passed $version is updated as a side effect.
+
+      # Clear any previous error message.
+      $this->_error_clear();
+
+      if ($version eq q{}) {
+         return $this->_error('An empty SNMP version was specified');
       }
-      if (@match != 1) {
-         return $_[0]->_error('Unknown or invalid SNMP version [%s]', $_[1]);
+
+      for (keys %{$versions}) {
+         if ($version =~ m/^$_$/i) {
+            $_[1] = $this->{_version} = $versions->{$_};
+            return TRUE;
+         }
       }
-      $_[1] = $_[0]->{_version} = $supported->{$match[0]};
+
+      return $this->_error('The SNMP version "%s" is unknown', $version);
    }
 
-   $_[0]->{_version};
 }
 
-sub _prepare_argv
 {
-#  my ($this, $allowed, $named, $unnamed) = @_;
-
+   # Arguments that apply to the object.
    my $obj_args = {
       -callback        => \&_callback,          # non-blocking only
       -contextengineid => \&_context_engine_id, # v3 only
@@ -2211,78 +2258,88 @@ sub _prepare_argv
       -delay           => \&_delay,             # non-blocking only
    };
 
-   my %argv;
+   sub _prepare_argv
+   {
+      my ($this, $allowed, $named, $unnamed) = @_;
 
-   # For backwards compatibility, check to see if the first 
-   # argument is an OBJECT IDENTIFIER in dotted notation.  If it
-   # is, assign it to the -varbindlist argument.
+      # XXX: Argument $unnamed is updated by reference. 
 
-   if ((@{$_[2]}) && ($_[2]->[0] =~ /^\.?\d+\.\d+(?:\d+)*/)) {
-      $argv{-varbindlist} = $_[2];
-   } else {
-      %argv = @{$_[2]};
-   }
+      my %argv;
 
-   # Go through the passed argument list and see if the argument is
-   # allowed.  If it is, see if it applies to the object and has a 
-   # matching method call or add it the the new argv list to be 
-   # returned by this method.
+      # For backwards compatibility, check to see if the first 
+      # argument is an OBJECT IDENTIFIER in dotted notation.  If it
+      # is, assign it to the -varbindlist argument.
 
-   my %new_args;
+      if ((@{$named}) && ($named->[0] =~ m/^\.?\d+(?:\.\d+)* *$/)) {
+         $argv{-varbindlist} = $named;
+      } else {
+         %argv = @{$named};
+      }
 
-   foreach my $key (keys(%argv)) {
-      my @match = grep(/^-?\Q$key\E$/i, @{$_[1]});
-      if (@match == 1) {
-         if (exists($obj_args->{$match[0]})) {
-            if (!defined($_[0]->${\$obj_args->{$match[0]}}($argv{$key}))) {
-               return $_[0]->_error;
+      # Go through the passed argument list and see if the argument is
+      # allowed.  If it is, see if it applies to the object and has a 
+      # matching method call or add it the the new argv list to be 
+      # returned by this method.
+
+      my %new_args;
+
+      for my $key (keys %argv) {
+         my @match = grep { /^-?\Q$key\E$/i } @{$allowed};
+         if (@match == 1) {
+            if (exists $obj_args->{$match[0]}) {
+               if (!defined $this->${\$obj_args->{$match[0]}}($argv{$key})) {
+                  return $this->_error();
+               }
+            } else {
+               $new_args{$match[0]} = $argv{$key};
             }
          } else {
-            $new_args{$match[0]} = $argv{$key};   
+            return $this->_error('The argument "%s" is unknown', $key);
          }
-      } else {
-         return $_[0]->_error("Invalid argument '%s'", $key);
       }
+
+      # Create a new ordered unnamed argument list based on the allowed 
+      # list passed, ignoring those that applied to the object.
+
+      for (@{$allowed}) {
+         next if exists $obj_args->{$_};
+         push @{$unnamed}, exists($new_args{$_}) ? $new_args{$_} : undef;
+      }
+
+      return TRUE;
    }
 
-   # Create a new ordered unnamed argument list based on the allowed 
-   # list passed, ignoring those that applied to the object.
-
-   foreach (@{$_[1]}) {
-      next if exists($obj_args->{$_});
-      push(@{$_[3]}, exists($new_args{$_}) ? $new_args{$_} : undef);
-   }
-
-   $_[3];
 }
-
 
 sub _callback
 {
    my ($this, $callback) = @_;
-  
+
    # We validate the callback argument and then create an anonymous 
    # array where the first element is the subroutine reference and 
    # the second element is an array reference containing arguments 
    # to pass to the subroutine.
 
    if (!$this->{_nonblocking}) {
-      return $this->_error('Callbacks are not applicable to blocking objects');
+      return $this->_error(
+         'The callback argument is not applicable to blocking objects'
+      );
    }
- 
+
    my @argv;
 
-   if (!defined($callback)) {
+   if (!defined $callback) {
       $this->{_callback} = undef;
       return TRUE;
    } elsif ((ref($callback) eq 'ARRAY') && (ref($callback->[0]) eq 'CODE')) {
-      @argv = @{$callback};
-      $callback = shift(@argv);
+      ($callback, @argv) = @{$callback};
    } elsif (ref($callback) ne 'CODE') {
-      return $this->_error('Invalid callback format');
+      return $this->_error('The syntax of the callback is invalid');
    }
 
-   $this->{_callback} = [$callback, \@argv]; 
+   $this->{_callback} = [$callback, \@argv];
+
+   return TRUE;
 }
 
 sub _callback_closure
@@ -2296,86 +2353,118 @@ sub _callback_closure
    # reference to the Net:SNMP object and then invoke the user defined 
    # callback.
 
-   if (!$this->{_nonblocking}) {
-
-      sub {
-         $this->{_pdu} = $_[0];
-         $this->_error_clear;
-         $this->_error($this->{_pdu}->error) if ($this->{_pdu}->error);
-      };
-
-   } else {
-
-      return undef unless defined ($this->{_callback});
-
-      my $callback = $this->{_callback}->[0];
-      my @argv = @{$this->{_callback}->[1]};
-
-      sub {
-         $this->{_pdu} = $_[0];
-         $this->_error_clear;
-         $this->_error($this->{_pdu}->error) if ($this->{_pdu}->error);
-         $callback->($this, @argv);
-      };
-
+   if (!$this->{_nonblocking} || !defined $this->{_callback}) {
+      return sub
+         {
+            $this->{_pdu} = $_[0];
+            $this->_error_clear();
+            if ($this->{_pdu}->error()) {
+               $this->_error($this->{_pdu}->error());
+            }
+            return;
+         };
    }
 
+   my ($callback, $argv) = @{$this->{_callback}};
+
+   return sub
+      {
+         $this->{_pdu} = $_[0];
+         $this->_error_clear();
+         if ($this->{_pdu}->error()) {
+            $this->_error($this->{_pdu}->error());
+         }
+         $callback->($this, @{$argv});
+         return;
+      };
 }
 
 sub _context_engine_id
 {
    my ($this, $context_engine_id) = @_;
 
-   $this->_error_clear;
+   $this->_error_clear();
 
-   if ($this->version != SNMP_VERSION_3) {
-      return $this->_error('contextEngineID only supported in SNMPv3');
+   if ($this->version() != SNMP_VERSION_3) {
+      return $this->_error(
+         'The contextEngineID argument is only supported in SNMPv3'
+      );
    }
 
-   if (!defined($context_engine_id)) {
-      $this->{_context_engine_id} = undef; 
-      TRUE;
-   } elsif ($context_engine_id =~ /^(?i:0x)?([a-fA-F0-9]{10,64})$/) {
-      $this->{_context_engine_id} = pack('H*', length($1) % 2 ? '0'.$1 : $1);
+   if (!defined $context_engine_id) {
+      $this->{_context_engine_id} = undef;
+   } elsif ($context_engine_id =~ m/^(?:0x)?([A-F0-9]+)$/i) {
+       my $cei = pack 'H*', length($1) %  2 ? '0'.$1 : $1;
+       my $len = length $cei;
+       if ($len < 5 || $len > 32) {
+          return $this->_error(
+             'The contextEngineID length of %d is out of range (5..32)', $len
+          );
+       }
+       $this->{_context_engine_id} = $cei;
    } else {
-      $this->_error('Invalid contextEngineID format specified');
+      return $this->_error(
+         'The contextEngineID "%s" is expected in hexadecimal format',
+         $context_engine_id
+      );
    }
+
+   return TRUE;
 }
 
 sub _context_name
 {
    my ($this, $context_name) = @_;
 
-   $this->_error_clear;
+   $this->_error_clear();
 
-   if ($this->version != SNMP_VERSION_3) {
-      return $this->_error('contextName only supported in SNMPv3');
-   }
-
-   if (length($context_name) > 32) {
+   if ($this->version() != SNMP_VERSION_3) {
       return $this->_error(
-         'Invalid contextName length [%d octets]', length($context_name) 
+         'The contextName argument is only supported in SNMPv3'
       );
    }
 
-   $this->{_context_name} = $context_name;
+   if (!defined $context_name) {
+      $this->{_context_name} = undef;
+   } elsif (length($context_name) <= 32) {
+      $this->{_context_name} = $context_name;
+   } else {
+      return $this->_error(
+         'The contextName length of %d is out of range (0..32)',
+         length $context_name
+      );
+   }
+
+   return TRUE;
 }
 
 sub _delay
 {
    my ($this, $delay) = @_;
 
-   $this->_error_clear;
+   $this->_error_clear();
 
    if (!$this->{_nonblocking}) {
-      return $this->_error('Delay not applicable to blocking objects');   
+      return $this->_error(
+         'The delay argument is not applicable to blocking objects'
+      );
    }
 
    if ($delay !~ /^\d+(?:\.\d+)?$/) {
-      return $this->_error('Invalid delay value [%s]', $delay);
+      return $this->_error(
+         'The delay value "%s" is expected in positive numeric format', $delay
+      );
+   }
+
+   if ($delay < 0 || $delay > 31556926) { # Seconds in a year...
+      return $this->_error(
+         'The delay value "%s" is out of range (0..31556926)', $delay
+      );
    }
 
    $this->{_delay} = $delay;
+
+   return TRUE;
 }
 
 sub _object_type_validate
@@ -2383,37 +2472,32 @@ sub _object_type_validate
    my ($this) = @_;
 
    # Since both non-blocking and blocking objects use the same
-   # Dispatcher instance, allowing both objects type to exist at
-   # the same time would cause problems.  This method is called 
-   # by the constructor to prevent this situation from happening.
+   # Dispatcher instance, allowing both objects types to exist at
+   # the same time would cause problems.  This method is called
+   # by the constructor to track the object counts based on the 
+   # non-blocking property and returns an error if the two types
+   # would exist at the same time.
 
-   if (($this->{_nonblocking}) && ($BLOCKING)) {
+   my $count = ($this->{_nonblocking}) ? ++$NONBLOCKING : ++$BLOCKING;
+
+   if ($this->{_nonblocking} && $BLOCKING) {
       return $this->_error(
          'Cannot create non-blocking objects when blocking objects exist'
       );
-   } elsif ((!$this->{_nonblocking}) && ($NONBLOCKING)) {
+   } elsif (!$this->{_nonblocking} && $NONBLOCKING) {
       return $this->_error(
          'Cannot create blocking objects when non-blocking objects exist'
       );
    }
 
-   # Now we can bump up the object count
-   $this->_object_type_count;
+   return $count;
 }
 
-sub _object_type_count
-{ 
-   # This method must be called any time an object is created.  The
-   # destructor will decrement this count.
-
-   ($_[0]->{_nonblocking}) ? $NONBLOCKING++ : $BLOCKING++;
-} 
-
-sub _discovery
+sub _perform_discovery
 {
    my ($this) = @_;
 
-   return TRUE if ($this->{_security}->discovered);
+   return TRUE if ($this->{_security}->discovered());
 
    # RFC 3414 - Section 4: "Discovery... ...may be accomplished by
    # generating a Request message with a securityLevel of noAuthNoPriv,
@@ -2421,33 +2505,38 @@ sub _discovery
    # zero length, and the varBindList left empty."
 
    # Create a new PDU
-   if (!defined($this->_pdu_create)) {
-      return $this->_error;
+   if (!defined $this->_create_pdu()) {
+      return $this->_discovery_failed();
    }
 
    # Create the callback and assign it to the PDU
    $this->{_pdu}->callback(
-      sub {
+      sub
+      {
          $this->{_pdu} = $_[0];
-         $this->_error_clear;
-         if ($this->{_pdu}->error) {
-            $this->_error($this->{_pdu}->error . ' during discovery');
+         $this->_error_clear();
+         if ($this->{_pdu}->error()) {
+            $this->_error($this->{_pdu}->error() . ' during discovery');
          }
-         $this->_discovery_engine_id_cb; 
+         $this->_discovery_engine_id_cb();
+         return;
       }
    );
 
    # Prepare an empty get-request
-   if (!defined($this->{_pdu}->prepare_get_request)) {
-      return $this->_error($this->{_pdu}->error);
+   if (!defined $this->{_pdu}->prepare_get_request()) {
+      $this->_error($this->{_pdu}->error());
+      return $this->_discovery_failed();
    }
 
    # Send the PDU
    $DISPATCHER->send_pdu($this->{_pdu}, 0);
 
-   snmp_dispatcher() unless ($this->{_nonblocking});
+   if (!$this->{_nonblocking}) {
+      snmp_dispatcher();
+   }
 
-   ($this->{_error}) ? $this->_error : TRUE;
+   return ($this->{_error}) ? $this->_error() : TRUE;
 }
 
 sub _discovery_engine_id_cb
@@ -2460,40 +2549,20 @@ sub _discovery_engine_id_cb
    # error is returned, we assume snmpEngineID discovery has failed.
 
    if ($this->{_error} !~ /usmStatsUnknownEngineIDs/) {
-
-      # Discovery of the snmpEngineID has failed, clear the 
-      # current PDU and the Transport Domain so no one can use 
-      # this object to send messages.
- 
-      $this->{_pdu}       = undef;
-      $this->{_transport} = undef;
-
-      # Inform the command generator about the current error.
-      while (my $q = shift(@{$this->{_discovery_queue}})) {
-         $q->[0]->status_information($this->{_error});
-      }
-
-      return $this->_error;
+      return $this->_discovery_failed();
    }
 
    # Clear the usmStatsUnknownEngineIDs error
-   $this->_error_clear;
+   $this->_error_clear();
 
    # If the security model indicates that discovery is complete,
    # we send any pending messages and return success.  If discovery
    # is not complete, we probably need to synchronize with the
    # remote authoritative engine.
 
-   if ($this->{_security}->discovered) {
-
+   if ($this->{_security}->discovered()) {
       DEBUG_INFO('discovery complete');
-
-      # Discovery is complete, send any pending messages
-      while (my $q = shift(@{$this->{_discovery_queue}})) {
-         $DISPATCHER->send_pdu(@{$q});
-      }
-
-      return TRUE;
+      return $this->_discovery_complete();
    }
 
    # "If authenticated communication is required, then the discovery
@@ -2502,33 +2571,38 @@ sub _discovery_engine_id_cb
    # an authenticated Request message..."
 
    # Create a new PDU
-   if (!defined($this->_pdu_create)) {
-      return $this->_error;
+   if (!defined $this->_create_pdu()) {
+      return $this->_discovery_failed();
    }
 
    # Create the callback and assign it to the PDU
    $this->{_pdu}->callback(
-      sub {
+      sub
+      {
          $this->{_pdu} = $_[0];
-         $this->_error_clear;
-         if ($this->{_pdu}->error) {
-            $this->_error($this->{_pdu}->error . ' during synchronization');
+         $this->_error_clear();
+         if ($this->{_pdu}->error()) {
+            $this->_error($this->{_pdu}->error() . ' during synchronization');
          }
-         $this->_discovery_synchronization_cb;
+         $this->_discovery_synchronization_cb();
+         return;
       }
    );
 
    # Prepare an empty get-request
-   if (!defined($this->{_pdu}->prepare_get_request)) {
-      return $this->_error($this->{_pdu}->error);
+   if (!defined $this->{_pdu}->prepare_get_request()) {
+      $this->_error($this->{_pdu}->error());
+      return $this->_discovery_failed();
    }
 
    # Send the PDU
    $DISPATCHER->send_pdu($this->{_pdu}, 0);
 
-   snmp_dispatcher() unless ($this->{_nonblocking});
+   if (!$this->{_nonblocking}) {
+      snmp_dispatcher();
+   }
 
-   ($this->{_error}) ? $this->_error : TRUE;
+   return ($this->{_error}) ? $this->_error() : TRUE;
 }
 
 sub _discovery_synchronization_cb
@@ -2541,46 +2615,56 @@ sub _discovery_synchronization_cb
    # counter in the varBindList..."  If another error is returned, we 
    # assume that the synchronization has failed.
 
-   if (($this->{_security}->discovered) &&
+   if (($this->{_security}->discovered()) &&
        ($this->{_error} =~ /usmStatsNotInTimeWindows/))
    {
-      $this->_error_clear;
-    
+      $this->_error_clear();
       DEBUG_INFO('discovery and synchronization complete');
-
-      # Discovery is complete, send any pending messages
-      while (my $q = shift(@{$this->{_discovery_queue}})) {
-         $DISPATCHER->send_pdu(@{$q});
-      }
-
-      return TRUE;
+      return $this->_discovery_complete();
    }
 
    # If we received the usmStatsNotInTimeWindows report or no error, but 
    # we are still not synchronized, provide a generic error message.
 
    if ((!$this->{_error}) || ($this->{_error} =~ /usmStatsNotInTimeWindows/)) {
-      $this->_error_clear;
+      $this->_error_clear();
       $this->_error('Time synchronization failed during discovery');
    }
 
    DEBUG_INFO('synchronization failed');
 
-   # Synchronization has failed, clear the current PDU and 
-   # the Transport Domain so no one can use this object to 
-   # send messages.
+   return $this->_discovery_failed();
+}
+
+sub _discovery_failed
+{
+   my ($this) = @_;
+
+   # The discovery process has failed, clear the current PDU and the
+   # Transport Domain so no one can use this object to send messages.
 
    $this->{_pdu}       = undef;
    $this->{_transport} = undef;
 
    # Inform the command generator about the current error.
-   while (my $q = shift(@{$this->{_discovery_queue}})) {
+   while (my $q = shift @{$this->{_discovery_queue}}) {
       $q->[0]->status_information($this->{_error});
    }
 
-   $this->_error;
+   return $this->_error();
 }
 
+sub _discovery_complete
+{
+   my ($this) = @_;
+
+   # Discovery is complete, send any pending messages.
+   while (my $q = shift @{$this->{_discovery_queue}}) {
+      $DISPATCHER->send_pdu(@{$q});
+   }
+
+   return ($this->{_error}) ? $this->_error() : TRUE;
+}
 
 sub _translate_mask
 {
@@ -2589,15 +2673,13 @@ sub _translate_mask
    # Define the translate bitmask for the object based on the
    # passed truth value and mask.
 
-   if (@_ != 3) {
-      return $this->{_translate};
-   }
-
    if ($enable) {
       $this->{_translate} |= $mask;  # Enable
    } else {
       $this->{_translate} &= ~$mask; # Disable
    }
+
+   return $this->{_translate};
 }
 
 sub _msg_size_max_reps
@@ -2609,12 +2691,12 @@ sub _msg_size_max_reps
    # in the responses to get-bulk-requests.  The scaling factor
    # of 0.017 produces a value of 25 with the default maxMsgSize of
    # 1472. This was the old hardcoded value used by get_table().
- 
-   if (defined($this->{_transport})) {
-      int($this->{_transport}->max_msg_size * 0.017);
-   } else {
-      25;
+
+   if (!defined $this->{_transport}) {
+      return 25;
    }
+
+   return int $this->{_transport}->max_msg_size() * 0.017;
 }
 
 sub _get_table_cb
@@ -2627,391 +2709,359 @@ sub _get_table_cb
    # table could be at the end of the tree.  Also return the table when
    # the value of the OID equals endOfMibView(2) when using SNMPv2c.
 
-   # Assign the user callback to the PDU.  
+   # Get the current callback.
+   my $callback = $this->{_pdu}->callback();
+
+   # Assign the user callback to the PDU.
    $this->{_pdu}->callback($argv->{callback});
 
-   # Check to see if the var_bind_list is defined (was there an error?)
+   my $list  = $this->var_bind_list();
+   my $types = $this->var_bind_types();
+   my @names = $this->var_bind_names();
+   my $next  = undef;
 
-   if (defined(my $result = $this->var_bind_list)) {
+   while (@names) {
 
-      my $types = $this->var_bind_types;
-      my @oids  = oid_lex_sort(keys(%{$result}));
-      my ($next_oid, $end_of_table) = (undef, FALSE);
+      $next = shift @names;
 
-      while (@oids) { 
+      # Check to see if we are still in the correct subtree and have
+      # not received a endOfMibView exception.
 
-         $next_oid = shift(@oids);
-
-         # Add the entry to the table
-
-         if (oid_base_match($argv->{base_oid}, $next_oid)) {
-
-            if (!exists($argv->{table}->{$next_oid})) {
-               $argv->{table}->{$next_oid} = $result->{$next_oid};
-               $argv->{types}->{$next_oid} = $types->{$next_oid};
-            } elsif ($types->{$next_oid} == ENDOFMIBVIEW) {
-               $end_of_table = TRUE;
-            } else {
-               $argv->{repeat_cnt}++;
-            }
-
-            # Check to make sure that the remote host does not respond
-            # incorrectly causing the requests to loop forever.
-
-            if ($argv->{repeat_cnt} > $argv->{max_reps}) {
-               $this->{_pdu}->var_bind_list(undef);
-               $this->{_pdu}->status_information(
-                  'Loop detected with table on remote host'
-               ); 
-               return;
-            }
-
-         } else {
-            $end_of_table = TRUE;
-         }
-
-      } 
-
-      # Queue the next request if we are not at the end of the table.
-
-      if (!$end_of_table) {
-       
-         my $pdu = $this->{_pdu};
-
-         # Create a new PDU. 
-         if (!defined($this->_pdu_create)) {
-            $this->{_pdu} = $pdu;
-            $this->{_pdu}->var_bind_list(undef);
-            $this->{_pdu}->status_information($this->error);
-            return;
-         }
-
-         # Override the callback
-         $this->{_pdu}->callback(
-            sub {
-               $this->{_pdu} = $_[0];
-               $this->_error_clear;
-               $this->_error($this->{_pdu}->error) if $this->{_pdu}->error;
-               $this->_get_table_cb($argv);
-            }
-         );
-
-         if (!$argv->{use_bulk}) {
-            if (!defined(
-                  $this->{_pdu}->prepare_get_next_request([$next_oid])
-               )) 
-            {
-               $this->{_pdu}->var_bind_list(undef);
-               $this->{_pdu}->status_information($this->{_pdu}->error);
-               return; 
-            }
-         } else {
-            if (!defined(
-                  $this->{_pdu}->prepare_get_bulk_request(
-                     0, $argv->{max_reps}, [$next_oid]
-                  )
-               ))
-            {
-               $this->{_pdu}->var_bind_list(undef);
-               $this->{_pdu}->status_information($this->{_pdu}->error);
-               return; 
-            }
-         } 
-
-         # Send the next PDU with no delay.
-         return $DISPATCHER->send_pdu($this->{_pdu}, 0) ? TRUE : $this->_error;
+      if (!oid_base_match($argv->{base_oid}, $next) ||
+          ($types->{$next} == ENDOFMIBVIEW))
+      {
+         $next = undef; # End of table. 
+         last;
       }
 
-      # Copy the table to the var_bind_list.
-      $this->{_pdu}->var_bind_list($argv->{table}, $argv->{types});
+      # Add the entry to the table only if it is not already present
+      # and check to make sure that the remote host does not respond
+      # incorrectly causing the requests to loop forever.
 
+      if (!exists $argv->{table}->{$next}) {
+         $argv->{table}->{$next} = $list->{$next};
+         $argv->{types}->{$next} = $types->{$next};
+      } elsif (++$argv->{repeat_cnt} > $argv->{max_reps}) {
+         $this->{_pdu}->status_information(
+            'A loop was detected with the table on the remote host'
+         );
+         return;
+      }
    }
 
-   # Check for noSuchName(2) error.
-   if ($this->error_status == 2) {
+   # Queue the next request if we are not at the end of the table.
+   if (defined $next) {
+      $this->_get_table_entries_request_next($argv, $callback, [$next]);
+      return;
+   }
+
+   # Clear the PDU error on a noSuchName(2) error status.
+   if ($this->error_status() == 2) {
       $this->{_pdu}->error(undef);
-      $this->{_pdu}->var_bind_list($argv->{table}, $argv->{types});
    }
 
-   if (!defined($argv->{table}) && (!$this->{_pdu}->error)) {
-      $this->{_pdu}->error( 
-         'Requested table is empty or does not exist'
-      );
+   # Check for an empty or nonexistent table.
+   if (!$this->{_pdu}->error() && !defined $argv->{table}) {
+      $this->{_pdu}->error('The requested table is empty or does not exist');
    }
+
+   # Copy the table to the var_bind_list.
+   $this->{_pdu}->var_bind_list($argv->{table}, $argv->{types});
 
    # Notify the command generator to process the results.
-   $this->{_pdu}->process_response_pdu;
+   $this->{_pdu}->process_response_pdu();
+
+   return;
 }
 
 sub _get_entries_cb
 {
    my ($this, $argv) = @_;
 
+   # Get the current callback.
+   my $callback = $this->{_pdu}->callback();
+
    # Assign the user callback to the PDU.
    $this->{_pdu}->callback($argv->{callback});
 
-   # Check to see if the varBindList is defined (was there an error?)
+   # Iterate through the response OBJECT IDENTIFIERs.  The response(s)
+   # will (should) be grouped in the same order as the columns that
+   # were requested.  We use this assumption to map the response(s) to
+   # get-next/bulk-requests.  When using get-bulk-requests, "holes" in
+   # the table may cause certain columns to run ahead or behind other
+   # columns, so we cache all entries and sort it out when processing
+   # the row.
 
-   if (defined(my $result = $this->var_bind_list)) {
+   my $list       = $this->var_bind_list();
+   my $types      = $this->var_bind_types();
+   my @names      = $this->var_bind_names();
+   my $max_index  = (defined $argv->{last_index}) ? $argv->{last_index} : '0';
+   my $last_entry = TRUE;
+   my $cache      = {};
 
-      my $types      = $this->var_bind_types;
-      my $max_index  = $argv->{last_index};
-      my $last_entry = TRUE;
-      my @vb_names   = $this->var_bind_names;
-      my $vb_index   = @vb_names;
+   while (@names) {
 
-      # Iterate through the response OBJECT IDENTIFIERs.  The response(s)
-      # will (should) be grouped in the same order as the columns that
-      # were requested.  We use this assumption to map the response(s) to
-      # get-next/bulk-requests.
+      my @row = ();
+      my $row_index = undef;
 
-      while ($vb_index > 0) {
-     
-         my @row;
-         my $row_index;
+      # Match up the responses to the requested columns.
 
-         # Match up the responses to the requested columns.
+      for my $col_num (0 .. $#{$argv->{columns}}) {
 
-         for (my $col_num = 0; $col_num <= $#{$argv->{columns}}; $col_num++) { 
+         my $name = shift @names;
 
-            my $column = $argv->{columns}->[$col_num];
+         if (!defined $name) {
 
-            if ($vb_names[-$vb_index] =~ /$column\.(\d+(:?\.\d+)*)/) { 
+            # Due to transport layer limitations, the response could have
+            # been truncated, so do not consider this the last entry.
 
-               my $index = $1;
-               DEBUG_INFO('index: %s', $index);
-
-               # Validate the index of the response.
- 
-               if ((defined($argv->{start_index})) &&
-                   (_index_cmp($index, $argv->{start_index}) < 0))
-               {
-
-                  DEBUG_INFO(
-                     'index [%s] not past start index [%s]',
-                     $index, $argv->{start_index}
-                  );
-
-               } elsif ((defined($argv->{end_index})) &&
-                        (_index_cmp($index, $argv->{end_index}) > 0))
-               { 
-
-                  DEBUG_INFO(
-                     'last_entry: index [%s] past end index [%s]',
-                     $index, $argv->{end_index}
-                  );
-                  $last_entry = TRUE;
-
-               } else {
-
-                  # To handle "holes" in the conceptual row, checks
-                  # need to be made so that the lowest index for
-                  # each group of responses is used.
-
-                  $row_index = $index unless defined($row_index);
-
-                  my $index_cmp = _index_cmp($index, $row_index);
-
-                  if ($index_cmp == 0) {
-
-                     # The index for this response entry matches
-                     # so fill in the corresponding row entry.
-
-                     $row[$col_num] = $vb_names[-$vb_index];
-
-                  } elsif ($index_cmp < 0) {
-
-                     # The index for this response is less than
-                     # the current index, so we throw out 
-                     # everything and start over.
-
-                     DEBUG_INFO('new minimum index [%s]', $index);
-                     @row = ();
-                     $row_index = $index;
-                     $row[$col_num] = $vb_names[-$vb_index];
-
-                  } else {
-
-                     # Skip this entry, there must be a "hole"
-                     # in the row the was requested.
-
-                     DEBUG_INFO(
-                        'index [%s] greater than current minimum [%s]',
-                        $index, $row_index
-                     ); 
-                  }
-
-               }              
-
-            } else {
-
-               # The response does not map to the the request, there 
-               # could be a "hole" or we are out of entries. 
-
-               DEBUG_INFO(
-                  'last_entry: column mismatch [%s]', $vb_names[-$vb_index] 
-               );
-               $last_entry = TRUE;
-            }
-
-            if ($vb_index-- < 1) {
-               DEBUG_INFO('column number / oid number mismatch');
-               @row = ();
-               last; 
-            }
-
+            DEBUG_INFO('column number / oid number mismatch');
+            $last_entry = FALSE;
+            @row = ();
+            last;
          }
 
-         # Now store the results for the conceptual row.
+         my $column = quotemeta $argv->{columns}->[$col_num];
+         my $index;
 
-         if (@row) {
+         if ($name =~ m/$column\.(\d+(:?\.\d+)*)/) {
 
-            foreach my $oid (@row) {
-               next unless defined($oid);
-               if (!exists($argv->{entries}->{$oid})) {
-                  $last_entry = FALSE;
-                  $argv->{entries}->{$oid} = $result->{$oid};
-                  $argv->{types}->{$oid}   = $types->{$oid};
-               } else {
-                  DEBUG_INFO('not adding duplicate [%s]', $oid);
-               }
-            }
+            # Requested column and response column match up.
+            $index = $1;
 
-            # Upcall with the row information if so configured.
-
-            if (defined($argv->{row_callback})) {
-               
-               my @argv = @{$argv->{row_callback}};
-               my $cb   = shift(@argv);
-         
-               # Add the "values" found for each column to 
-               # the front of the callback argument list.
- 
-               for (my $num = $#{$argv->{columns}}; $num >= 0; $num--) {
-                  if (defined($row[$num])) {
-                     unshift(@argv, $argv->{entries}->{$row[$num]});
-                  } else {
-                     unshift(@argv, undef);
-                  }
-               }
-
-               # Prepend the index for the conceptual row.
-               unshift(@argv, $row_index);
-              
-               eval { $cb->(@argv); }; 
-
-            }
-
-            # Store the maximum index found to be used 
-            # for the next get-next/bulk-request.
-
-            if (_index_cmp($row_index, $max_index) > 0) {
-               $max_index = $row_index;
-            }
-
-         }
-
-      }
-
-      # Make sure we are not stuck (looping) on a single index.
-
-      my $index_cmp = _index_cmp($max_index, $argv->{last_index});
-
-      if ((!$last_entry) && (!$index_cmp)) {
-         $last_entry = TRUE;
-         DEBUG_INFO('last_entry: duplicate entries');
-      } elsif ($index_cmp > 0) {
-         $argv->{last_index} = $max_index;
-      }
-
-
-      # If we have not reached the last requested entry, 
-      # generate another get-next/bulk-request message.
-
-      if (!$last_entry) {
-
-         my $pdu = $this->{_pdu};
-
-         # Create a new PDU
-         if (!defined($this->_pdu_create)) {
-            $this->{_pdu} = $pdu;
-            $this->{_pdu}->error($this->error); 
-            goto callback_complete;
-         }
-
-         # Override the callback
-         $this->{_pdu}->callback(
-            sub {
-               $this->{_pdu} = $_[0];
-               $this->_error_clear;
-               $this->_error($this->{_pdu}->error) if $this->{_pdu}->error;
-               $this->_get_entries_cb($argv);
-            }
-         );
-
-         # Create the varBindList by indexing each column OBJECT
-         # IDENTIFIER with the maximum index found in the response.
-
-         my $vbl = [ map { join('.', $_, $max_index) } @{$argv->{columns}} ];
-
-         if (!$argv->{use_bulk}) {
-            if (!defined($this->{_pdu}->prepare_get_next_request($vbl))) {
-               goto callback_complete; 
-            }
          } else {
-            if (!defined(
-                  $this->{_pdu}->prepare_get_bulk_request(
-                     0, $argv->{max_reps}, $vbl
-                  )
-               ))
-            {
-               goto callback_complete;
+
+            # The response column does not map to the the request, there
+            # could be a "hole" or we are out of entries.
+
+            DEBUG_INFO('last_entry: column mismatch: %s', $name);
+            $last_entry = TRUE;
+            next;
+         }
+
+         DEBUG_INFO('found index [%s]', $index);
+
+         # Validate the index of the response.
+
+         if ((defined $argv->{start_index}) &&
+             (oid_lex_cmp($index, $argv->{start_index}) < 0))
+         {
+            DEBUG_INFO(
+               'index [%s] less than start_index [%s]',
+               $index, $argv->{start_index}
+            );
+            if (oid_lex_cmp($index, $max_index) > 0) {
+               $max_index = $index;
+               $last_entry = FALSE;
+               DEBUG_INFO('new max_index [%s]', $max_index);
+            }
+            next;
+         } elsif ((defined $argv->{end_index}) &&
+                  (oid_lex_cmp($index, $argv->{end_index}) > 0))
+         {
+            DEBUG_INFO(
+               'last_entry: index [%s] greater than end_index [%s]',
+                $index, $argv->{end_index}
+            );
+            $last_entry = TRUE;
+            next;
+         }
+
+         # Cache the current column since it falls into the requested range.
+
+         $cache->{$index}->[$col_num] = $name;
+
+         # To handle "holes" in the conceptual row, checks need to be made
+         # so that the lowest index for each group of responses is used.
+
+         if (!defined $row_index) {
+            $row_index = $index;
+         }
+
+         my $index_cmp = oid_lex_cmp($index, $row_index);
+
+         if ($index_cmp == 0) {
+
+            # The index for this response entry matches, so fill in
+            # the corresponding row entry.
+
+            $row[$col_num] = $name;
+
+         } elsif ($index_cmp < 0) {
+
+            # The index for this response is less than the current index,
+            # so we throw out everything and start over.
+
+            @row = ();
+            $row_index = $index;
+            $row[$col_num] = $name;
+            DEBUG_INFO('new minimum row_index [%s]', $row_index);
+
+         } else {
+
+            # There must be a "hole" in the row, do nothing here since this
+            # entry was cached and will hopefully be taken care of later.
+
+            DEBUG_INFO(
+               'index [%s] greater than current row_index [%s]',
+               $index, $row_index
+            );
+
+         }
+
+      }
+
+      # No row information found, continue.
+
+      if (!@row || !defined $row_index) {
+         next;
+      }
+
+      # Now store the results for the conceptual row.
+
+      for my $col_num (0 .. $#{$argv->{columns}}) {
+
+         # Check for cached values that may have been lost due to "holes".
+         if (!defined $row[$col_num]) {
+            if (defined $cache->{$row_index}->[$col_num]) {
+               DEBUG_INFO('using cache: %s', $cache->{$row_index}->[$col_num]);
+               $row[$col_num] = $cache->{$row_index}->[$col_num];
+            } else {
+               next;
             }
          }
 
-         # Send the next PDU with no delay.
-         return $DISPATCHER->send_pdu($this->{_pdu}, 0); 
+         # Actually store the results.
+         if (!exists $argv->{entries}->{$row[$col_num]}) {
+            $last_entry = FALSE;
+            $argv->{entries}->{$row[$col_num]} = $list->{$row[$col_num]};
+            $argv->{types}->{$row[$col_num]}   = $types->{$row[$col_num]};
+         } else {
+            DEBUG_INFO('not adding duplicate: %s', $row[$col_num]);
+         }
+
       }
 
-      # Copy the rows to the var_bind_list.
-      $this->{_pdu}->var_bind_list($argv->{entries}, $argv->{types});
+      # Execute the row callback if it is defined.
+      $this->_get_entries_exec_row_cb($argv, $row_index, \@row);
+
+      # Store the maximum index found to be used for the next request.
+      if (oid_lex_cmp($row_index, $max_index) > 0) {
+         $max_index = $row_index;
+         DEBUG_INFO('new max_index [%s]', $max_index);
+      }
 
    }
 
-   callback_complete:
+   # Make sure we are not stuck (looping) on a single index.
 
-   # Check for noSuchName(2) error
-   if ($this->error_status == 2) {
+   if (defined $argv->{last_index}) {
+      if (oid_lex_cmp($max_index, $argv->{last_index}) > 0) {
+         $argv->{last_index} = $max_index;
+      } elsif ($last_entry == FALSE) {
+         DEBUG_INFO(
+            'last_entry: max_index [%s] not greater than last_index [%s])',
+            $max_index, $argv->{last_index}
+         );
+         $last_entry = TRUE;
+      }
+   } else {
+      $argv->{last_index} = $max_index;
+   }
+
+   # If we have not reached the last requested entry, generate another
+   # get-next/bulk-request message.
+
+   if ($last_entry == FALSE) {
+      my $vbl = [ map { join q{.}, $_, $max_index } @{$argv->{columns}} ];
+      $this->_get_table_entries_request_next($argv, $callback, $vbl);
+      return;
+   }
+
+   # Clear the PDU error on a noSuchName(2) error status.
+   if ($this->error_status() == 2) {
       $this->{_pdu}->error(undef);
-      $this->{_pdu}->var_bind_list($argv->{entries}, $argv->{types});
    }
 
-   if (!defined($argv->{entries}) && (!$this->{_pdu}->error)) {
-      $this->{_pdu}->error('Requested entries are empty or do not exist');
+   # Check for an empty or nonexistent table.
+   if (!$this->{_pdu}->error() && !defined $argv->{entries}) {
+      $this->{_pdu}->error('The requested entries are empty or do not exist');
    }
 
-   # If there was an error and the row callback is defined upcall.
+   # Copy the table to the var_bind_list.
+   $this->{_pdu}->var_bind_list($argv->{entries}, $argv->{types});
 
-   if ($this->{_pdu}->error && defined($argv->{row_callback})) {
-
-      my @argv = @{$argv->{row_callback}};
-      my $cb   = shift(@argv);
-
-      for (my $num = 0; $num <= $#{$argv->{columns}} + 1; $num++) {
-         unshift(@argv, undef);
-      }
-
-      eval { $cb->(@argv); };
-
+   # Execute the row callback, if there has been an error.
+   if ($this->{_pdu}->error()) {
+      $this->_get_entries_exec_row_cb($argv, 0, []);
    }
 
    # Notify the command generator to process the results.
-   $this->{_pdu}->process_response_pdu;
+   $this->{_pdu}->process_response_pdu();
+
+   return;
 }
 
-sub _index_cmp($$)
+sub _get_table_entries_request_next
 {
-   pack('N*', split('\.', $_[0])) cmp pack('N*', split('\.', $_[1]));
+   my ($this, $argv, $callback, $vbl) = @_;
+
+   # Copy the current PDU for use in error conditions.
+   my $pdu = $this->{_pdu};
+
+   # Create a new PDU.
+   if (!defined $this->_create_pdu()) {
+      $pdu->status_information($this->error());
+      return;
+   }
+
+   # Override the callback with the saved callback.
+   $this->{_pdu}->callback($callback);
+
+   if ($argv->{use_bulk}) {
+      if (!defined $this->{_pdu}->prepare_get_bulk_request(0,
+                                                           $argv->{max_reps},
+                                                           $vbl))
+      {
+         $pdu->status_information($this->{_pdu}->error());
+         return;
+      }
+   } else {
+      if (!defined $this->{_pdu}->prepare_get_next_request($vbl)) {
+         $pdu->status_information($this->{_pdu}->error());
+         return;
+      }
+   }
+
+   # Send the next PDU with no delay.
+   $DISPATCHER->send_pdu($this->{_pdu}, 0);
+
+   return;
+}
+
+sub _get_entries_exec_row_cb
+{
+   my ($this, $argv, $index, $row) = @_;
+
+   return if !defined $argv->{row_callback};
+
+   my ($cb, @argv) = @{$argv->{row_callback}};
+
+   # Add the "values" found for each column to the front of the
+   # callback argument list.
+
+   for (my $col_num = $#{$argv->{columns}}; $col_num >= 0; --$col_num) {
+      if (defined $row->[$col_num]) {
+         unshift @argv, $argv->{entries}->{$row->[$col_num]};
+      } else {
+         unshift @argv, undef;
+      }
+   }
+
+   # Prepend the index for the conceptual row.
+   unshift @argv, $index;
+
+   return eval { $cb->(@argv); };
 }
 
 sub _error
@@ -3022,16 +3072,15 @@ sub _error
    # needs to be cleared to prevent the closure from holding up the
    # reference count of the object that created the closure.
 
-   if (defined($this->{_pdu}) && defined($this->{_pdu}->callback)) {
+   if (defined $this->{_pdu} && defined $this->{_pdu}->callback()) {
       $this->{_pdu}->callback(undef);
    }
 
-   if (!defined($this->{_error})) {
+   if (!defined $this->{_error}) {
       $this->{_error} = (@_ > 1) ? sprintf(shift(@_), @_) : $_[0];
-      if ($this->debug) {
-         printf("error: [%d] %s(): %s\n",
-            (caller(0))[2], (caller(1))[3], $this->{_error}
-         );
+      if ($this->debug()) {
+         printf "error: [%d] %s(): %s\n",
+                (caller 0)[2], (caller 1)[3], $this->{_error};
       }
    }
 
@@ -3040,49 +3089,53 @@ sub _error
 
 sub _error_clear
 {
-   $_[0]->{_error} = undef;
+   return $_[0]->{_error} = undef;
 }
 
 sub require_version
 {
-   # As of Exporter v5.562, the require_version() method does not
-   # handle x.y.z version strings properly.  We provide our own 
-   # method to handle our x.y.z version requirements.
+   my ($this, @argv) = @_;
 
-   my ($this, $wanted) = @_;
+   # Provide our own method for handling x.y.z version checks and the return
+   # value of VERISON() in older implementations of Perl.  V-string versions
+   # in Perl 5.10.0 are now treated as version objects and handled properly. 
 
-   my $pkg = ref($this) || $this;
-
-   if ($wanted =~ /(\d+)\.(\d{1,3})\.(\d{1,3})/) {
-      $wanted = sprintf('%d.%03d%03d', $1, $2, $3);
-   } elsif ($wanted =~ /(\d+)\.(\d+)/) {
-      $wanted = sprintf('%d.%03d', $1, $2);
+   if (@argv > 0) {
+      my $wanted = $argv[0];
+      if ($wanted =~ /(\d+)\.(\d{1,3})\.(\d{1,3})/) {
+         $argv[0] = sprintf '%d.%03d%03d', $1, $2, $3;
+      }
    }
 
-   my $version = eval { $pkg->UNIVERSAL::VERSION($wanted); };
+   my $version = eval
+   {
+      sprintf '%d.%03d%03d', unpack 'C*', $this->UNIVERSAL::VERSION(@argv);
+   };
 
    if ($@) {
       local $_ = $@;
-      s/at(.*)/sprintf("at %s line %s\n", (caller(2))[1], (caller(2))[2])/es;
-      die $_;
+      s/ at(?:.*)\n//;
+      require Carp;
+      Carp::croak($_);
    }
- 
-   $version;
+
+   return $version;
 }
 
 sub DEBUG_INFO
 {
-   return unless $DEBUG;
+   return $DEBUG if (!$DEBUG);
 
-   printf(
-      sprintf('debug: [%d] %s(): ', (caller(0))[2], (caller(1))[3]) .
-      ((@_ > 1) ? shift(@_) : '%s') . 
+   return printf
+      sprintf('debug: [%d] %s(): ', (caller 0)[2], (caller 1)[3]) .
+      ((@_ > 1) ? shift(@_) : '%s') .
       "\n",
-      @_
-   );
-
-   $DEBUG;
+      @_;
 }
+
+# [end Net::SNMP code] -------------------------------------------------------
+1;
+__END__
 
 # [documentation] ------------------------------------------------------------
 
@@ -3102,19 +3155,19 @@ OPAQUE, COUNTER64, NOSUCHOBJECT, NOSUCHINSTANCE, ENDOFMIBVIEW
 
 =item Exportable
 
-&snmp_debug, &snmp_dispatcher, &snmp_type_ntop, &oid_base_match, &oid_lex_sort, 
-&ticks_to_time, INTEGER, INTEGER32, OCTET_STRING, NULL, OBJECT_IDENTIFIER, 
-SEQUENCE, IPADDRESS, COUNTER, COUNTER32, GAUGE, GAUGE32, UNSIGNED32, TIMETICKS,
-OPAQUE, COUNTER64, NOSUCHOBJECT, NOSUCHINSTANCE, ENDOFMIBVIEW, GET_REQUEST,
-GET_NEXT_REQUEST, GET_RESPONSE, SET_REQUEST, TRAP, GET_BULK_REQUEST,
-INFORM_REQUEST, SNMPV2_TRAP, REPORT, DEBUG_ALL, DEBUG_NONE, DEBUG_MESSAGE,
-DEBUG_TRANSPORT, DEBUG_DISPATCHER,DEBUG_PROCESSING, DEBUG_SECURITY, COLD_START,
-WARM_START, LINK_DOWN, LINK_UP,AUTHENTICATION_FAILURE, EGP_NEIGHBOR_LOSS,
-ENTERPRISE_SPECIFIC, SNMP_VERSION_1,SNMP_VERSION_2C, SNMP_VERSION_3, SNMP_PORT,
-SNMP_TRAP_PORT, TRANSLATE_NONE,TRANSLATE_OCTET_STRING, TRANSLATE_NULL,
-TRANSLATE_TIMETICKS, TRANSLATE_OPAQUE,TRANSLATE_NOSUCHOBJECT,
-TRANSLATE_NOSUCHINSTANCE, TRANSLATE_ENDOFMIBVIEW, TRANSLATE_UNSIGNED, 
-TRANSLATE_ALL
+&snmp_debug, &snmp_dispatcher, &snmp_type_ntop, &oid_base_match, &oid_lex_cmp,
+&oid_lex_sort,&ticks_to_time, INTEGER, INTEGER32, OCTET_STRING, NULL,
+OBJECT_IDENTIFIER, SEQUENCE, IPADDRESS, COUNTER, COUNTER32, GAUGE, GAUGE32,
+UNSIGNED32, TIMETICKS, OPAQUE, COUNTER64, NOSUCHOBJECT, NOSUCHINSTANCE,
+ENDOFMIBVIEW, GET_REQUEST, GET_NEXT_REQUEST, GET_RESPONSE, SET_REQUEST, TRAP,
+GET_BULK_REQUEST, INFORM_REQUEST, SNMPV2_TRAP, REPORT, DEBUG_ALL, DEBUG_NONE,
+DEBUG_MESSAGE, DEBUG_TRANSPORT, DEBUG_DISPATCHER,DEBUG_PROCESSING,
+DEBUG_SECURITY, COLD_START, WARM_START, LINK_DOWN, LINK_UP,
+AUTHENTICATION_FAILURE, EGP_NEIGHBOR_LOSS, ENTERPRISE_SPECIFIC,
+SNMP_VERSION_1, SNMP_VERSION_2C, SNMP_VERSION_3, SNMP_PORT, SNMP_TRAP_PORT,
+TRANSLATE_NONE,TRANSLATE_OCTET_STRING, TRANSLATE_NULL, TRANSLATE_TIMETICKS,
+TRANSLATE_OPAQUE,TRANSLATE_NOSUCHOBJECT, TRANSLATE_NOSUCHINSTANCE,
+TRANSLATE_ENDOFMIBVIEW, TRANSLATE_UNSIGNED, TRANSLATE_ALL
 
 =item Tags
 
@@ -3140,9 +3193,9 @@ EGP_NEIGHBOR_LOSS, ENTERPRISE_SPECIFIC
 
 =item :snmp
 
-&snmp_debug, &snmp_dispatcher, &snmp_type_ntop, &oid_base_match, &oid_lex_sort, 
-&ticks_to_time, SNMP_VERSION_1, SNMP_VERSION_2C, SNMP_VERSION_3, SNMP_PORT,
-SNMP_TRAP_PORT
+&snmp_debug, &snmp_dispatcher, &snmp_type_ntop, &oid_base_match, &oid_lex_cmp,
+&oid_lex_sort, &ticks_to_time, SNMP_VERSION_1, SNMP_VERSION_2C, SNMP_VERSION_3,
+SNMP_PORT, SNMP_TRAP_PORT
 
 =item :translate
 
@@ -3167,37 +3220,34 @@ This example gets the sysUpTime from a remote host.
    #! /usr/local/bin/perl
 
    use strict;
+   use warnings;
 
    use Net::SNMP;
+
+   my $OID_sysUpTime = '1.3.6.1.2.1.1.3.0';
 
    my ($session, $error) = Net::SNMP->session(
       -hostname  => shift || 'localhost',
       -community => shift || 'public',
-      -port      => shift || 161 
    );
 
-   if (!defined($session)) {
-      printf("ERROR: %s.\n", $error);
+   if (!defined $session) {
+      printf "ERROR: %s.\n", $error;
       exit 1;
    }
 
-   my $sysUpTime = '1.3.6.1.2.1.1.3.0';
+   my $result = $session->get_request(-varbindlist => [ $OID_sysUpTime ],);
 
-   my $result = $session->get_request(
-      -varbindlist => [$sysUpTime]
-   );
-
-   if (!defined($result)) {
-      printf("ERROR: %s.\n", $session->error);
-      $session->close;
+   if (!defined $result) {
+      printf "ERROR: %s.\n", $session->error();
+      $session->close();
       exit 1;
    }
 
-   printf("sysUpTime for host '%s' is %s\n",
-      $session->hostname, $result->{$sysUpTime} 
-   );
+   printf "The sysUpTime for host '%s' is %s.\n",
+          $session->hostname(), $result->{$OID_sysUpTime};
 
-   $session->close;
+   $session->close();
 
    exit 0;
 
@@ -3206,45 +3256,47 @@ This example gets the sysUpTime from a remote host.
 This example sets the sysContact information on the remote host to 
 "Help Desk x911".  The named arguments passed to the C<session()> constructor
 are for the demonstration of syntax only.  These parameters will need to be
-set according to the SNMPv3 parameters of the remote host used by the script. 
+set according to the SNMPv3 parameters of the remote host.  The C<snmpkey>
+utility included with the distribution can be used to create the key values.
 
    #! /usr/local/bin/perl
 
    use strict;
+   use warnings;
 
    use Net::SNMP;
 
+   my $OID_sysContact = '1.3.6.1.2.1.1.4.0';
+
    my ($session, $error) = Net::SNMP->session(
-      -hostname     => 'myv3host.company.com',
+      -hostname     => 'myv3host.example.com',
       -version      => 'snmpv3',
       -username     => 'myv3Username',
-      -authkey      => '0x05c7fbde31916f64da4d5b77156bdfa7',
-      -authprotocol => 'md5',
-      -privkey      => '0x93725fd3a02a48ce02df4e065a1c1746'
+      -authprotocol => 'sha1',
+      -authkey      => '0x6695febc9288e36282235fc7151f128497b38f3f',
+      -privprotocol => 'des',
+      -privkey      => '0x6695febc9288e36282235fc7151f1284',
    );
 
-   if (!defined($session)) {
-      printf("ERROR: %s.\n", $error);
+   if (!defined $session) {
+      printf "ERROR: %s.\n", $error;
       exit 1;
    }
-
-   my $sysContact = '1.3.6.1.2.1.1.4.0';
 
    my $result = $session->set_request(
-      -varbindlist => [$sysContact, OCTET_STRING, 'Help Desk x911']
+      -varbindlist => [ $OID_sysContact, OCTET_STRING, 'Help Desk x911' ],
    );
 
-   if (!defined($result)) {
-      printf("ERROR: %s.\n", $session->error);
-      $session->close;
+   if (!defined $result) {
+      printf "ERROR: %s.\n", $session->error();
+      $session->close();
       exit 1;
    }
 
-   printf("sysContact for host '%s' set to '%s'\n", 
-      $session->hostname, $result->{$sysContact}
-   );
+   printf "The sysContact for host '%s' was set to '%s'.\n",
+          $session->hostname(), $result->{$OID_sysContact};
 
-   $session->close;
+   $session->close();
 
    exit 0;
 
@@ -3252,211 +3304,224 @@ set according to the SNMPv3 parameters of the remote host used by the script.
 
 This example gets the contents of the ifTable by sending get-bulk-requests
 until the responses are no longer part of the ifTable.  The ifTable can also 
-be retrieved using the C<get_table()> method. 
+be retrieved using the C<get_table()> method.  The ifPhysAddress object in
+the table has a syntax of an OCTET STRING.  By default, translation is enabled
+and non-printable OCTET STRINGs are translated into a hexadecimal format.
+Sometimes the OCTET STRING contains all printable characters and this produces
+unexpected output when it is not translated.  The example turns off translation
+for OCTET STRINGs and specifically formats the output for the ifPhysAddress
+objects.
 
    #! /usr/local/bin/perl
 
    use strict;
+   use warnings;
 
    use Net::SNMP qw(:snmp);
 
+   my $OID_ifTable = '1.3.6.1.2.1.2.2';
+   my $OID_ifPhysAddress = '1.3.6.1.2.1.2.2.1.6';
+
    my ($session, $error) = Net::SNMP->session(
-      -version     => 'snmpv2c',
-      -nonblocking => 1,
       -hostname    => shift || 'localhost',
       -community   => shift || 'public',
-      -port        => shift || 161 
+      -nonblocking => 1,
+      -translate   => [-octetstring => 0],
+      -version     => 'snmpv2c',
    );
 
-   if (!defined($session)) {
-      printf("ERROR: %s.\n", $error);
+   if (!defined $session) {
+      printf "ERROR: %s.\n", $error;
       exit 1;
    }
 
-   my $ifTable = '1.3.6.1.2.1.2.2';
+   my %table; # Hash to store the results
 
    my $result = $session->get_bulk_request(
-      -callback       => [\&table_cb, {}],
+      -varbindlist    => [ $OID_ifTable ],
+      -callback       => [ \&table_callback, \%table ],
       -maxrepetitions => 10,
-      -varbindlist    => [$ifTable]
    );
 
-   if (!defined($result)) {
-      printf("ERROR: %s.\n", $session->error);
-      $session->close;
+   if (!defined $result) {
+      printf "ERROR: %s\n", $session->error();
+      $session->close();
       exit 1;
    }
+
+   # Now initiate the SNMP message exchange.
 
    snmp_dispatcher();
 
-   $session->close;
+   $session->close();
 
-   exit 0;
+   # Print the results, specifically formatting ifPhysAddress.
 
-   sub table_cb
-   {
-      my ($session, $table) = @_;
-
-      if (!defined($session->var_bind_list)) {
-
-         printf("ERROR: %s\n", $session->error);   
-
+   for my $oid (oid_lex_sort(keys %table)) {
+      if (!oid_base_match($OID_ifPhysAddress, $oid)) {
+         printf "%s = %s\n", $oid, $table{$oid};
       } else {
-
-         # Loop through each of the OIDs in the response and assign
-         # the key/value pairs to the anonymous hash that is passed
-         # to the callback.  Make sure that we are still in the table
-         # before assigning the key/values.
-
-         my $next;
-
-         foreach my $oid (oid_lex_sort(keys(%{$session->var_bind_list}))) {
-            if (!oid_base_match($ifTable, $oid)) {
-               $next = undef;
-               last;
-            }
-            $next = $oid; 
-            $table->{$oid} = $session->var_bind_list->{$oid};   
-         }
-
-         # If $next is defined we need to send another request 
-         # to get more of the table.
-
-         if (defined($next)) {
-
-            $result = $session->get_bulk_request(
-               -callback       => [\&table_cb, $table],
-               -maxrepetitions => 10,
-               -varbindlist    => [$next]
-            ); 
-
-            if (!defined($result)) {
-               printf("ERROR: %s\n", $session->error);
-            }
-
-         } else {
-
-            # We are no longer in the table, so print the results.
-
-            foreach my $oid (oid_lex_sort(keys(%{$table}))) {
-               printf("%s => %s\n", $oid, $table->{$oid});
-            }
-
-         }
+         printf "%s = %s\n", $oid, unpack 'H*', $table{$oid};
       }
    }
 
-=head2 4. Non-blocking SNMPv1 get-request for sysUpTime on multiple hosts
+   exit 0;
 
-This example polls several hosts for their sysUpTime using non-blocking
-objects and reports a warning if this value is less than the value from
-the last poll.
+   sub table_callback
+   {
+      my ($session, $table) = @_;
+
+      my $list = $session->var_bind_list();
+
+      if (!defined $list) {
+         printf "ERROR: %s\n", $session->error();
+         return;
+      }
+
+      # Loop through each of the OIDs in the response and assign
+      # the key/value pairs to the reference that was passed with
+      # the callback.  Make sure that we are still in the table
+      # before assigning the key/values.
+
+      my @names = $session->var_bind_names();
+      my $next  = undef;
+
+      while (@names) {
+         $next = shift @names;
+         if (!oid_base_match($OID_ifTable, $next)) {
+            return; # Table is done.
+         }
+         $table->{$next} = $list->{$next};
+      }
+
+      # Table is not done, send another request, starting at the last
+      # OBJECT IDENTIFIER in the response.  No need to include the
+      # calback argument, the same callback that was specified for the
+      # original request will be used.
+
+      my $result = $session->get_bulk_request(
+         -varbindlist    => [ $next ],
+         -maxrepetitions => 10,
+      );
+
+      if (!defined $result) {
+         printf "ERROR: %s.\n", $session->error();
+      }
+
+      return;
+   }
+
+=head2 4. Non-blocking SNMPv1 get-request and set-request on multiple hosts
+
+This example first polls several hosts for their sysUpTime.  If the poll of
+the host is successful, the sysContact and sysLocation information is set on
+the host.  The sysContact information is hardcoded to "Help Desk x911" while
+the sysLocation information is passed as an argument to the callback.
 
    #! /usr/local/bin/perl
 
    use strict;
+   use warnings;
 
-   use Net::SNMP qw(snmp_dispatcher ticks_to_time);
+   use Net::SNMP;
 
-   # List of hosts to poll
+   my $OID_sysUpTime = '1.3.6.1.2.1.1.3.0';
+   my $OID_sysContact = '1.3.6.1.2.1.1.4.0';
+   my $OID_sysLocation = '1.3.6.1.2.1.1.6.0';
 
-   my @HOSTS = qw(1.1.1.1 1.1.1.2 localhost);
+   # Hash of hosts and location data.
 
-   # Poll interval (in seconds).  This value should be greater 
-   # than the number of retries plus one, times the timeout value.
+   my %host_data = (
+      '10.1.1.2'  => 'Building 1, Second Floor',
+      '10.2.1.1'  => 'Building 2, First Floor',
+      'localhost' => 'Right here!',
+   );
 
-   my $INTERVAL  = 60;
+   # Create a session for each host and queue a get-request for sysUpTime.
 
-   # Maximum number of polls, including the initial poll.
-
-   my $MAX_POLLS = 10;
-
-   my $sysUpTime = '1.3.6.1.2.1.1.3.0';
-
-   # Create a session for each host and queue the first get-request.
-
-   foreach my $host (@HOSTS) {
+   for my $host (keys %host_data) {
 
       my ($session, $error) = Net::SNMP->session(
          -hostname    => $host,
-         -nonblocking => 0x1,   # Create non-blocking objects
-         -translate   => [
-            -timeticks => 0x0   # Turn off so sysUpTime is numeric
-         ]  
+         -community   => 'private',
+         -nonblocking => 1,
       );
-      if (!defined($session)) {
-         printf("ERROR: %s.\n", $error);
-         exit 1;
+
+      if (!defined $session) {
+         printf "ERROR: Failed to create session for host '%s': %s.\n",
+                $host, $error;
+         next;
       }
 
-      # Queue the get-request, passing references to variables that
-      # will be used to store the last sysUpTime and the number of
-      # polls that this session has performed. 
-
-      my ($last_uptime, $num_polls) = (0, 0);
-
-      $session->get_request(
-          -varbindlist => [$sysUpTime],
-          -callback    => [
-             \&validate_sysUpTime_cb, \$last_uptime, \$num_polls
-          ]
+      my $result = $session->get_request(
+         -varbindlist => [ $OID_sysUpTime ],
+         -callback    => [ \&get_callback, $host_data{$host} ],
       );
+
+      if (!defined $result) {
+         printf "ERROR: Failed to queue get request for host '%s': %s.\n",
+                $session->hostname(), $session->error();
+      }
 
    }
 
-   # Define a reference point for all of the polls
-   my $EPOC = time();
+   # Now initiate the SNMP message exchange.
 
-   # Enter the event loop
    snmp_dispatcher();
 
    exit 0;
 
-
-   sub validate_sysUpTime_cb
+   sub get_callback
    {
-      my ($session, $last_uptime, $num_polls) = @_;
+      my ($session, $location) = @_;
 
-      if (!defined($session->var_bind_list)) {
+      my $result = $session->var_bind_list();
 
-         printf("%-15s  ERROR: %s\n", $session->hostname, $session->error);
+      if (!defined $result) {
+         printf "ERROR: Get request failed for host '%s': %s.\n",
+                $session->hostname(), $session->error();
+         return;
+      }
 
+      printf "The sysUpTime for host '%s' is %s.\n",
+              $session->hostname(), $result->{$OID_sysUpTime};
+
+      # Now set the sysContact and sysLocation for the host.
+
+      $result = $session->set_request(
+         -varbindlist =>
+         [
+            $OID_sysContact,  OCTET_STRING, 'Help Desk x911',
+            $OID_sysLocation, OCTET_STRING, $location,
+         ],
+         -callback    => \&set_callback,
+      );
+
+      if (!defined $result) {
+         printf "ERROR: Failed to queue set request for host '%s': %s.\n",
+                $session->hostname(), $session->error();
+      }
+
+      return;
+   }
+
+   sub set_callback
+   {
+      my ($session) = @_;
+
+      my $result = $session->var_bind_list();
+
+      if (defined $result) {
+         printf "The sysContact for host '%s' was set to '%s'.\n",
+                $session->hostname(), $result->{$OID_sysContact};
+         printf "The sysLocation for host '%s' was set to '%s'.\n",
+                $session->hostname(), $result->{$OID_sysLocation};
       } else {
-
-         # Validate the sysUpTime
-
-         my $uptime = $session->var_bind_list->{$sysUpTime};
-
-         if ($uptime < ${$last_uptime}) {
-            printf("%-15s  WARNING: %s is less than %s\n",
-               $session->hostname, 
-               ticks_to_time($uptime), 
-               ticks_to_time(${$last_uptime})
-            );
-         } else {
-            printf("%-15s  Ok (%s)\n", 
-               $session->hostname, ticks_to_time($uptime)
-            );
-         }
-
-         # Store the new sysUpTime
-         ${$last_uptime} = $uptime;
-
+         printf "ERROR: Set request failed for host '%s': %s.\n",
+                $session->hostname(), $session->error();
       }
 
-      # Queue the next message if we have not reached $MAX_POLLS.  
-      # Since we do not provide a -callback argument, the same 
-      # callback and it's original arguments will be used.
-
-      if (++${$num_polls} < $MAX_POLLS) {
-         my $delay = (($INTERVAL * ${$num_polls}) + $EPOC) - time();
-         $session->get_request(
-            -delay       => ($delay >= 0) ? $delay : 0,
-            -varbindlist => [$sysUpTime]
-         );
-      }
-
-      $session->error_status;
+      return;
    }
 
 =head1 REQUIREMENTS
@@ -3499,11 +3564,12 @@ originally derived by example from the CMU SNMP package whose copyright
 follows: Copyright (c) 1988, 1989, 1991, 1992 by Carnegie Mellon University. 
 All rights reserved. 
 
-=head1 COPYRIGHT
+=head1 LICENSE AND COPYRIGHT
 
-Copyright (c) 1998-2005 David M. Town.  All rights reserved.  This program 
-is free software; you may redistribute it and/or modify it under the same
-terms as Perl itself.
+Copyright (c) 1998-2009 David M. Town.  All rights reserved.
+
+This program is free software; you may redistribute it and/or modify it under
+the same terms as the Perl 5 programming language system itself. 
 
 =cut
 

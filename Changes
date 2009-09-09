@@ -1,5 +1,34 @@
                            Net::SNMP Changes
 
+RELEASE 6.0.0 SEP-09-2009
+
+- Substantial internal code cleanup was performed based upon the
+  Perl::Critic module and the "Perl Best Practices" book.
+- Added support for the Module::Build system for building, testing,
+  and installing Perl modules.
+- The translation logic for OCTET STRINGs now uses the definition of
+  a DisplayString in RFC 2579 to determine if the octets are to be
+  converted into a hexadecimal representation.
+- The get_table() and get_entries() methods were refactored as part
+  of the code cleanup.  The get_entries() method now handles "holes"
+  in tables better and indexes with a value of zero.
+- The inheritance structure of the Transport Domain objects was
+  updated to reduce code duplication and increase maintainability.
+- The resolution of IPv6 addresses was made more exhaustive.
+- The handling of OBJECT IDENTIFIERs was made more efficient by 
+  using [un]pack() with a BER compressed integer template. 
+- Additional validation of the values passed to most methods is now
+  performed and the error messages have been made more robust.
+- The documented examples were updated based upon commonly asked
+  questions (specifically Example 3 and Example 4).
+- A Response-PDU with an error-status set to "noError" no longer
+  generates an error when the error-index is non-zero, as decribed
+  in Section 4.2.4 of RFC 3416.
+- The function oid_lex_cmp() was added to provide for the
+  lexicographical comparison of two OBJECT IDENTIFIERs.
+- The error-status is no longer set for the exceptions noSuchObject,
+  noSuchInstance, and endOfMibView when translation is not enabled.
+
 RELEASE 5.2.0 OCT-20-2005
 
 - Removed the dependency on the IO::Socket::INET and IO::Socket::INET6
@@ -287,4 +316,4 @@ RELEASE 1.00 SEP-09-1998
 
 RCS
 
-    $Id: Changes,v 5.3 2005/10/20 14:17:01 dtown Rel $
+    $Id: Changes,v 6.0 2009/09/09 15:05:32 dtown Rel $

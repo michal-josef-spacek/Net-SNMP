@@ -1,45 +1,43 @@
-#! /usr/local/bin/perl 
-
-eval '(exit $?0)' && eval 'exec /usr/local/bin/perl $0 ${1+"$@"}'
-&& eval 'exec /usr/local/bin/perl $0 $argv:q'
-if 0;
+#! /bin/env perl 
 
 # ============================================================================
 
-# $Id: snmpwalk.pl,v 2.5 2005/07/20 13:53:07 dtown Rel $
+# $Id: snmpwalk.pl,v 6.0 2009/09/09 15:05:33 dtown Rel $
 
-# Copyright (c) 2000-2005 David M. Town <dtown@cpan.org>
+# Copyright (c) 2000-2009 David M. Town <dtown@cpan.org>
 # All rights reserved.
 
 # This program is free software; you may redistribute it and/or modify it
-# under the same terms as Perl itself.
+# under the same terms as the Perl 5 programming language system itself.
 
 # ============================================================================
 
-use Net::SNMP v5.1.0 qw(:snmp DEBUG_ALL);
+use strict;
+use warnings;
+
+use Net::SNMP 6.0 qw( :snmp DEBUG_ALL ENDOFMIBVIEW );
 use Getopt::Std;
 
-use strict;
-use vars qw($SCRIPT $VERSION %OPTS);
+our $SCRIPT  = 'snmpwalk';
+our $VERSION = 'v6.0.0';
 
-$SCRIPT  = 'snmpwalk';
-$VERSION = '2.3.0';
+our %OPTS;
 
-# Validate the command line options
-if (!getopts('a:A:c:dD:E:m:n:p:r:t:u:v:x:X:', \%OPTS)) {
-   _usage();
+# Validate the command line options.
+if (!getopts('a:A:c:CdD:E:m:n:p:r:t:u:v:x:X:', \%OPTS)) {
+   usage();
 }
 
 # Do we have enough/too much information?
 if (@ARGV != 2) {
    if (@ARGV == 1) {
-      push(@ARGV, '1.3.6.1.2.1'); # mib-2
+      push @ARGV, '1.3.6.1.2.1'; # mib-2
    } else {
-      _usage();
+      usage();
    }
 }
 
-# Create the SNMP session
+# Create the SNMP session.
 my ($s, $e) = Net::SNMP->session(
    -hostname => shift,
    exists($OPTS{a}) ? (-authprotocol =>  $OPTS{a}) : (),
@@ -54,92 +52,122 @@ my ($s, $e) = Net::SNMP->session(
    exists($OPTS{u}) ? (-username     =>  $OPTS{u}) : (),
    exists($OPTS{v}) ? (-version      =>  $OPTS{v}) : (),
    exists($OPTS{x}) ? (-privprotocol =>  $OPTS{x}) : (),
-   exists($OPTS{X}) ? (-privpassword =>  $OPTS{X}) : ()
+   exists($OPTS{X}) ? (-privpassword =>  $OPTS{X}) : (),
 );
 
 # Was the session created?
-if (!defined($s)) {
-   _exit($e);
+if (!defined $s) {
+   abort($e);
 }
 
-# Perform repeated get-next-requests or get-bulk-requests (SNMPv2c) 
+# Perform repeated get-next-requests or get-bulk-requests (SNMPv2c/v3) 
 # until the last returned OBJECT IDENTIFIER is no longer a child of
-# OBJECT IDENTIFIER passed in on the command line.
+# the OBJECT IDENTIFIER passed in on the command line.
 
 my @args = (
    exists($OPTS{E}) ? (-contextengineid => $OPTS{E}) : (),
    exists($OPTS{n}) ? (-contextname     => $OPTS{n}) : (),
-   -varbindlist    => [$ARGV[0]]
+   -varbindlist    => [($ARGV[0] eq q{.}) ? '0' : $ARGV[0]],
 );
 
-if ($s->version == SNMP_VERSION_1) {
+my $last_oid = $ARGV[0];
 
-   my $oid;
+if ($s->version() == SNMP_VERSION_1) {
 
-   while (defined($s->get_next_request(@args))) {
-      $oid = ($s->var_bind_names())[0];
-
-      if (!oid_base_match($ARGV[0], $oid)) { last; }
-      printf(
-          "%s = %s: %s\n", $oid, 
-          snmp_type_ntop($s->var_bind_types()->{$oid}), 
-          $s->var_bind_list()->{$oid}, 
-      );
-
-      @args = (-varbindlist => [$oid]);
+   while (defined $s->get_next_request(@args)) {
+      my $oid = ($s->var_bind_names())[0];
+      lex_check($last_oid, $oid);
+      if (!oid_base_match($ARGV[0], $oid)) {
+         last;
+      }
+      display($s, ($last_oid = $oid));
+      @args = (-varbindlist => [$last_oid]);
    }
 
 } else {
 
-   push(@args, -maxrepetitions => 25); 
+   push @args, -maxrepetitions => 25;
 
-   outer: while (defined($s->get_bulk_request(@args))) {
+   GET_BULK: while (defined $s->get_bulk_request(@args)) {
 
-      my @oids = oid_lex_sort(keys(%{$s->var_bind_list()}));
+      my @oids = $s->var_bind_names();
 
-      foreach (@oids) {
-
-         if (!oid_base_match($ARGV[0], $_)) { last outer; }
-         printf(
-            "%s = %s: %s\n", $_, 
-            snmp_type_ntop($s->var_bind_types()->{$_}),
-            $s->var_bind_list()->{$_},
-         );
-
-         # Make sure we have not hit the end of the MIB
-         if ($s->var_bind_list()->{$_} eq 'endOfMibView') { last outer; } 
+      if (!scalar @oids) {
+         abort('Received an empty varBindList');
       }
 
-      # Get the last OBJECT IDENTIFIER in the returned list
-      @args = (-maxrepetitions => 25, -varbindlist => [pop(@oids)]);
+      for my $oid (@oids) {
+         # Make sure we have not hit the end of the MIB.
+         if ($s->var_bind_types()->{$oid} == ENDOFMIBVIEW) {
+            display($s, $oid);
+            last GET_BULK;
+         }
+         lex_check($last_oid, $oid);
+         if (!oid_base_match($ARGV[0], $oid)) {
+            last GET_BULK;
+         }
+         display($s, ($last_oid = $oid));
+      }
+
+      @args = (-maxrepetitions => 25, -varbindlist => [$last_oid]);
    }
 
 }
 
-# Let the user know about any errors
-if ($s->error() ne '') {
-   _exit($s->error());
+# Let the user know about any errors.
+if ($s->error()) {
+   abort($s->error());
 }
 
-# Close the session
+# Close the session.
 $s->close();
- 
+
 exit 0;
 
-# [private] ------------------------------------------------------------------
+# [functions] ----------------------------------------------------------------
 
-sub _exit
+sub display
 {
-   printf join('', sprintf("%s: ", $SCRIPT), shift(@_), ".\n"), @_;
+   my ($s, $oid) = @_;
+
+   printf "%s = %s: %s\n",
+          $oid,
+          snmp_type_ntop($s->var_bind_types()->{$oid}),
+          $s->var_bind_list()->{$oid};
+
+   return;
+}
+
+sub lex_check
+{
+   my ($current, $next) = @_;
+
+   return if exists $OPTS{C};
+
+   if (oid_lex_cmp($current, $next) >= 0) {
+      printf "%s: Lexicographical error detected in response.\n", $SCRIPT;
+      printf "   Current: %s\n", $current;
+      printf "   Next:    %s\n", $next;
+      exit 1;
+   }
+
+   return;
+}
+
+sub abort
+{
+   printf "$SCRIPT: " . ((@_ > 1) ? shift(@_) : '%s') . ".\n", @_;
    exit 1;
 }
 
-sub _usage
+sub usage
 {
    print << "USAGE";
-$SCRIPT v$VERSION
+$SCRIPT $VERSION
+Copyright (c) 2000-2009 David M. Town.  All rights reserved.
 Usage: $SCRIPT [options] <hostname> [oid]
 Options: -v 1|2c|3      SNMP version
+         -C             Do not check lexicographical ordering
          -d             Enable debugging
    SNMPv1/SNMPv2c:
          -c <community> Community name

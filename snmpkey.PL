@@ -1,40 +1,41 @@
-#! /usr/local/bin/perl
-
-eval '(exit $?0)' && eval 'exec /usr/local/bin/perl $0 ${1+"$@"}'
-&& eval 'exec /usr/local/bin/perl $0 $argv:q'
-if 0;
+#! /bin/env perl
 
 # ============================================================================
 
-# $Id: snmpkey.PL,v 1.4 2005/07/20 13:53:07 dtown Rel $
+# $Id: snmpkey.PL,v 6.0 2009/09/09 15:07:48 dtown Rel $
 
-# Copyright (c) 2001-2005 David M. Town <dtown@cpan.org>
+# Copyright (c) 2001-2009 David M. Town <dtown@cpan.org>
 # All rights reserved.
 
 # This program is free software; you may redistribute it and/or modify it
-# under the same terms as Perl itself.
+# under the same terms as the Perl 5 programming language system itself.
 
 # ============================================================================
+
+use strict;
+use warnings;
 
 use Config;
 
 my $file = shift || 'snmpkey';
 
-open(OUT, ">$file") || die "Failed to open file '$file' [$!]";
+my $fh;
 
-print OUT "$Config{startperl}\n";
+open($fh, q{>}, "$file") || die "Failed to open file '$file' [$!]";
 
-print OUT <<'AS-IS';
+print {$fh} "$Config{startperl}\n";
+
+print {$fh} <<'AS-IS';
 
 # ============================================================================
 
-# $Id: snmpkey.PL,v 1.4 2005/07/20 13:53:07 dtown Rel $
+# $Id: snmpkey.PL,v 6.0 2009/09/09 15:07:48 dtown Rel $
 
-# Copyright (c) 2001-2005 David M. Town <dtown@cpan.org>
+# Copyright (c) 2001-2009 David M. Town <dtown@cpan.org>
 # All rights reserved.
 
 # This program is free software; you may redistribute it and/or modify it
-# under the same terms as Perl itself.
+# under the same terms as the Perl 5 programming language system itself.
 
 # ============================================================================
 
@@ -42,7 +43,7 @@ print OUT <<'AS-IS';
 
 snmpkey - Create SNMPv3 security keys for the Net::SNMP module
 
-=head1 SYNOPSIS
+=head1 USAGE
 
 The C<snmpkey> utility generates security keys based on a password and
 an authoritativeEngineID passed on the command line.  This key can then
@@ -63,6 +64,8 @@ or a localized key to the object constructor when configuring authentication
 or privacy.  The C<snmpkey> utility can be used to generate the key to be
 used by the B<-authkey> or B<-privkey> named arguments when they are passed 
 to the Net::SNMP C<session()> constructor.
+
+=head1 REQUIRED ARGUMENTS
 
 The C<snmpkey> utility requires at least three command line arguments.  The
 first argument defines which hash algorithm to use when creating the authKey.
@@ -90,11 +93,12 @@ this argument is not specified, the authKey password is used.
 
 David M. Town <dtown@cpan.org>
 
-=head1 COPYRIGHT
+=head1 LICENSE AND COPYRIGHT
 
-Copyright (c) 2001-2005 David M. Town.  All rights reserved.  This program
-is free software; you may redistribute it and/or modify it under the same
-terms as Perl itself.
+Copyright (c) 2001-2009 David M. Town.  All rights reserved.
+
+This program is free software; you may redistribute it and/or modify it under
+the same terms as the Perl 5 programming language system itself.
 
 =head1 SEE ALSO
 
@@ -105,15 +109,16 @@ L<Net::SNMP>
 # ============================================================================
 
 use strict;
+use warnings;
 
-use Net::SNMP::Security::USM v3.0.0;
+use Net::SNMP::Security::USM 4.0;
 
-my $SCRIPT  = 'snmpkey';
-my $VERSION = v2.1.0;
+our $SCRIPT  = 'snmpkey';
+our $VERSION = v6.0.0;
 
 # Do we have enough/too much information?
 if ((@ARGV < 3) || (@ARGV > 5)) {
-   _usage();
+   usage();
 }
 
 my ($usm, $error) = Net::SNMP::Security::USM->new(
@@ -126,29 +131,28 @@ my ($usm, $error) = Net::SNMP::Security::USM->new(
    -privpassword  => (@ARGV > 4) ? $ARGV[4] : $ARGV[1]
 );
 
-if (!defined($usm)) {
-   _exit($error);
+if (!defined $usm) {
+   abort($error);
 }
 
-printf("authKey: 0x%s\n", unpack('H*', $usm->auth_key));
-printf("privKey: 0x%s\n", unpack('H*', $usm->priv_key));
+printf "authKey: 0x%s\n", unpack 'H*', $usm->auth_key();
+printf "privKey: 0x%s\n", unpack 'H*', $usm->priv_key();
 
 exit 0;
 
+# [functions] ----------------------------------------------------------------
 
-# [private] ------------------------------------------------------------------
-
-sub _exit
+sub abort
 {
-   printf sprintf('%s: ', $SCRIPT) . shift(@_) . ".\n", @_;
+   printf "$SCRIPT: " . ((@_ > 1) ? shift(@_) : '%s') . ".\n", @_;
    exit 1;
 }
 
-sub _usage
+sub usage
 {
-   printf("%s v%vd\n", $SCRIPT, $VERSION);
+   printf "%s v%vd\n", $SCRIPT, $VERSION;
    print << "USAGE";
-Copyright (c) 2001-2005 David M. Town <dtown\@cpan.org>
+Copyright (c) 2001-2009 David M. Town.  All rights reserved.
 All rights reserved.
 Usage: $SCRIPT <authProto> <password> <authEngineID> [<privProto> [<password>]]
        <authProto> = md5|sha
@@ -161,7 +165,7 @@ USAGE
 
 AS-IS
 
-close(OUT) || die "Failed to close file '$file' [$!]";
+close($fh) || die "Failed to close file '$file' [$!]";
 
 chmod(0755, $file) || die "Failed to set permissions for file '$file' [$!]";
 

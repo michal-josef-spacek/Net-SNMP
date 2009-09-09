@@ -1,119 +1,119 @@
-#! /usr/local/bin/perl
+#! /bin/env perl
 
 # ============================================================================
 
-# $Id: example4.pl,v 4.1 2002/05/06 12:30:37 dtown Rel $
+# $Id: example4.pl,v 6.0 2009/09/09 15:05:32 dtown Rel $
 
-# Copyright (c) 2000-2002 David M. Town <david.town@marconi.com>.
+# Copyright (c) 2008-2009 David M. Town <dtown@cpan.org>
 # All rights reserved.
 
 # This program is free software; you may redistribute it and/or modify it
-# under the same terms as Perl itself.
+# under the same terms as the Perl 5 programming language system itself.
 
 # ============================================================================
 
 use strict;
+use warnings;
 
-use Net::SNMP qw(snmp_dispatcher ticks_to_time);
+use Net::SNMP;
 
-# List of hosts to poll
+my $OID_sysUpTime = '1.3.6.1.2.1.1.3.0';
+my $OID_sysContact = '1.3.6.1.2.1.1.4.0';
+my $OID_sysLocation = '1.3.6.1.2.1.1.6.0';
 
-my @HOSTS = qw(1.1.1.1 1.1.1.2 localhost);
+# Hash of hosts and location data.
 
-# Poll interval (in seconds).  This value should be greater 
-# than the number of retries plus one, times the timeout value.
+my %host_data = (
+   '10.1.1.2'  => 'Building 1, Second Floor',
+   '10.2.1.1'  => 'Building 2, First Floor',
+   'localhost' => 'Right here!',
+);
 
-my $INTERVAL  = 60;
+# Create a session for each host and queue a get-request for sysUpTime.
 
-# Maximum number of polls, including the initial poll.
-
-my $MAX_POLLS = 10;
-
-my $sysUpTime = '1.3.6.1.2.1.1.3.0';
-
-# Create a session for each host and queue the first get-request.
-
-foreach my $host (@HOSTS) {
+for my $host (keys %host_data) {
 
    my ($session, $error) = Net::SNMP->session(
       -hostname    => $host,
-      -nonblocking => 0x1,   # Create non-blocking objects
-      -translate   => [
-         -timeticks => 0x0   # Turn off so sysUpTime is numeric
-      ]  
+      -community   => 'private',
+      -nonblocking => 1,
    );
-   if (!defined($session)) {
-      printf("ERROR: %s.\n", $error);
-      exit 1;
+
+   if (!defined $session) {
+      printf "ERROR: Failed to create session for host '%s': %s.\n",
+             $host, $error;
+      next;
    }
 
-   # Queue the get-request, passing references to variables that
-   # will be used to store the last sysUpTime and the number of
-   # polls that this session has performed.
-
-   my ($last_uptime, $num_polls) = (0, 0);
-
-   $session->get_request(
-       -varbindlist => [$sysUpTime],
-       -callback    => [
-          \&validate_sysUpTime_cb, \$last_uptime, \$num_polls
-       ]
+   my $result = $session->get_request(
+      -varbindlist => [ $OID_sysUpTime ],
+      -callback    => [ \&get_callback, $host_data{$host} ],
    );
+
+   if (!defined $result) {
+      printf "ERROR: Failed to queue get request for host '%s': %s.\n",
+             $session->hostname(), $session->error();
+   }
 
 }
 
-# Define a reference point for all of the polls
-my $EPOC = time();
+# Now initiate the SNMP message exchange.
 
-# Enter the event loop
 snmp_dispatcher();
 
 exit 0;
 
-sub validate_sysUpTime_cb
+sub get_callback
 {
-   my ($session, $last_uptime, $num_polls) = @_;
+   my ($session, $location) = @_;
 
+   my $result = $session->var_bind_list();
 
-   if (!defined($session->var_bind_list)) {
-
-      printf("%-15s  ERROR: %s\n", $session->hostname, $session->error);
-
-   } else {
-
-
-      # Validate the sysUpTime
-
-      my $uptime = $session->var_bind_list->{$sysUpTime};
-
-      if ($uptime < ${$last_uptime}) {
-         printf("%-15s  WARNING: %s is less than %s\n",
-            $session->hostname, 
-            ticks_to_time($uptime), 
-            ticks_to_time(${$last_uptime})
-         );
-      } else {
-         printf("%-15s  Ok (%s)\n", 
-            $session->hostname, ticks_to_time($uptime)
-         );
-      }
-
-      # Store the new sysUpTime
-      ${$last_uptime} = $uptime;
-
+   if (!defined $result) {
+      printf "ERROR: Get request failed for host '%s': %s.\n",
+             $session->hostname(), $session->error();
+      return;
    }
 
-   # Queue the next message if we have not reached $MAX_POLLS.  
-   # Since we do not provide a -callback argument, the same 
-   # callback and it's original arguments will be used.
+   printf "The sysUpTime for host '%s' is %s.\n",
+           $session->hostname(), $result->{$OID_sysUpTime};
 
-   if (++${$num_polls} < $MAX_POLLS) {
-      my $delay = (($INTERVAL * ${$num_polls}) + $EPOC) - time();
-      $session->get_request(
-         -delay       => ($delay >= 0) ? $delay : 0,
-         -varbindlist => [$sysUpTime]
-      );
+   # Now set the sysContact and sysLocation for the host.
+
+   $result = $session->set_request(
+      -varbindlist =>
+      [
+         $OID_sysContact,  OCTET_STRING, 'Help Desk x911',
+         $OID_sysLocation, OCTET_STRING, $location,
+      ],
+      -callback    => \&set_callback,
+   );
+
+   if (!defined $result) {
+      printf "ERROR: Failed to queue set request for host '%s': %s.\n",
+             $session->hostname(), $session->error();
    }
 
-   $session->error_status;
+   return;
 }
+
+sub set_callback
+{
+   my ($session) = @_;
+
+   my $result = $session->var_bind_list();
+
+   if (defined $result) {
+      printf "The sysContact for host '%s' was set to '%s'.\n",
+             $session->hostname(), $result->{$OID_sysContact};
+      printf "The sysLocation for host '%s' was set to '%s'.\n",
+             $session->hostname(), $result->{$OID_sysLocation};
+   } else {
+      printf "ERROR: Set request failed for host '%s': %s.\n",
+             $session->hostname(), $session->error();
+   }
+
+   return;
+}
+
+# ============================================================================

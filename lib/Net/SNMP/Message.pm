@@ -1,17 +1,18 @@
 # -*- mode: perl -*-
+
 # ============================================================================
 
 package Net::SNMP::Message;
 
-# $Id: Message.pm,v 2.3 2005/10/20 14:17:01 dtown Rel $
+# $Id: Message.pm,v 3.0 2009/09/09 15:05:33 dtown Rel $
 
 # Object used to represent a SNMP message. 
 
-# Copyright (c) 2001-2005 David M. Town <dtown@cpan.org>
+# Copyright (c) 2001-2009 David M. Town <dtown@cpan.org>
 # All rights reserved.
 
 # This program is free software; you may redistribute it and/or modify it
-# under the same terms as Perl itself.
+# under the same terms as the Perl 5 programming language system itself.
 
 # ============================================================================
 
@@ -22,22 +23,20 @@ use Math::BigInt();
 
 ## Version of the Net::SNMP::Message module
 
-our $VERSION = v2.0.3;
+our $VERSION = v3.0.0;
 
 ## Handle importing/exporting of symbols
 
-use Exporter();
+use base qw( Exporter );
 
-our @ISA = qw( Exporter );
-
-our @EXPORT_OK = qw( TRUE FALSE );
+our @EXPORT_OK = qw( TRUE FALSE DEBUG_INFO );
 
 our %EXPORT_TAGS = (
    generictrap    => [
       qw( COLD_START WARM_START LINK_DOWN LINK_UP AUTHENTICATION_FAILURE
           EGP_NEIGHBOR_LOSS ENTERPRISE_SPECIFIC )
    ],
-   msgFlags       => [ 
+   msgFlags       => [
       qw( MSG_FLAGS_NOAUTHNOPRIV MSG_FLAGS_AUTH MSG_FLAGS_PRIV 
           MSG_FLAGS_REPORTABLE MSG_FLAGS_MASK )
    ],
@@ -63,109 +62,113 @@ our %EXPORT_TAGS = (
           GET_BULK_REQUEST INFORM_REQUEST SNMPV2_TRAP REPORT )
    ],
    utilities      => [ qw( asn1_ticks_to_time asn1_itoa ) ],
-   versions       => [ qw( SNMP_VERSION_1 SNMP_VERSION_2C SNMP_VERSION_3 ) ]
+   versions       => [ qw( SNMP_VERSION_1 SNMP_VERSION_2C SNMP_VERSION_3 ) ],
 );
 
-Exporter::export_ok_tags( 
+Exporter::export_ok_tags(
    qw( generictrap msgFlags securityLevels securityModels translate types 
-       utilities versions ) 
+       utilities versions )
 );
 
 $EXPORT_TAGS{ALL} = [ @EXPORT_OK ];
 
 ## ASN.1 Basic Encoding Rules type definitions
 
-sub INTEGER()                  { 0x02 }  # INTEGER
-sub INTEGER32()                { 0x02 }  # Integer32           - SNMPv2c
-sub OCTET_STRING()             { 0x04 }  # OCTET STRING
-sub NULL()                     { 0x05 }  # NULL
-sub OBJECT_IDENTIFIER()        { 0x06 }  # OBJECT IDENTIFIER
-sub SEQUENCE()                 { 0x30 }  # SEQUENCE
+sub INTEGER                  { 0x02 }  # INTEGER
+sub INTEGER32                { 0x02 }  # Integer32           - SNMPv2c
+sub OCTET_STRING             { 0x04 }  # OCTET STRING
+sub NULL                     { 0x05 }  # NULL
+sub OBJECT_IDENTIFIER        { 0x06 }  # OBJECT IDENTIFIER
+sub SEQUENCE                 { 0x30 }  # SEQUENCE
 
-sub IPADDRESS()                { 0x40 }  # IpAddress
-sub COUNTER()                  { 0x41 }  # Counter
-sub COUNTER32()                { 0x41 }  # Counter32           - SNMPv2c
-sub GAUGE()                    { 0x42 }  # Gauge
-sub GAUGE32()                  { 0x42 }  # Gauge32             - SNMPv2c
-sub UNSIGNED32()               { 0x42 }  # Unsigned32          - SNMPv2c
-sub TIMETICKS()                { 0x43 }  # TimeTicks
-sub OPAQUE()                   { 0x44 }  # Opaque
-sub COUNTER64()                { 0x46 }  # Counter64           - SNMPv2c
+sub IPADDRESS                { 0x40 }  # IpAddress
+sub COUNTER                  { 0x41 }  # Counter
+sub COUNTER32                { 0x41 }  # Counter32           - SNMPv2c
+sub GAUGE                    { 0x42 }  # Gauge
+sub GAUGE32                  { 0x42 }  # Gauge32             - SNMPv2c
+sub UNSIGNED32               { 0x42 }  # Unsigned32          - SNMPv2c
+sub TIMETICKS                { 0x43 }  # TimeTicks
+sub OPAQUE                   { 0x44 }  # Opaque
+sub COUNTER64                { 0x46 }  # Counter64           - SNMPv2c
 
-sub NOSUCHOBJECT()             { 0x80 }  # noSuchObject        - SNMPv2c
-sub NOSUCHINSTANCE()           { 0x81 }  # noSuchInstance      - SNMPv2c
-sub ENDOFMIBVIEW()             { 0x82 }  # endOfMibView        - SNMPv2c
+sub NOSUCHOBJECT             { 0x80 }  # noSuchObject        - SNMPv2c
+sub NOSUCHINSTANCE           { 0x81 }  # noSuchInstance      - SNMPv2c
+sub ENDOFMIBVIEW             { 0x82 }  # endOfMibView        - SNMPv2c
 
-sub GET_REQUEST()              { 0xa0 }  # GetRequest-PDU
-sub GET_NEXT_REQUEST()         { 0xa1 }  # GetNextRequest-PDU
-sub GET_RESPONSE()             { 0xa2 }  # GetResponse-PDU
-sub SET_REQUEST()              { 0xa3 }  # SetRequest-PDU
-sub TRAP()                     { 0xa4 }  # Trap-PDU
-sub GET_BULK_REQUEST()         { 0xa5 }  # GetBulkRequest-PDU  - SNMPv2c
-sub INFORM_REQUEST()           { 0xa6 }  # InformRequest-PDU   - SNMPv2c
-sub SNMPV2_TRAP()              { 0xa7 }  # SNMPv2-Trap-PDU     - SNMPv2c
-sub REPORT()                   { 0xa8 }  # Report-PDU          - SNMPv3
+sub GET_REQUEST              { 0xa0 }  # GetRequest-PDU
+sub GET_NEXT_REQUEST         { 0xa1 }  # GetNextRequest-PDU
+sub GET_RESPONSE             { 0xa2 }  # GetResponse-PDU
+sub SET_REQUEST              { 0xa3 }  # SetRequest-PDU
+sub TRAP                     { 0xa4 }  # Trap-PDU
+sub GET_BULK_REQUEST         { 0xa5 }  # GetBulkRequest-PDU  - SNMPv2c
+sub INFORM_REQUEST           { 0xa6 }  # InformRequest-PDU   - SNMPv2c
+sub SNMPV2_TRAP              { 0xa7 }  # SNMPv2-Trap-PDU     - SNMPv2c
+sub REPORT                   { 0xa8 }  # Report-PDU          - SNMPv3
 
 ## SNMP RFC version definitions
 
-sub SNMP_VERSION_1()           { 0x00 }  # RFC 1157 SNMPv1
-sub SNMP_VERSION_2C()          { 0x01 }  # RFC 1901 Community-based SNMPv2
-sub SNMP_VERSION_3()           { 0x03 }  # RFC 3411 SNMPv3
+sub SNMP_VERSION_1           { 0x00 }  # RFC 1157 SNMPv1
+sub SNMP_VERSION_2C          { 0x01 }  # RFC 1901 Community-based SNMPv2
+sub SNMP_VERSION_3           { 0x03 }  # RFC 3411 SNMPv3
 
 ## RFC 1157 - generic-trap definitions
 
-sub COLD_START()                  { 0 }  # coldStart(0)
-sub WARM_START()                  { 1 }  # warmStart(1)
-sub LINK_DOWN()                   { 2 }  # linkDown(2)
-sub LINK_UP()                     { 3 }  # linkUp(3)
-sub AUTHENTICATION_FAILURE()      { 4 }  # authenticationFailure(4)
-sub EGP_NEIGHBOR_LOSS()           { 5 }  # egpNeighborLoss(5)
-sub ENTERPRISE_SPECIFIC()         { 6 }  # enterpriseSpecific(6)
+sub COLD_START                  { 0 }  # coldStart(0)
+sub WARM_START                  { 1 }  # warmStart(1)
+sub LINK_DOWN                   { 2 }  # linkDown(2)
+sub LINK_UP                     { 3 }  # linkUp(3)
+sub AUTHENTICATION_FAILURE      { 4 }  # authenticationFailure(4)
+sub EGP_NEIGHBOR_LOSS           { 5 }  # egpNeighborLoss(5)
+sub ENTERPRISE_SPECIFIC         { 6 }  # enterpriseSpecific(6)
 
 ## RFC 3412 - msgFlags::=OCTET STRING
 
-sub MSG_FLAGS_NOAUTHNOPRIV()   { 0x00 }  # Means noAuthNoPriv
-sub MSG_FLAGS_AUTH()           { 0x01 }  # authFlag
-sub MSG_FLAGS_PRIV()           { 0x02 }  # privFlag
-sub MSG_FLAGS_REPORTABLE()     { 0x04 }  # reportableFlag
-sub MSG_FLAGS_MASK()           { 0x07 }
+sub MSG_FLAGS_NOAUTHNOPRIV   { 0x00 }  # Means noAuthNoPriv
+sub MSG_FLAGS_AUTH           { 0x01 }  # authFlag
+sub MSG_FLAGS_PRIV           { 0x02 }  # privFlag
+sub MSG_FLAGS_REPORTABLE     { 0x04 }  # reportableFlag
+sub MSG_FLAGS_MASK           { 0x07 }
 
 ## RFC 3411 - SnmpSecurityLevel::=TEXTUAL-CONVENTION
 
-sub SECURITY_LEVEL_NOAUTHNOPRIV() { 1 }  # noAuthNoPriv
-sub SECURITY_LEVEL_AUTHNOPRIV()   { 2 }  # authNoPriv
-sub SECURITY_LEVEL_AUTHPRIV()     { 3 }  # authPriv
+sub SECURITY_LEVEL_NOAUTHNOPRIV { 1 }  # noAuthNoPriv
+sub SECURITY_LEVEL_AUTHNOPRIV   { 2 }  # authNoPriv
+sub SECURITY_LEVEL_AUTHPRIV     { 3 }  # authPriv
 
 ## RFC 3411 - SnmpSecurityModel::=TEXTUAL-CONVENTION
 
-sub SECURITY_MODEL_ANY()          { 0 }  # Reserved for 'any'
-sub SECURITY_MODEL_SNMPV1()       { 1 }  # Reserved for SNMPv1
-sub SECURITY_MODEL_SNMPV2C()      { 2 }  # Reserved for SNMPv2c
-sub SECURITY_MODEL_USM()          { 3 }  # User-Based Security Model (USM) 
+sub SECURITY_MODEL_ANY          { 0 }  # Reserved for 'any'
+sub SECURITY_MODEL_SNMPV1       { 1 }  # Reserved for SNMPv1
+sub SECURITY_MODEL_SNMPV2C      { 2 }  # Reserved for SNMPv2c
+sub SECURITY_MODEL_USM          { 3 }  # User-Based Security Model (USM) 
 
 ## Translation masks
 
-sub TRANSLATE_NONE()           { 0x00 }  # Bit masks used to determine
-sub TRANSLATE_OCTET_STRING()   { 0x01 }  # if a specific ASN.1 type is
-sub TRANSLATE_NULL()           { 0x02 }  # translated into a "human
-sub TRANSLATE_TIMETICKS()      { 0x04 }  # readable" form.
-sub TRANSLATE_OPAQUE()         { 0x08 }
-sub TRANSLATE_NOSUCHOBJECT()   { 0x10 }
-sub TRANSLATE_NOSUCHINSTANCE() { 0x20 }
-sub TRANSLATE_ENDOFMIBVIEW()   { 0x40 }
-sub TRANSLATE_UNSIGNED()       { 0x80 }
-sub TRANSLATE_ALL()            { 0xff }
+sub TRANSLATE_NONE           { 0x00 }  # Bit masks used to determine
+sub TRANSLATE_OCTET_STRING   { 0x01 }  # if a specific ASN.1 type is
+sub TRANSLATE_NULL           { 0x02 }  # translated into a "human
+sub TRANSLATE_TIMETICKS      { 0x04 }  # readable" form.
+sub TRANSLATE_OPAQUE         { 0x08 }
+sub TRANSLATE_NOSUCHOBJECT   { 0x10 }
+sub TRANSLATE_NOSUCHINSTANCE { 0x20 }
+sub TRANSLATE_ENDOFMIBVIEW   { 0x40 }
+sub TRANSLATE_UNSIGNED       { 0x80 }
+sub TRANSLATE_ALL            { 0xff }
 
 ## Truth values 
 
-sub TRUE()                     { 0x01 } 
-sub FALSE()                    { 0x00 }
+sub TRUE                     { 0x01 }
+sub FALSE                    { 0x00 }
 
 ## Package variables
 
-our $DEBUG = FALSE;                      # Debug flag
+our $DEBUG = FALSE;                    # Debug flag
 
-our $AUTOLOAD;                           # Used by the AUTOLOAD method
+our $AUTOLOAD;                         # Used by the AUTOLOAD method
+
+## Initialize the request-id/msgID.
+
+our $ID = int rand((2**16) - 1) + ($^T & 0xff);
 
 # [public methods] -----------------------------------------------------------
 
@@ -175,7 +178,7 @@ sub new
 
    # Create a new data structure for the object
    my $this = bless {
-      '_buffer'      =>  '',              # Serialized message buffer
+      '_buffer'      =>  q{},             # Serialized message buffer
       '_error'       =>  undef,           # Error message
       '_index'       =>  0,               # Buffer index
       '_leading_dot' =>  FALSE,           # Prepend leading dot on OIDs
@@ -183,12 +186,12 @@ sub new
       '_security'    =>  undef,           # Security Model object
       '_translate'   =>  TRANSLATE_NONE,  # Translation mode
       '_transport'   =>  undef,           # Transport Layer object
-      '_version'     =>  SNMP_VERSION_1   # SNMP version
+      '_version'     =>  SNMP_VERSION_1,  # SNMP version
    }, $class;
 
    # Validate the passed arguments
 
-   foreach (keys %argv) {
+   for (keys %argv) {
 
       if (/^-?callback$/i) {
          $this->callback($argv{$_});
@@ -197,7 +200,7 @@ sub new
       } elsif (/^-?leadingdot$/i) {
          $this->leading_dot($argv{$_});
       } elsif (/^-?msgid$/i) {
-         $this->msg_id($argv{$_}); 
+         $this->msg_id($argv{$_});
       } elsif (/^-?requestid$/i) {
          $this->request_id($argv{$_});
       } elsif (/^-?security$/i) {
@@ -209,16 +212,16 @@ sub new
       } elsif (/^-?version$/i) {
          $this->version($argv{$_});
       } else {
-         $this->_error("Invalid argument '%s'", $_);
+         $this->_error('The argument "%s" is unknown', $_);
       }
 
-      if (defined($this->{_error})) {
+      if (defined $this->{_error}) {
          return wantarray ? (undef, $this->{_error}) : undef;
       }
 
    }
 
-   return wantarray ? ($this, '') : $this;
+   return wantarray ? ($this, q{}) : $this;
 }
 
 {
@@ -248,18 +251,21 @@ sub new
       REPORT,             \&_prepare_report
    };
 
-   sub prepare 
+   sub prepare
    {
 #     my ($this, $type, $value) = @_;
 
-      return $_[0]->_error('ASN.1 type not defined') unless (@_ > 1);
-      return $_[0]->_error if defined($_[0]->{_error});
+      return $_[0]->_error() if defined $_[0]->{_error};
 
-      if (exists($prepare_methods->{$_[1]})) {
-         $_[0]->${\$prepare_methods->{$_[1]}}($_[2]);
-      } else {
-         $_[0]->_error('Unknown ASN.1 type [%s]', $_[1]);
+      if (!defined $_[1]) {
+         return $_[0]->_error('The ASN.1 type is not defined');
       }
+
+      if (!exists $prepare_methods->{$_[1]}) {
+         return $_[0]->_error('The ASN.1 type "%s" is unknown', $_[1]);
+      }
+
+      return $_[0]->${\$prepare_methods->{$_[1]}}($_[2]);
    }
 }
 
@@ -290,26 +296,35 @@ sub new
       REPORT,             \&_process_report
    };
 
-   sub process 
+   sub process
    {
 #     my ($this, $expected, $found) = @_;
 
-      return $_[0]->_error if defined($_[0]->{_error});
-      return $_[0]->_error unless defined(my $type = $_[0]->_buffer_get(1));
+      # XXX: If present, $found is updated as a side effect.
 
-      $type = unpack('C', $type);
+      return $_[0]->_error() if defined $_[0]->{_error};
 
-      if (exists($process_methods->{$type})) {
-         if ((@_ >= 2) && (defined($_[1])) && ($type != $_[1])) {
-            return $_[0]->_error(
-               'Expected %s, but found %s', asn1_itoa($_[1]), asn1_itoa($type)
-            );
-         }
-         $_[2] = $type if (@_ == 3);
-         $_[0]->${\$process_methods->{$type}}($type);
-      } else {
-         $_[0]->_error('Unknown ASN.1 type [0x%02x]', $type);
+      return $_[0]->_error() if !defined (my $type = $_[0]->_buffer_get(1));
+
+      $type = unpack 'C', $type;
+
+      if (!exists $process_methods->{$type}) {
+         return $_[0]->_error('The ASN.1 type 0x%02x is unknown', $type);
       }
+
+      # Check to see if a specific ASN.1 type was expected.
+      if ((@_ > 1) && (defined $_[1]) && ($type != $_[1])) {
+         return $_[0]->_error(
+            'Expected %s, but found %s', asn1_itoa($_[1]), asn1_itoa($type)
+         );
+      }
+
+      # Update the found ASN.1 type, if the argument is present. 
+      if (@_ == 3) {
+         $_[2] = $type;
+      }
+
+      return $_[0]->${\$process_methods->{$type}}($type);
    }
 }
 
@@ -320,19 +335,19 @@ sub context_engine_id
    # RFC 3412 - contextEngineID::=OCTET STRING
 
    if (@_ == 2) {
-      if (!defined($engine_id)) {
-         return $this->_error('contextEngineID not defined');
+      if (!defined $engine_id) {
+         return $this->_error('The contextEngineID value is not defined');
       }
       $this->{_context_engine_id} = $engine_id;
    }
 
-   if (exists($this->{_context_engine_id})) {
-      $this->{_context_engine_id};
-   } elsif (defined($this->{_security})) {
-      $this->{_security}->engine_id;
-   } else {
-      '';
+   if (exists $this->{_context_engine_id}) {
+      return $this->{_context_engine_id} || q{};
+   } elsif (defined $this->{_security}) {
+      return $this->{_security}->engine_id() || q{};
    }
+
+   return q{};
 }
 
 sub context_name
@@ -342,13 +357,13 @@ sub context_name
    # RFC 3412 - contextName::=OCTET STRING
 
    if (@_ == 2) {
-      if (!defined($name)) {
-         return $this->_error('contextName not defined');
+      if (!defined $name) {
+         return $this->_error('The contextName value is not defined');
       }
       $this->{_context_name} = $name;
    }
 
-   exists($this->{_context_name}) ? $this->{_context_name} : '';
+   return exists($this->{_context_name}) ? $this->{_context_name} : q{};
 }
 
 sub msg_flags
@@ -360,13 +375,17 @@ sub msg_flags
    # NOTE: The stored value is not an OCTET STRING.
 
    if (@_ == 2) {
-      if (!defined($flags)) {
-         return $this->_error('msgFlags not defined');
+      if (!defined $flags) {
+         return $this->_error('The msgFlags value is not defined');
       }
       $this->{_msg_flags} = $flags;
    }
 
-   exists($this->{_msg_flags}) ? $this->{_msg_flags} : MSG_FLAGS_NOAUTHNOPRIV;
+   if (exists $this->{_msg_flags}) {
+      return $this->{_msg_flags};
+   }
+
+   return MSG_FLAGS_NOAUTHNOPRIV;
 }
 
 sub msg_id
@@ -376,22 +395,24 @@ sub msg_id
    # RFC 3412 - msgID::=INTEGER (0..2147483647)
 
    if (@_ == 2) {
-      if (!defined($msg_id)) {
-         return $this->_error('msgId not defined');
+      if (!defined $msg_id) {
+         return $this->_error('The msgID value is not defined');
       }
       if (($msg_id < 0) || ($msg_id > 2147483647)) {
-         return $this->_error('Invalid msgId value [%s]', $msg_id);
+         return $this->_error(
+            'The msgId %d is out of range (0..2147483647)', $msg_id
+         );
       }
       $this->{_msg_id} = $msg_id;
    }
 
-   if (exists($this->{_msg_id})) {
-      $this->{_msg_id};
-   } elsif (exists($this->{_request_id})) {
-      $this->{_request_id};
-   } else {
-      0;
+   if (exists $this->{_msg_id}) {
+      return $this->{_msg_id};
+   } elsif (exists $this->{_request_id}) {
+      return $this->{_request_id};
    }
+
+   return 0;
 }
 
 sub msg_max_size
@@ -401,16 +422,18 @@ sub msg_max_size
    # RFC 3412 - msgMaxSize::=INTEGER (484..2147483647)
 
    if (@_ == 2) {
-      if (!defined($size)) {
-         return $this->_error('msgMaxSize not defined');
+      if (!defined $size) {
+         return $this->_error('The msgMaxSize value is not defined');
       }
       if (($size < 484) || ($size > 2147483647)) {
-         return $this->_error('Invalid msgMaxSize value [%s]', $size);
+         return $this->_error(
+            'The msgMaxSize %d is out of range (484..2147483647)', $size
+         );
       }
       $this->{_msg_max_size} = $size;
    }
 
-   $this->{_msg_max_size} || 484;
+   return $this->{_msg_max_size} || 484;
 }
 
 sub msg_security_model
@@ -420,30 +443,32 @@ sub msg_security_model
    # RFC 3412 - msgSecurityModel::=INTEGER (1..2147483647)
 
    if (@_ == 2) {
-      if (!defined($model)) {
-         return $this->_error('msgSecurityModel not defined');
+      if (!defined $model) {
+         return $this->_error('The msgSecurityModel value is not defined');
       }
       if (($model < 1) || ($model > 2147483647)) {
-         return $this->_error('Invalid msgSecurityModel value [%s]', $model);
+         return $this->_error(
+            'The msgSecurityModel %d is out of range (1..2147483647)', $model
+         );
       }
       $this->{_security_model} = $model;
    }
 
-   if (exists($this->{_security_model})) {
-      $this->{_security_model};
-   } elsif (defined($this->{_security})) {
-      $this->{_security}->security_model;
+   if (exists $this->{_security_model}) {
+      return $this->{_security_model};
+   } elsif (defined $this->{_security}) {
+      return $this->{_security}->security_model();
    } else {
       if ($this->{_version} == SNMP_VERSION_1) {
-         SECURITY_MODEL_SNMPV1;
+         return SECURITY_MODEL_SNMPV1;
       } elsif ($this->{_version} == SNMP_VERSION_2C) {
-         SECURITY_MODEL_SNMPV2C;
+         return SECURITY_MODEL_SNMPV2C;
       } elsif ($this->{_version} == SNMP_VERSION_3) {
-         SECURITY_MODEL_USM;
-      } else {
-         SECURITY_MODEL_ANY;
+         return SECURITY_MODEL_USM;
       }
    }
+
+   return SECURITY_MODEL_ANY;
 }
 
 sub request_id
@@ -453,13 +478,13 @@ sub request_id
    # request-id::=INTEGER
 
    if (@_ == 2) {
-      if (!defined($request_id)) {
-         return $this->_error('request-id not defined');
+      if (!defined $request_id) {
+         return $this->_error('The request-id value is not defined');
       }
       $this->{_request_id} = $request_id;
    }
 
-   exists($this->{_request_id}) ? $this->{_request_id} : 0;
+   return exists($this->{_request_id}) ? $this->{_request_id} : 0;
 }
 
 sub security_level
@@ -471,24 +496,27 @@ sub security_level
    #                                          authPriv(3) }
 
    if (@_ == 2) {
-      if (!defined($level)) {
-         return $this->_error('securityLevel not defined');
+      if (!defined $level) {
+         return $this->_error('The securityLevel value is not defined');
       }
-      if (($level < SECURITY_LEVEL_NOAUTHNOPRIV) || 
-          ($level > SECURITY_LEVEL_AUTHPRIV)) 
+      if (($level < SECURITY_LEVEL_NOAUTHNOPRIV) ||
+          ($level > SECURITY_LEVEL_AUTHPRIV))
       {
-         return $this->_error('Invalid securityLevel value [%s]', $level);
+         return $this->_error(
+            'The securityLevel %d is out of range (%d..%d)', $level,
+            SECURITY_LEVEL_NOAUTHNOPRIV, SECURITY_LEVEL_AUTHPRIV
+         );
       }
       $this->{_security_level} = $level;
    }
 
-   if (exists($this->{_security_level})) {
-      $this->{_security_level};
-   } elsif (defined($this->{_security})) {
-      $this->{_security}->security_level;
-   } else {
-      SECURITY_LEVEL_NOAUTHNOPRIV;
+   if (exists $this->{_security_level}) {
+      return $this->{_security_level};
+   } elsif (defined $this->{_security}) {
+      return $this->{_security}->security_level();
    }
+
+   return SECURITY_LEVEL_NOAUTHNOPRIV;
 }
 
 sub security_name
@@ -496,20 +524,20 @@ sub security_name
    my ($this, $name) = @_;
 
    if (@_ == 2) {
-      if (!defined($name)) {
-         return $this->_error('securityName not defined');
+      if (!defined $name) {
+         return $this->_error('The securityName value is not defined');
       }
       # No length checks due to no limits by RFC 1157 for community name.
       $this->{_security_name} = $name;
    }
 
-   if (exists($this->{_security_name})) {
-      $this->{_security_name};
-   } elsif (defined($this->{_security})) {
-      $this->{_security}->security_name;
-   } else {
-      '';
+   if (exists $this->{_security_name}) {
+      return $this->{_security_name};
+   } elsif (defined $this->{_security}) {
+      return $this->{_security}->security_name();
    }
+
+   return q{};
 }
 
 sub version
@@ -523,32 +551,37 @@ sub version
       {
          $this->{_version} = $version;
       } else {
-         return $this->_error('Unknown or unsupported version [%s]', $version);
+         return $this->_error('The SNMP version %d is not supported', $version);
       }
    }
 
-   $this->{_version};
+   return $this->{_version};
 }
 
-sub error_status 
-{ 
-   0; # noError 
+sub error_status
+{
+   return 0; # noError(0) 
 }
 
 sub error_index
-{ 
-   0;
-} 
-
-sub var_bind_list 
 {
-   undef;
+   return 0;
+}
+
+sub var_bind_list
+{
+   return undef;
 }
 
 sub var_bind_names
 {
-   [];
-}  
+   return [];
+}
+
+sub var_bind_types
+{
+   return undef;
+}
 
 #
 # Security Model accessor methods
@@ -559,15 +592,15 @@ sub security
    my ($this, $security) = @_;
 
    if (@_ == 2) {
-      if (defined($security)) {
+      if (defined $security) {
          $this->{_security} = $security;
       } else {
-         $this->_error_clear;
-         return $this->_error('No Security Model defined');
+         $this->_error_clear();
+         return $this->_error('The Security Model object is not defined');
       }
    }
 
-   $this->{_security};
+   return $this->{_security};
 }
 
 #
@@ -579,104 +612,108 @@ sub transport
    my ($this, $transport) = @_;
 
    if (@_ == 2) {
-      if (defined($transport)) {
+      if (defined $transport) {
          $this->{_transport} = $transport;
       } else {
-         $this->_error_clear;
-         return $this->_error('No Transport Domain defined');
+         $this->_error_clear();
+         return $this->_error('The Transport Domain object is not defined');
       }
    }
 
-   $this->{_transport};
+   return $this->{_transport};
 }
 
 sub hostname
 {
-   defined($_[0]->{_transport}) ? $_[0]->{_transport}->dest_hostname : '';
+   my ($this) = @_;
+
+   if (defined $this->{_transport}) {
+      return $this->{_transport}->dest_hostname();
+   }
+
+   return q{};
 }
 
 sub dstname
 {
-   warn
-      sprintf(
-         "dstname() is deprecated, use hostname() instead at %s line %d.\n",
-         (caller(0))[1,2]
-      );
+   require Carp;
+   Carp::croak(
+      sprintf '%s::dstname() is obsolete, use hostname() instead', ref $_[0]
+   );
 
-   $_[0]->hostname;
+   # Never get here.
+   return shift->hostname(@_);
 }
 
 sub max_msg_size
 {
    my ($this, $size) = @_;
 
-   if (defined($this->{_transport})) { 
-      if (@_ != 2) {
-         $this->{_transport}->max_msg_size;
-      } else {
-         $this->_error_clear;
-         $this->{_transport}->max_msg_size($size) ||
-            $this->_error($this->{_transport}->error); 
-      }
-   } else {
-      0;
+   if (!defined $this->{_transport}) {
+      return 0;
    }
+
+   if (@_ == 2) {
+      $this->_error_clear();
+      if (defined ($size = $this->{_transport}->max_msg_size($size))) {
+         return $size;
+      }
+      return $this->_error($this->{_transport}->error());
+   }
+
+   return $this->{_transport}->max_msg_size();
 }
 
 sub retries
 {
-   defined($_[0]->{_transport}) ? $_[0]->{_transport}->retries : 0; 
+   return defined($_[0]->{_transport}) ? $_[0]->{_transport}->retries() : 0;
 }
 
 sub timeout
 {
-   defined($_[0]->{_transport}) ? $_[0]->{_transport}->timeout : 0;
+   return defined($_[0]->{_transport}) ? $_[0]->{_transport}->timeout() : 0;
 }
 
 sub send
 {
    my ($this) = @_;
 
-   $this->_error_clear;
+   $this->_error_clear();
 
-   if (!defined($this->{_transport})) {
-      return $this->_error('No Transport Domain defined');
+   if (!defined $this->{_transport}) {
+      return $this->_error('The Transport Domain object is not defined');
    }
 
-   DEBUG_INFO('transport address %s', $this->{_transport}->dest_taddress);
-   $this->_buffer_dump;
+   DEBUG_INFO('transport address %s', $this->{_transport}->dest_taddress());
+   $this->_buffer_dump();
 
-   my $bytes = $this->{_transport}->send($this->{_buffer});
+   if (defined (my $bytes = $this->{_transport}->send($this->{_buffer}))) {
+      return $bytes;
+   }
 
-   defined($bytes) ? $bytes : $this->_error($this->{_transport}->error);
+   return $this->_error($this->{_transport}->error());
 }
 
-sub recv 
+sub recv
 {
    my ($this) = @_;
 
-   $this->_error_clear;
+   $this->_error_clear();
 
-   if (!defined($this->{_transport})) {
-      return $this->_error('No Transport Domain defined');
+   if (!defined $this->{_transport}) {
+      return $this->_error('The Transport Domain object is not defined');
    }
 
    my $name = $this->{_transport}->recv($this->{_buffer});
 
-   if (defined($name)) {
-
+   if (defined $name) {
       $this->{_length} = CORE::length($this->{_buffer});
-
-      DEBUG_INFO('transport address %s', $this->{_transport}->peer_taddress);
-      $this->_buffer_dump;
-
-      $name;
-
-   } else {
-
-      $this->_error($this->{_transport}->error);
-
+      DEBUG_INFO('transport address %s', $this->{_transport}->peer_taddress());
+      $this->_buffer_dump();
+      return $name;
    }
+
+   return $this->_error($this->{_transport}->error());
 }
 
 #
@@ -685,12 +722,12 @@ sub recv
 
 sub translate
 {
-   (@_ == 2) ? $_[0]->{_translate} = $_[1] : $_[0]->{_translate};
+   return (@_ == 2) ? $_[0]->{_translate} = $_[1] : $_[0]->{_translate};
 }
 
 sub leading_dot
 {
-   (@_ == 2) ? $_[0]->{_leading_dot} = $_[1] : $_[0]->{_leading_dot};
+   return (@_ == 2) ? $_[0]->{_leading_dot} = $_[1] : $_[0]->{_leading_dot};
 }
 
 #
@@ -704,19 +741,21 @@ sub callback
    if (@_ == 2) {
       if (ref($callback) eq 'CODE') {
          $this->{_callback} = $callback;
-      } elsif (!defined($_[1])) {
+      } elsif (!defined $callback) {
          $this->{_callback} = undef;
-      } 
+      } else {
+         DEBUG_INFO('unexpected callback format');
+      }
    }
 
-   $this->{_callback};
+   return $this->{_callback};
 }
 
 sub callback_execute
 {
    my ($this) = @_;
 
-   if (!defined($this->{_callback})) {
+   if (!defined $this->{_callback}) {
       DEBUG_INFO('no callback');
       return TRUE;
    }
@@ -724,18 +763,38 @@ sub callback_execute
    # Protect ourselves from user error.
    eval { $this->{_callback}->($this); };
 
-   # We clear the callback in case it was a 
-   # closure which might hold up the reference
-   # count of the calling object.
+   # We clear the callback in case it was a closure which might hold
+   # up the reference count of the calling object. 
 
    $this->{_callback} = undef;
 
-   ($@) ? $this->_error($@) : TRUE; 
+   return ($@) ? $this->_error($@) : TRUE;
+}
+
+sub status_information
+{
+   my $this = shift;
+
+   if (@_) {
+      $this->{_error} = (@_ > 1) ? sprintf(shift(@_), @_) : $_[0];
+      if ($this->debug()) {
+         printf "error: [%d] %s(): %s\n",
+                (caller 0)[2], (caller 1)[3], $this->{_error};
+      }
+      $this->callback_execute();
+   }
+
+   return $this->{_error} || q{};
+}
+
+sub process_response_pdu
+{
+   goto &callback_execute;
 }
 
 sub timeout_id
 {
-   (@_ == 2) ? $_[0]->{_timeout_id} = $_[1] : $_[0]->{_timeout_id};
+   return (@_ == 2) ? $_[0]->{_timeout_id} = $_[1] : $_[0]->{_timeout_id};
 }
 
 #
@@ -750,42 +809,47 @@ sub index
       $this->{_index} = $index;
    }
 
-   $this->{_index};
+   return $this->{_index};
 }
 
 sub length
 {
-   $_[0]->{_length};
+   return $_[0]->{_length};
 }
 
 sub prepend
 {
-   shift->_buffer_put(@_);
+   goto &_buffer_put;
 }
 
 sub append
 {
-   shift->_buffer_append(@_);
+   goto &_buffer_append;
 }
 
-sub copy 
+sub copy
 {
-   $_[0]->{_buffer};
+   return $_[0]->{_buffer};
 }
 
 sub reference
 {
-   \$_[0]->{_buffer};
+   return \$_[0]->{_buffer};
 }
 
 sub clear
 {
-   $_[0]->_buffer_get;
+   my ($this) = @_;
+
+   $this->{_index}  = 0;
+   $this->{_length} = 0;
+
+   return substr $this->{_buffer}, 0, CORE::length($this->{_buffer}), q{};
 }
 
 sub dump
 {
-   $_[0]->_buffer_dump;
+   goto &_buffer_dump;
 }
 
 #
@@ -797,24 +861,23 @@ sub error
    my $this = shift;
 
    if (@_) {
-      if (defined($_[0])) {
-         $this->{_error} = (@_ > 1) ? sprintf(shift(@_), @_) : $_[0]; 
-         if ($this->debug) {
-            printf("error: [%d] %s(): %s\n",
-               (caller(0))[2], (caller(1))[3], $this->{_error}
-            );
+      if (defined $_[0]) {
+         $this->{_error} = (@_ > 1) ? sprintf(shift(@_), @_) : $_[0];
+         if ($this->debug()) {
+            printf "error: [%d] %s(): %s\n",
+                (caller 0)[2], (caller 1)[3], $this->{_error};
          }
       } else {
          $this->{_error} = undef;
       }
    }
 
-   $this->{_error} || '';
+   return $this->{_error} || q{};
 }
 
 sub debug
 {
-   (@_ == 2) ? $DEBUG = ($_[1]) ? TRUE : FALSE : $DEBUG;
+   return (@_ == 2) ? $DEBUG = ($_[1]) ? TRUE : FALSE : $DEBUG;
 }
 
 sub AUTOLOAD
@@ -825,11 +888,16 @@ sub AUTOLOAD
 
    $AUTOLOAD =~ s/.*://;
 
-   if (ref($this)) {
-      $this->_error('Feature not supported [%s]', $AUTOLOAD);
+   if (ref $this) {
+      $this->_error_clear();
+      return $this->_error('The method "%s" is not supported', $AUTOLOAD);
    } else {
-      die sprintf('Unsupported function call [%s]', $AUTOLOAD);
+      require Carp;
+      Carp::croak(sprintf 'The function "%s" is not supported', $AUTOLOAD);
    }
+
+   # Never get here.
+   return;
 }
 
 # [private methods] ----------------------------------------------------------
@@ -842,49 +910,70 @@ sub _prepare_type_length
 {
 #  my ($this, $type, $value) = @_;
 
-   return $_[0]->_error('ASN.1 type not defined') unless defined($_[1]);
+   if (!defined $_[1]) {
+      return $_[0]->_error('The ASN.1 type is not defined');
+   }
 
    my $length = CORE::length($_[2]);
 
    if ($length < 0x80) {
-      $_[0]->_buffer_put(pack('C2', $_[1], $length) . $_[2]);
+      return $_[0]->_buffer_put(pack('C2', $_[1], $length) . $_[2]);
    } elsif ($length <= 0xff) {
-      $_[0]->_buffer_put(pack('C3', $_[1], 0x81, $length) . $_[2]);
+      return $_[0]->_buffer_put(pack('C3', $_[1], 0x81, $length) . $_[2]);
    } elsif ($length <= 0xffff) {
-      $_[0]->_buffer_put(pack('CCn', $_[1], 0x82, $length) . $_[2]);
-   } else {
-      $_[0]->_error('Unable to prepare ASN.1 length');
+      return $_[0]->_buffer_put(pack('CCn', $_[1], 0x82, $length) . $_[2]);
    }
+
+   return $_[0]->_error('Unable to prepare the ASN.1 length');
 }
 
 sub _prepare_integer
 {
    my ($this, $value) = @_;
 
-   return $this->_error('INTEGER value not defined') unless defined($value);
-
-   if ($value !~ /^-?\d+$/) {
-      return $this->_error('Expected numeric INTEGER value');
+   if (!defined $value) {
+      return $this->_error('The INTEGER value is not defined');
    }
 
-   $this->_prepare_integer32(INTEGER, $value);
+   if ($value !~ /^-?\d+$/) {
+      return $this->_error(
+         'The INTEGER value "%s" is expected in numeric format', $value
+      );
+   }
+
+   if ($value < -2147483648 || $value > 4294967295) {
+      return $this->_error(
+         'The INTEGER value "%s" is out of range (-2147483648..4294967295)',
+         $value
+      );
+   }
+
+   return $this->_prepare_integer32(INTEGER, $value);
 }
 
 sub _prepare_unsigned32
 {
    my ($this, $type, $value) = @_;
 
-   if (!defined($value)) {
-      return $this->_error('%s value not defined', asn1_itoa($type));
+   if (!defined $value) {
+      return $this->_error('The %s value is not defined', asn1_itoa($type));
    }
 
    if ($value !~ /^\d+$/) {
       return $this->_error(
-         'Expected positive numeric %s value', asn1_itoa($type)
+         'The %s value "%s" is expected in positive numeric format',
+         asn1_itoa($type), $value
       );
    }
 
-   $this->_prepare_integer32($type, $value);
+   if ($value < 0 || $value > 4294967295) {
+      return $this->_error(
+         'The %s value "%s" is out of range (0..4294967295)',
+         asn1_itoa($type), $value
+      );
+   }
+
+   return $this->_prepare_integer32($type, $value);
 }
 
 sub _prepare_integer32
@@ -892,14 +981,14 @@ sub _prepare_integer32
    my ($this, $type, $value) = @_;
 
    # Determine if the value is positive or negative
-   my $negative = ($value =~ /^-/);
+   my $negative = ($value < 0);
 
    # Check to see if the most significant bit is set, if it is we
    # need to prefix the encoding with a zero byte.
 
    my $size   = 4;     # Assuming 4 byte integers
    my $prefix = FALSE;
-   my $bytes  = '';
+   my $bytes  = q{};
 
    if ((($value & 0xff000000) & 0x80000000) && (!$negative)) {
       $size++;
@@ -919,99 +1008,105 @@ sub _prepare_integer32
 
    # Add a zero byte so the integer is decoded as a positive value
    if ($prefix) {
-      $bytes = pack('x');
+      $bytes = pack 'x';
       $size--;
    }
 
    # Build the integer
    while ($size-- > 0) {
-      $bytes .= pack('C*', (($value & 0xff000000) >> 24));
+      $bytes .= pack 'C*', (($value & 0xff000000) >> 24);
       $value <<= 8;
    }
 
    # Encode ASN.1 header
-   $this->_prepare_type_length($type, $bytes);
+   return $this->_prepare_type_length($type, $bytes);
 }
 
 sub _prepare_octet_string
 {
    my ($this, $value) = @_;
 
-   if (!defined($value)) {
-      return $this->_error('OCTET STRING value not defined');
+   if (!defined $value) {
+      return $this->_error('The OCTET STRING value is not defined');
    }
 
-   $this->_prepare_type_length(OCTET_STRING, $value);
+   return $this->_prepare_type_length(OCTET_STRING, $value);
 }
 
 sub _prepare_null
 {
-   $_[0]->_prepare_type_length(NULL, '');
+   return $_[0]->_prepare_type_length(NULL, q{});
 }
 
 sub _prepare_object_identifier
 {
    my ($this, $value) = @_;
 
-   if (!defined($value)) {
-      return $this->_error('OBJECT IDENTIFIER value not defined');
+   if (!defined $value) {
+      return $this->_error('The OBJECT IDENTIFIER value not defined');
    }
 
-   # Input is expected in dotted notation, so break it up into subids
-   my @subids = split(/\./, $value);
+   # Input is expected in dotted notation, so break it up into subids.
+   my @subids = split /\./, $value;
 
    # If there was a leading dot on _any_ OBJECT IDENTIFIER passed to
    # a prepare method, return a leading dot on _all_ of the OBJECT
    # IDENTIFIERs in the process methods.
 
-   if ($subids[0] eq '') {
+   if ($subids[0] eq q{}) {
       DEBUG_INFO('leading dot present');
       $this->{_leading_dot} = TRUE;
-      shift(@subids);
+      shift @subids;
    }
 
-   # RFC 2578 Section 3.5 - "...there are at most 128 sub-identifiers..."
+   # RFC 2578 Section 3.5 - "...there are at most 128 sub-identifiers in
+   # a value, and each sub-identifier has a maximum value of 2^32-1..."
+
    if (@subids > 128) {
       return $this->_error(
-         'Exceeded the maximum of 128 sub-identifiers in an OBJECT IDENTIFIER'
+         'The OBJECT IDENTIFIER value "%s" contains more than the maximum ' .
+         'of 128 sub-identifiers allowed', $value
+      );
+   }
+
+   if (grep { $_ < 0 || $_ > 4294967295; } @subids) {
+      return $this->_error(
+         'The OBJECT IDENTIFIER value "%s" contains a sub-identifier which ' .
+         'is out of range (0..4294967295)', $value
       );
    }
 
    # ISO/IEC 8825 - Specification of Basic Encoding Rules for Abstract
-   # Syntax Notation One (ASN.1) dictates that the first two subidentifiers
+   # Syntax Notation One (ASN.1) dictates that the first two sub-identifiers
    # are encoded into the first identifier using the the equation:
-   # subid = ((first * 40) + second).
+   # subid = ((first * 40) + second).  Pad the OBJECT IDENTIFIER to at
+   # least two sub-identifiers.
 
-   # We return an error if there are not at least two subidentifiers.
-
-   if (@subids < 2) {
-      return $this->_error(
-         'Expected at least two sub-identifiers in an OBJECT IDENTIFIER'
-      );
+   while (@subids < 2) {
+      push @subids, 0;
    }
 
-   # The first subidentifiers are limited to ccitt(0), iso(1), and
+   # The first sub-identifiers are limited to ccitt(0), iso(1), and
    # joint-iso-ccitt(2) as defined by RFC 2578.
 
    if ($subids[0] > 2) {
       return $this->_error(
-         'An OBJECT IDENTIFIER must begin with either 0 (ccitt), 1 ' .
-         '(iso), or 2 (joint-iso-ccitt)'
+         'The OBJECT IDENTIFIER value "%s" must begin with either 0 ' .
+         '(ccitt), 1 (iso), or 2 (joint-iso-ccitt)', $value
       );
    }
 
-   # If the first subidentifier is 0 or 1, the second is limited to 0 - 39.
+   # If the first sub-identifier is 0 or 1, the second is limited to 0 - 39.
 
    if (($subids[0] < 2) && ($subids[1] >= 40)) {
       return $this->_error(
-         'The second subidentifier in the OBJECT IDENTIFIER must be ' .
-         'less than 40'
+         'The second sub-identifier in the OBJECT IDENTIFIER value "%s" ' .
+         'must be less than 40', $value
       );
    } elsif ($subids[1] >= (4294967295 - 80)) {
       return $this->_error(
-         'The second subidentifier in the OBJECT IDENTIFIER must be ' .
-         'less than %u',
-         (4294967295 - 80)
+         'The second sub-identifier in the OBJECT IDENTIFIER value "%s" ' .
+         'must be less than %u', $value, (4294967295 - 80)
       );
    }
 
@@ -1019,95 +1114,89 @@ sub _prepare_object_identifier
 
    $subids[1] += (shift(@subids) * 40);
 
-   # Encode each value as seven bits with the most significant bit
-   # indicating the end of a sub-identifier.
-
-   my @bytes;
-
-   foreach (@subids) {
-      if ($_ <= 0x7f) {
-         push(@bytes, $_);
-      } else {
-         my @_bytes;
-         while ($_) {
-            unshift(@_bytes, (0x80 | ($_ & 0x7f)));
-            $_ >>= 7;
-         }
-         $_bytes[-1] &= 0x7f;
-         push(@bytes, @_bytes);
-      }
-   }
+   # Encode each sub-identifier in base 128, most significant digit first,
+   # with as few digits as possible.  Bit eight (the high bit) is set on
+   # each byte except the last.
 
    # Encode the ASN.1 header
-   $this->_prepare_type_length(OBJECT_IDENTIFIER, pack('C*', @bytes));
+   return $this->_prepare_type_length(OBJECT_IDENTIFIER, pack 'w*', @subids);
 }
 
 sub _prepare_sequence
 {
-   $_[0]->_prepare_implicit_sequence(SEQUENCE, $_[1]);
+   return $_[0]->_prepare_implicit_sequence(SEQUENCE, $_[1]);
 }
 
 sub _prepare_implicit_sequence
 {
    my ($this, $type, $value) = @_;
 
-   if (defined($value)) {
-
-      $this->_prepare_type_length($type, $value);
-
-   } else {
-
-      # If the passed value is undefined, we assume that the value of
-      # the IMPLICIT SEQUENCE is the data currently in the serial buffer.
-
-      if ($this->{_length} < 0x80) {
-         $this->_buffer_put(pack('C2', $type, $this->{_length}));
-      } elsif ($this->{_length} <= 0xff) {
-         $this->_buffer_put(pack('C3', $type, 0x81, $this->{_length}));
-      } elsif ($this->{_length} <= 0xffff) {
-         $this->_buffer_put(pack('CCn', $type, 0x82, $this->{_length}));
-      } else {
-         $this->_error('Unable to prepare ASN.1 length');
-      }
-
+   if (defined $value) {
+      return $this->_prepare_type_length($type, $value);
    }
+
+   # If the passed value is undefined, we assume that the value of
+   # the IMPLICIT SEQUENCE is the data currently in the serial buffer.
+
+   if ($this->{_length} < 0x80) {
+      return $this->_buffer_put(pack 'C2', $type, $this->{_length});
+   } elsif ($this->{_length} <= 0xff) {
+      return $this->_buffer_put(pack 'C3', $type, 0x81, $this->{_length});
+   } elsif ($this->{_length} <= 0xffff) {
+      return $this->_buffer_put(pack 'CCn', $type, 0x82, $this->{_length});
+   }
+
+   return $this->_error('Unable to prepare the ASN.1 SEQUENCE length');
 }
 
 sub _prepare_ipaddress
 {
    my ($this, $value) = @_;
 
-   return $this->_error('IpAddress not defined') unless defined($value);
-
-   if ($value !~ /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/) {
-      return $this->_error('Expected IpAddress in dotted notation');
+   if (!defined $value) {
+      return $this->_error('IpAddress is not defined');
    }
 
-   $this->_prepare_type_length(IPADDRESS, pack('C4', split(/\./, $value)));
+   if ($value !~ /^\d+\.\d+\.\d+\.\d+$/) {
+      return $this->_error(
+         'The IpAddress value "%s" is expected in dotted decimal notation',
+         $value
+      );
+   }
+
+   my @octets = split /\./, $value;
+
+   if (grep { $_ > 255; } @octets) {
+      return $this->_error('The IpAddress value "%s" is invalid', $value);
+   }
+
+   return $this->_prepare_type_length(IPADDRESS, pack 'C4', @octets);
 }
 
 sub _prepare_counter
 {
-   $_[0]->_prepare_unsigned32(COUNTER, $_[1]);
+   return $_[0]->_prepare_unsigned32(COUNTER, $_[1]);
 }
 
 sub _prepare_gauge
 {
-   $_[0]->_prepare_unsigned32(GAUGE, $_[1]);
+   return $_[0]->_prepare_unsigned32(GAUGE, $_[1]);
 }
 
 sub _prepare_timeticks
 {
-   $_[0]->_prepare_unsigned32(TIMETICKS, $_[1]);
+   return $_[0]->_prepare_unsigned32(TIMETICKS, $_[1]);
 }
 
 sub _prepare_opaque
 {
    my ($this, $value) = @_;
 
-   return $this->_error('Opaque value not defined') unless defined($value);
+   if (!defined $value) {
+      return $this->_error('The Opaque value is not defined');
+   }
 
-   $this->_prepare_type_length(OPAQUE, $value);
+   return $this->_prepare_type_length(OPAQUE, $value);
 }
 
 sub _prepare_counter64
@@ -1116,46 +1205,54 @@ sub _prepare_counter64
 
    # Validate the SNMP version
    if ($this->{_version} == SNMP_VERSION_1) {
-      return $this->_error('Counter64 not supported in SNMPv1');
+      return $this->_error('The Counter64 type is not supported in SNMPv1');
    }
 
    # Validate the passed value
-   if (!defined($value)) {
-      return $this->_error('Counter64 value not defined');
+   if (!defined $value) {
+      return $this->_error('The Counter64 value is not defined');
    }
 
    if ($value !~ /^\+?\d+$/) {
-      return $this->_error('Expected positive numeric Counter64 value');
+      return $this->_error(
+         'The Counter64 value "%s" is expected in positive numeric format',
+         $value
+      );
    }
 
    $value = Math::BigInt->new($value);
 
    if ($value eq 'NaN') {
-      return $this->_error('Invalid Counter64 value');
+      return $this->_error('The Counter64 value "%s" is invalid', $value);
    }
 
    # Make sure the value is no more than 8 bytes long
    if ($value->bcmp('18446744073709551615') > 0) {
-      return $this->_error('Counter64 value too high');
+      return $this->_error(
+          'The Counter64 value "%s" is out of range (0..18446744073709551615)',
+          $value
+      );
    }
 
    my ($quotient, $remainder, @bytes);
 
    # Handle a value of zero
    if ($value == 0) {
-      unshift(@bytes, 0x00);
+      unshift @bytes, 0x00;
    }
 
    while ($value > 0) {
       ($quotient, $remainder) = $value->bdiv(256);
       $value = Math::BigInt->new($quotient);
-      unshift(@bytes, $remainder);
+      unshift @bytes, $remainder;
    }
 
    # Make sure that the value is encoded as a positive value
-   if ($bytes[0] & 0x80) { unshift(@bytes, 0x00); }
+   if ($bytes[0] & 0x80) {
+      unshift @bytes, 0x00;
+   }
 
-   $this->_prepare_type_length(COUNTER64, pack('C*', @bytes));
+   return $this->_prepare_type_length(COUNTER64, pack 'C*', @bytes);
 }
 
 sub _prepare_nosuchobject
@@ -1163,10 +1260,10 @@ sub _prepare_nosuchobject
    my ($this) = @_;
 
    if ($this->{_version} == SNMP_VERSION_1) {
-      return $this->_error('noSuchObject not supported in SNMPv1');
+      return $this->_error('The noSuchObject type is not supported in SNMPv1');
    }
 
-   $this->_prepare_type_length(NOSUCHOBJECT, '');
+   return $this->_prepare_type_length(NOSUCHOBJECT, q{});
 }
 
 sub _prepare_nosuchinstance
@@ -1174,10 +1271,12 @@ sub _prepare_nosuchinstance
    my ($this) = @_;
 
    if ($this->{_version} == SNMP_VERSION_1) {
-      return $this->_error('noSuchInstance not supported in SNMPv1');
+      return $this->_error(
+         'The noSuchInstance type is not supported in SNMPv1'
+      );
    }
 
-   $this->_prepare_type_length(NOSUCHINSTANCE, '');
+   return $this->_prepare_type_length(NOSUCHINSTANCE, q{});
 }
 
 sub _prepare_endofmibview
@@ -1185,30 +1284,30 @@ sub _prepare_endofmibview
    my ($this) = @_;
 
    if ($this->{_version} == SNMP_VERSION_1) {
-      return $this->_error('endOfMibView not supported in SNMPv1');
+      return $this->_error('The endOfMibView type is not supported in SNMPv1');
    }
 
-   $this->_prepare_type_length(ENDOFMIBVIEW, '');
+   return $this->_prepare_type_length(ENDOFMIBVIEW, q{});
 }
 
 sub _prepare_get_request
 {
-   $_[0]->_prepare_implicit_sequence(GET_REQUEST, $_[1]);
+   return $_[0]->_prepare_implicit_sequence(GET_REQUEST, $_[1]);
 }
 
 sub _prepare_get_next_request
 {
-   $_[0]->_prepare_implicit_sequence(GET_NEXT_REQUEST, $_[1]);
+   return $_[0]->_prepare_implicit_sequence(GET_NEXT_REQUEST, $_[1]);
 }
 
 sub _prepare_get_response
 {
-   $_[0]->_prepare_implicit_sequence(GET_RESPONSE, $_[1]);
+   return $_[0]->_prepare_implicit_sequence(GET_RESPONSE, $_[1]);
 }
 
 sub _prepare_set_request
 {
-   $_[0]->_prepare_implicit_sequence(SET_REQUEST, $_[1]);
+   return $_[0]->_prepare_implicit_sequence(SET_REQUEST, $_[1]);
 }
 
 sub _prepare_trap
@@ -1216,10 +1315,10 @@ sub _prepare_trap
    my ($this, $value) = @_;
 
    if ($this->{_version} != SNMP_VERSION_1) {
-      return $this->_error('Trap-PDU only supported in SNMPv1');
+      return $this->_error('The Trap-PDU is only supported in SNMPv1');
    }
 
-   $this->_prepare_implicit_sequence(TRAP, $value);
+   return $this->_prepare_implicit_sequence(TRAP, $value);
 }
 
 sub _prepare_get_bulk_request
@@ -1227,10 +1326,12 @@ sub _prepare_get_bulk_request
    my ($this, $value) = @_;
 
    if ($this->{_version} == SNMP_VERSION_1) {
-      return $this->_error('GetBulkRequest-PDU not supported in SNMPv1');
+      return $this->_error(
+         'The GetBulkRequest-PDU is not supported in SNMPv1'
+      );
    }
 
-   $this->_prepare_implicit_sequence(GET_BULK_REQUEST, $value);
+   return $this->_prepare_implicit_sequence(GET_BULK_REQUEST, $value);
 }
 
 sub _prepare_inform_request
@@ -1238,10 +1339,10 @@ sub _prepare_inform_request
    my ($this, $value) = @_;
 
    if ($this->{_version} == SNMP_VERSION_1) {
-      return $this->_error('InformRequest-PDU not supported in SNMPv1');
+      return $this->_error('The InformRequest-PDU is not supported in SNMPv1');
    }
 
-   $this->_prepare_implicit_sequence(INFORM_REQUEST, $value);
+   return $this->_prepare_implicit_sequence(INFORM_REQUEST, $value);
 }
 
 sub _prepare_v2_trap
@@ -1249,10 +1350,10 @@ sub _prepare_v2_trap
    my ($this, $value) = @_;
 
    if ($this->{_version} == SNMP_VERSION_1) {
-      return $this->_error('SNMPv2-Trap-PDU not supported in SNMPv1');
+      return $this->_error('The SNMPv2-Trap-PDU is not supported in SNMPv1');
    }
 
-   $this->_prepare_implicit_sequence(SNMPV2_TRAP, $value);
+   return $this->_prepare_implicit_sequence(SNMPV2_TRAP, $value);
 }
 
 sub _prepare_report
@@ -1260,10 +1361,10 @@ sub _prepare_report
    my ($this, $value) = @_;
 
    if ($this->{_version} == SNMP_VERSION_1) {
-      return $this->_error('Report-PDU not supported in SNMPv1');
+      return $this->_error('The Report-PDU is not supported in SNMPv1');
    }
 
-   $this->_prepare_implicit_sequence(REPORT, $value);
+   return $this->_prepare_implicit_sequence(REPORT, $value);
 }
 
 #
@@ -1272,29 +1373,37 @@ sub _prepare_report
 
 sub _process_length
 {
-#  my ($this) = @_;
+   my ($this) = @_;
 
-   return $_[0]->_error if defined($_[0]->{_error});
+   return $this->_error() if defined $this->{_error};
 
-   return $_[0]->_error unless defined(my $length = $_[0]->_buffer_get(1));
+   my $length = $this->_buffer_get(1);
 
-   $length = unpack('C', $length);
-
-   if ($length & 0x80) {
-      my $byte_cnt = ($length & 0x7f);
-      if ($byte_cnt == 0) {
-         return $_[0]->_error('Indefinite ASN.1 lengths not supported');
-      } elsif ($byte_cnt <= 4) {
-         if (!defined($length = $_[0]->_buffer_get($byte_cnt))) {
-            return $_[0]->_error;
-         }
-         $length = unpack('N', ("\000" x (4 - $byte_cnt) . $length));
-      } else {
-         return $_[0]->_error('ASN.1 length too long (%u bytes)', $byte_cnt);
-      }
+   if (!defined $length) {
+      return $this->_error();
    }
 
-   $length;
+   $length = unpack 'C', $length;
+
+   if (!($length & 0x80)) { # "Short" length
+      return $length;
+   }
+
+   my $byte_cnt = $length & 0x7f;
+
+   if ($byte_cnt == 0) {
+      return $this->_error('Indefinite ASN.1 lengths are not supported');
+   } elsif ($byte_cnt > 4) {
+      return $this->_error(
+         'The ASN.1 length is too long (%u bytes)', $byte_cnt
+      );
+   }
+
+   if (!defined($length = $this->_buffer_get($byte_cnt))) {
+      return $this->_error();
+   }
+
+   return unpack 'N', ("\000" x (4 - $byte_cnt) . $length);
 }
 
 sub _process_integer32
@@ -1302,24 +1411,24 @@ sub _process_integer32
    my ($this, $type) = @_;
 
    # Decode the length
-   return $this->_error unless defined(my $length = $this->_process_length);
+   return $this->_error() if !defined(my $length = $this->_process_length());
 
-   # Return an error if the object length is zero
+   # Return an error if the object length is zero?
    if ($length < 1) {
-      return $this->_error("%s length equal to zero", asn1_itoa($type));
+      return $this->_error('The %s length is equal to zero', asn1_itoa($type));
    }
 
    # Retrieve the whole byte stream outside of the loop.
-   return $this->_error unless defined(my $bytes = $this->_buffer_get($length));
+   return $this->_error() if !defined(my $bytes = $this->_buffer_get($length));
 
-   my @bytes = unpack('C*', $bytes);
+   my @bytes = unpack 'C*', $bytes;
    my $negative = FALSE;
    my $int32 = 0;
 
    # Validate the length of the Integer32
    if (($length > 5) || (($length > 4) && ($bytes[0] != 0x00))) {
       return $this->_error(
-         '%s length too long (%u bytes)', asn1_itoa($type), $length
+         'The %s length is too long (%u bytes)', asn1_itoa($type), $length
       );
    }
 
@@ -1334,14 +1443,14 @@ sub _process_integer32
 
    if ($negative) {
       if (($type == INTEGER) || (!($this->{_translate} & TRANSLATE_UNSIGNED))) {
-         unpack('l', pack('l', $int32));
+         return unpack 'l', pack 'l', $int32;
       } else {
          DEBUG_INFO('translating negative %s value', asn1_itoa($type));
-         unpack('L', pack('l', $int32));
+         return unpack 'L', pack 'l', $int32;
       }
-   } else {
-      unpack('L', pack('L', $int32));
    }
+
+   return unpack 'L', pack 'L', $int32;
 }
 
 sub _process_octet_string
@@ -1349,22 +1458,51 @@ sub _process_octet_string
    my ($this, $type) = @_;
 
    # Decode the length
-   return $this->_error unless defined(my $length = $this->_process_length);
+   return $this->_error() if !defined(my $length = $this->_process_length());
 
    # Get the string
-   return $this->_error unless defined(my $s = $this->_buffer_get($length));
+   return $this->_error() if !defined(my $s = $this->_buffer_get($length));
 
    # Set the translation mask
    my $mask = ($type == OPAQUE) ? TRANSLATE_OPAQUE : TRANSLATE_OCTET_STRING;
 
-   if (($this->{_translate} & $mask) &&
-       ($s =~ /[\x01-\x08\x0b\x0e-\x1f\x7f-\xff]/g)) 
-   {
-      DEBUG_INFO("translating %s to printable hex string", asn1_itoa($type));
-      sprintf('0x%s', unpack('H*', $s));
-   } else {
-      $s;
+   #
+   # Translate based on the definition of a DisplayString in RFC 2579.
+   #
+   #  DisplayString ::= TEXTUAL-CONVENTION
+   # 
+   #  - the graphics characters (32-126) are interpreted as
+   #    US ASCII
+   #  - NUL, LF, CR, BEL, BS, HT, VT and FF have the special
+   #    meanings specified in RFC 854
+   #  - the sequence 'CR x' for any x other than LF or NUL is
+   #    illegal.
+   #
+
+   if ($this->{_translate} & $mask) {
+      $type = asn1_itoa($type);
+      if ($s =~ m{
+          #  The values other than NUL, LF, CR, BEL, BS, HT, VT, FF,
+          #  and the graphic characters (32-126) trigger translation.
+             [\x01-\x06\x0e-\x1f\x7f-\xff]|
+          #  The sequence 'CR x' for any x other than LF or NUL
+          #  also triggers translation.
+             \x0d(?![\x00\x0a])
+          }x)
+      {
+         DEBUG_INFO(
+            'translating %s to hexadecimal formatted DisplayString', $type
+         );
+         return sprintf '0x%s', unpack 'H*', $s;
+      } else {
+         DEBUG_INFO(
+            'not translating %s, all octets are allowed in a DisplayString',
+            $type
+         );
+      }
    }
+
+   return $s;
 }
 
 sub _process_null
@@ -1372,16 +1510,16 @@ sub _process_null
    my ($this) = @_;
 
    # Decode the length
-   return $this->_error unless defined(my $length = $this->_process_length);
+   return $this->_error() if !defined(my $length = $this->_process_length());
 
-   return $this->_error('NULL length not equal to zero') if ($length != 0);
+   return $this->_error('NULL length is not equal to zero') if ($length != 0);
 
    if ($this->{_translate} & TRANSLATE_NULL) {
-      DEBUG_INFO("translating NULL to 'NULL' string");
-      'NULL';
-   } else {
-      '';
+      DEBUG_INFO(q{translating NULL to 'NULL' string});
+      return 'NULL';
    }
+
+   return q{};
 }
 
 sub _process_object_identifier
@@ -1389,32 +1527,34 @@ sub _process_object_identifier
    my ($this) = @_;
 
    # Decode the length
-   return $this->_error unless defined(my $length = $this->_process_length);
+   return $this->_error() if !defined(my $length = $this->_process_length());
 
+   # Return an error if the length is equal to zero?
    if ($length < 1) {
-      return $this->_error('OBJECT IDENTIFIER length equal to zero');
+      return $this->_error('The OBJECT IDENTIFIER length is equal to zero');
    }
 
-   # Retrieve the whole byte stream outside of the loop (by Niilo Neuvo).
+   # Retrieve the whole byte stream (by Niilo Neuvo).
 
-   return $this->_error unless defined(my $bytes = $this->_buffer_get($length));
+   return $this->_error() if !defined(my $bytes = $this->_buffer_get($length));
 
-   my ($subid, @oid) = (0, 0);
+   my @oid = ( 0, eval { unpack 'w129', $bytes } );
 
-   foreach (unpack('C*', $bytes)) {
-      if ($subid & 0xfe000000) {
-         return $this->_error('OBJECT IDENTIFIER sub-identifier too large');
-      }
-      $subid = (($subid << 7) | ($_ & 0x7f));
-      if (!($_ & 0x80)) {
-         if (@oid == 128) {
-            return $this->_error(
-               'Exceeded maximum of 128 sub-identifiers in OBJECT IDENTIFIER'
-            );
-         }
-         push(@oid, $subid);
-         $subid = 0;
-      }
+   # RFC 2578 Section 3.5 - "...there are at most 128 sub-identifiers in
+   # a value, and each sub-identifier has a maximum value of 2^32-1..."
+
+   if ($@ || (grep { $_ > 4294967295; } @oid)) {
+      return $this->_error(
+         'The OBJECT IDENTIFIER contains a sub-identifier which is out of ' .
+         'range (0..4294967295)'
+      );
+   }
+
+   if (@oid > 128) {
+      return $this->_error(
+         'The OBJECT IDENTIFIER contains more than the maximum of 128 ' .
+         'sub-identifiers allowed'
+      );
    }
 
    # The first two sub-identifiers are encoded into the first identifier
@@ -1438,16 +1578,16 @@ sub _process_object_identifier
 
    if ($this->{_leading_dot}) {
       DEBUG_INFO('adding leading dot');
-      unshift(@oid, '');
+      unshift @oid, q{};
    }
 
-   join('.', @oid);
+   return join q{.}, @oid;
 }
 
 sub _process_sequence
 {
    # Return the length, instead of the value
-   $_[0]->_process_length;
+   goto &_process_length;
 }
 
 sub _process_ipaddress
@@ -1455,30 +1595,27 @@ sub _process_ipaddress
    my ($this) = @_;
 
    # Decode the length
-   return $this->_error unless defined(my $length = $this->_process_length);
+   return $this->_error() if !defined(my $length = $this->_process_length());
 
    if ($length != 4) {
-      return $this->_error(
-         'Invalid IpAddress length (%d byte%s)',
-         $length, ($length != 1 ? 's' : '')
-      );
+      return $this->_error('The IpAddress length of %d is invalid', $length);
    }
 
-   if (defined(my $ip = $this->_buffer_get(4))) {
-      sprintf('%vd', $ip);
-   } else {
-      $this->_error;
+   if (defined(my $ipaddress = $this->_buffer_get(4))) {
+      return sprintf '%vd', $ipaddress;
    }
+
+   return $this->_error();
 }
 
 sub _process_counter
 {
-   $_[0]->_process_integer32(COUNTER);
+   goto &_process_integer32;
 }
 
 sub _process_gauge
 {
-   $_[0]->_process_integer32(GAUGE);
+   goto &_process_integer32;
 }
 
 sub _process_timeticks
@@ -1488,18 +1625,18 @@ sub _process_timeticks
    if (defined(my $ticks = $this->_process_integer32(TIMETICKS))) {
       if ($this->{_translate} & TRANSLATE_TIMETICKS) {
          DEBUG_INFO('translating %u TimeTicks to time', $ticks);
-         asn1_ticks_to_time($ticks);
+         return asn1_ticks_to_time($ticks);
       } else {
-         $ticks;
+         return $ticks;
       }
-   } else {
-      $this->_error;
    }
+
+   return $this->_error();
 }
 
 sub _process_opaque
 {
-   $_[0]->_process_octet_string(OPAQUE);
+   goto &_process_octet_string;
 }
 
 sub _process_counter64
@@ -1508,26 +1645,28 @@ sub _process_counter64
 
    # Verify the SNMP version
    if ($this->{_version} == SNMP_VERSION_1) {
-      return $this->_error('Counter64 not supported in SNMPv1');
+      return $this->_error('The Counter64 type is not supported in SNMPv1');
    }
 
    # Decode the length
-   return $this->_error unless defined(my $length = $_[0]->_process_length);
+   return $this->_error() if !defined(my $length = $this->_process_length());
 
-   # Return an error if the object length is zero
+   # Return an error if the object length is zero?
    if ($length < 1) {
-      return $this->_error('Counter64 length equal to zero');
+      return $this->_error('The Counter64 length is equal to zero');
    }
 
    # Retrieve the whole byte stream outside of the loop.
-   return $this->_error unless defined(my $bytes = $this->_buffer_get($length));
+   return $this->_error() if !defined(my $bytes = $this->_buffer_get($length));
 
-   my @bytes = unpack('C*', $bytes);
+   my @bytes = unpack 'C*', $bytes;
    my $negative = FALSE;
 
    # Validate the length of the Counter64
    if (($length > 9) || (($length > 8) && ($bytes[0] != 0x00))) {
-      return $_[0]->_error('Counter64 length too long (%u bytes)', $length);
+      return $_[0]->_error(
+          'The Counter64 length is too long (%u bytes)', $length
+      );
    }
 
    # If the first bit is set, the integer is negative
@@ -1537,9 +1676,9 @@ sub _process_counter64
    }
 
    # Build the Counter64
-   my $int64 = Math::BigInt->new(shift(@bytes));
+   my $int64 = Math::BigInt->new(shift @bytes);
    map {
-      $_ ^= 0xff if ($negative);
+      if ($negative) { $_ ^= 0xff; }
       $int64 *= 256;
       $int64 += $_;
    } @bytes;
@@ -1556,12 +1695,12 @@ sub _process_counter64
    }
 
    # Perl 5.6.0 (force to string or substitution does not work).
-   $int64 .= '';
+   $int64 .= q{};
 
    # Remove the plus sign (or should we leave it to imply Math::BigInt?)
    $int64 =~ s/^\+//;
 
-   $int64;
+   return $int64;
 }
 
 sub _process_nosuchobject
@@ -1570,23 +1709,25 @@ sub _process_nosuchobject
 
    # Verify the SNMP version
    if ($this->{_version} == SNMP_VERSION_1) {
-      return $this->_error('noSuchObject not supported in SNMPv1');
+      return $this->_error('The noSuchObject type is not supported in SNMPv1');
    }
 
    # Decode the length
-   return $this->_error unless defined(my $length = $this->_process_length);
+   return $this->_error() if !defined(my $length = $this->_process_length());
 
    if ($length != 0) {
-      return $this->_error('noSuchObject length not equal to zero');
+      return $this->_error('The noSuchObject length is not equal to zero');
    }
 
    if ($this->{_translate} & TRANSLATE_NOSUCHOBJECT) {
-      DEBUG_INFO("translating noSuchObject to 'noSuchObject' string");
-      'noSuchObject';
-   } else {
-      $this->{_error_status} = NOSUCHOBJECT;
-      '';
+      DEBUG_INFO(q{translating noSuchObject to 'noSuchObject' string});
+      return 'noSuchObject';
    }
+
+   # XXX: Releases greater than v5.2.0 longer set the error-status.
+   # $this->{_error_status} = NOSUCHOBJECT;
+
+   return q{};
 }
 
 sub _process_nosuchinstance
@@ -1595,23 +1736,27 @@ sub _process_nosuchinstance
 
    # Verify the SNMP version
    if ($this->{_version} == SNMP_VERSION_1) {
-      return $this->_error('noSuchInstance not supported in SNMPv1');
+      return $this->_error(
+         'The noSuchInstance type is not supported in SNMPv1'
+      );
    }
 
    # Decode the length
-   return $this->_error unless defined(my $length = $this->_process_length);
+   return $this->_error() if !defined(my $length = $this->_process_length());
 
    if ($length != 0) {
-      return $this->_error('noSuchInstance length not equal to zero');
+      return $this->_error('The noSuchInstance length is not equal to zero');
    }
 
    if ($this->{_translate} & TRANSLATE_NOSUCHINSTANCE) {
-      DEBUG_INFO("translating noSuchInstance to 'noSuchInstance' string");
-      'noSuchInstance';
-   } else {
-      $this->{_error_status} = NOSUCHINSTANCE;
-      '';
+      DEBUG_INFO(q{translating noSuchInstance to 'noSuchInstance' string});
+      return 'noSuchInstance';
    }
+
+   # XXX: Releases greater than v5.2.0 longer set the error-status. 
+   # $this->{_error_status} = NOSUCHINSTANCE;
+
+   return q{};
 }
 
 sub _process_endofmibview
@@ -1620,51 +1765,55 @@ sub _process_endofmibview
 
    # Verify the SNMP version
    if ($this->{_version} == SNMP_VERSION_1) {
-      return $this->_error('endOfMibView not supported in SNMPv1');
+      return $this->_error('The endOfMibView type is not supported in SNMPv1');
    }
 
    # Decode the length
-   return $this->_error unless defined(my $length = $this->_process_length);
+   return $this->_error() if !defined(my $length = $this->_process_length());
 
    if ($length != 0) {
-      return $this->_error('endOfMibView length not equal to zero');
+      return $this->_error('The endOfMibView length is not equal to zero');
    }
 
    if ($this->{_translate} & TRANSLATE_ENDOFMIBVIEW) {
-      DEBUG_INFO("translating endOfMibView to 'endOfMibView' string");
-      'endOfMibView';
-   } else {
-      $this->{_error_status} = ENDOFMIBVIEW;
-      '';
+      DEBUG_INFO(q{translating endOfMibView to 'endOfMibView' string});
+      return 'endOfMibView';
    }
+
+   # XXX: Releases greater than v5.2.0 longer set the error-status.
+   # $this->{_error_status} = ENDOFMIBVIEW;
+
+   return q{};
 }
 
 sub _process_pdu_type
 {
+   my ($this, $type) = @_;
+
    # Generic methods used to process the PDU type.  The ASN.1 type is
    # returned by the method as passed by the generic process routine.
 
-   defined($_[0]->_process_length) ? $_[1] : $_[0]->_error;
+   return defined($this->_process_length()) ? $type : $this->_error();
 }
 
 sub _process_get_request
 {
-   $_[0]->_process_pdu_type(GET_REQUEST);
+   goto &_process_pdu_type;
 }
 
 sub _process_get_next_request
 {
-   $_[0]->_process_pdu_type(GET_NEXT_REQUEST);
+   goto &_process_pdu_type;
 }
 
 sub _process_get_response
 {
-   $_[0]->_process_pdu_type(GET_RESPONSE);
+   goto &_process_pdu_type;
 }
 
 sub _process_set_request
 {
-   $_[0]->_process_pdu_type(SET_REQUEST);
+   goto &_process_pdu_type;
 }
 
 sub _process_trap
@@ -1672,10 +1821,10 @@ sub _process_trap
    my ($this) = @_;
 
    if ($this->{_version} != SNMP_VERSION_1) {
-      return $this->_error('Trap-PDU only supported in SNMPv1');
+      return $this->_error('The Trap-PDU is only supported in SNMPv1');
    }
 
-   $this->_process_pdu_type(TRAP);
+   goto &_process_pdu_type;
 }
 
 sub _process_get_bulk_request
@@ -1683,10 +1832,10 @@ sub _process_get_bulk_request
    my ($this) = @_;
 
    if ($this->{_version} == SNMP_VERSION_1) {
-      return $this->_error('GetBulkRequest-PDU not supported in SNMPv1');
+      return $this->_error('The GetBulkRequest-PDU is not supported in SNMPv1');
    }
 
-   $this->_process_pdu_type(GET_BULK_REQUEST);
+   goto &_process_pdu_type;
 }
 
 sub _process_inform_request
@@ -1694,10 +1843,10 @@ sub _process_inform_request
    my ($this) = @_;
 
    if ($this->{_version} == SNMP_VERSION_1) {
-      return $this->_error('InformRequest-PDU not supported in SNMPv1');
+      return $this->_error('The InformRequest-PDU is not supported in SNMPv1');
    }
 
-   $this->_process_pdu_type(INFORM_REQUEST);
+   goto &_process_pdu_type;
 }
 
 sub _process_v2_trap
@@ -1705,10 +1854,10 @@ sub _process_v2_trap
    my ($this) = @_;
 
    if ($this->{_version} == SNMP_VERSION_1) {
-      return $this->_error('SNMPv2-Trap-PDU not supported in SNMPv1');
+      return $this->_error('The SNMPv2-Trap-PDU is not supported in SNMPv1');
    }
 
-   $this->_process_pdu_type(SNMPV2_TRAP);
+   goto &_process_pdu_type;
 }
 
 sub _process_report
@@ -1716,10 +1865,10 @@ sub _process_report
    my ($this) = @_;
 
    if ($this->{_version} == SNMP_VERSION_1) {
-      return $this->_error('Report-PDU not supported in SNMPv1');
+      return $this->_error('The Report-PDU is not supported in SNMPv1');
    }
 
-   $this->_process_pdu_type(REPORT);
+   goto &_process_pdu_type;
 }
 
 #
@@ -1757,13 +1906,13 @@ sub _process_report
    {
       my ($type) = @_;
 
-      return '??' unless (@_ == 1);
+      return q{??} if (@_ != 1);
 
-      if (exists($types->{$type})) {
-         $types->{$type};
-      } else {
-         sprintf('?? [0x%02x]', $type);
+      if (!exists $types->{$type}) {
+         return sprintf '?? [0x%02x]', $type;
       }
+
+      return $types->{$type};
    }
 }
 
@@ -1783,16 +1932,16 @@ sub asn1_ticks_to_time
    my $seconds = ($ticks / 100);
 
    if ($days != 0){
-      sprintf('%d day%s, %02d:%02d:%05.02f', $days,
-         ($days == 1 ? '' : 's'), $hours, $minutes, $seconds);
+      return sprintf '%d day%s, %02d:%02d:%05.02f', $days,
+         ($days == 1 ? q{} : 's'), $hours, $minutes, $seconds;
    } elsif ($hours != 0) {
-      sprintf('%d hour%s, %02d:%05.02f', $hours,
-         ($hours == 1 ? '' : 's'), $minutes, $seconds);
+      return sprintf '%d hour%s, %02d:%05.02f', $hours,
+         ($hours == 1 ? q{} : 's'), $minutes, $seconds;
    } elsif ($minutes != 0) {
-      sprintf('%d minute%s, %05.02f', $minutes,
-         ($minutes == 1 ? '' : 's'), $seconds);
+      return sprintf '%d minute%s, %05.02f', $minutes,
+         ($minutes == 1 ? q{} : 's'), $seconds;
    } else {
-      sprintf('%04.02f second%s', $seconds, ($seconds == 1 ? '' : 's'));
+      return sprintf '%04.02f second%s', $seconds, ($seconds == 1 ? q{} : 's');
    }
 }
 
@@ -1804,12 +1953,11 @@ sub _error
 {
    my $this = shift;
 
-   if (!defined($this->{_error})) {
+   if (!defined $this->{_error}) {
       $this->{_error} = (@_ > 1) ? sprintf(shift(@_), @_) : $_[0];
-      if ($this->debug) {
-         printf("error: [%d] %s(): %s\n",
-            (caller(0))[2], (caller(1))[3], $this->{_error}
-         );
+      if ($this->debug()) {
+         printf "error: [%d] %s(): %s\n",
+                (caller 0)[2], (caller 1)[3], $this->{_error};
       }
    }
 
@@ -1818,7 +1966,7 @@ sub _error
 
 sub _error_clear
 {
-   $_[0]->{_error} = undef;
+   return $_[0]->{_error} = undef;
 }
 
 #
@@ -1829,7 +1977,7 @@ sub _buffer_append
 {
 #  my ($this, $value) = @_;
 
-   return $_[0]->_error if defined($_[0]->{_error});
+   return $_[0]->_error() if defined $_[0]->{_error};
 
    # Always reset the index when the buffer is modified
    $_[0]->{_index} = 0;
@@ -1838,44 +1986,48 @@ sub _buffer_append
    $_[0]->{_length} += CORE::length($_[1]);
 
    # Append to the current buffer
-   $_[0]->{_buffer} .= $_[1];
+   return $_[0]->{_buffer} .= $_[1];
 }
 
 sub _buffer_get
 {
-#  my ($this, $count) = @_;
+   my ($this, $requested) = @_;
 
-   return $_[0]->_error if defined($_[0]->{_error});
+   return $this->_error() if defined $this->{_error};
 
-   # Return the number of bytes requested at the current 
-   # index or clear and return the whole buffer if no arguments  
-   # are passed.
+   # Return the number of bytes requested at the current index or 
+   # clear and return the whole buffer if no argument is passed. 
 
    if (@_ == 2) {
 
-      if (($_[0]->{_index} += $_[1]) > $_[0]->{_length}) {
-         $_[0]->{_index} -= $_[1];
-         if ($_[0]->{_length} >= $_[0]->max_msg_size) {
-            return $_[0]->_error('Message size exceeded buffer maxMsgSize'); 
+      if (($this->{_index} += $requested) > $this->{_length}) {
+         $this->{_index} -= $requested;
+         if ($this->{_length} >= $this->max_msg_size()) {
+            return $this->_error(
+               'The message size exceeded the buffer maxMsgSize of %d',
+               $this->max_msg_size()
+            );
          }
-         return $_[0]->_error('Unexpected end of message buffer');
+         return $this->_error('Unexpected end of message buffer');
       }
-      substr($_[0]->{_buffer}, $_[0]->{_index} - $_[1], $_[1]);
 
-   } else {
-
-      $_[0]->{_index}  = 0; # Index is reset on modifies 
-      $_[0]->{_length} = 0; 
-      substr($_[0]->{_buffer}, 0, CORE::length($_[0]->{_buffer}), '');
-
+      return substr $this->{_buffer}, $this->{_index} - $requested, $requested;
    }
+
+   # Always reset the index when the buffer is modified
+   $this->{_index} = 0;
+
+   # Update our length to 0, the whole buffer is about to be cleared.
+   $this->{_length} = 0;
+
+   return substr $this->{_buffer}, 0, CORE::length($this->{_buffer}), q{};
 }
 
 sub _buffer_put
 {
 #  my ($this, $value) = @_;
 
-   return $_[0]->_error if defined($_[0]->{_error});
+   return $_[0]->_error() if defined $_[0]->{_error};
 
    # Always reset the index when the buffer is modified
    $_[0]->{_index} = 0;
@@ -1884,43 +2036,42 @@ sub _buffer_put
    $_[0]->{_length} += CORE::length($_[1]);
 
    # Add the prefix to the current buffer
-   substr($_[0]->{_buffer}, 0, 0) = $_[1];
+   substr $_[0]->{_buffer}, 0, 0, $_[1];
+
+   return $_[0]->{_buffer};
 }
 
 sub _buffer_dump
 {
    my ($this) = @_;
 
-   return unless $DEBUG;
+   return $DEBUG if (!$DEBUG);
 
-   DEBUG_INFO("%d byte%s", $this->{_length}, $this->{_length} != 1 ? 's' : '');
+   DEBUG_INFO('%d byte%s', $this->{_length}, $this->{_length} != 1 ? 's' : q{});
 
-   my ($offset, $hex, $text) = (0, '', '');
+   my ($offset, $hex, $text) = (0, q{}, q{});
 
    while ($this->{_buffer} =~ /(.{1,16})/gs) {
-      $hex  = unpack('H*', ($text = $1));
-      $hex .= ' ' x (32 - CORE::length($hex));
-      $hex  = sprintf('%s %s %s %s  ' x 4, unpack('a2' x 16, $hex));
+      $hex  = unpack 'H*', ($text = $1);
+      $hex .= q{ } x (32 - CORE::length($hex));
+      $hex  = sprintf '%s %s %s %s  ' x 4, unpack 'a2' x 16, $hex;
       $text =~ s/[\x00-\x1f\x7f-\xff]/./g;
-      printf("[%04d]  %s %s\n", $offset, uc($hex), $text);
+      printf "[%04d]  %s %s\n", $offset, uc($hex), $text;
       $offset += 16;
    }
 
-   $this->{_buffer};
+   return $DEBUG;
 }
 
 sub DEBUG_INFO
 {
-   return unless $DEBUG;
+   return $DEBUG if (!$DEBUG);
 
-   printf(
-      sprintf('debug: [%d] %s(): ', (caller(0))[2], (caller(1))[3]) .
-      ((@_ > 1) ? shift(@_) : '%s') . 
+   return printf
+      sprintf('debug: [%d] %s(): ', (caller 0)[2], (caller 1)[3]) .
+      ((@_ > 1) ? shift(@_) : '%s') .
       "\n",
-      @_
-   );
-
-   $DEBUG;
+      @_;
 }
 
 # ============================================================================

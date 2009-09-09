@@ -1,5 +1,5 @@
 
-                       Net::SNMP, version 5.2.0 
+                       Net::SNMP, version 6.0.0 
 
 NAME
 
@@ -34,7 +34,16 @@ INSTALLATION
                 make test
                 make install
 
-        b.  Copy or move the entire directory structure (including 
+        b.  If the Module::Build module is installed, create a Build script
+            by running Perl against Build.PL and then use it to install the
+            module:
+
+                perl Build.PL
+                perl Build
+                perl Build test
+                perl Build install
+
+        c.  Copy or move the entire directory structure (including 
             files) located under the lib/Net directory in the 
             distribution into a directory named Net in a Perl library 
             directory.
@@ -62,13 +71,15 @@ AUTHOR
 
     David M. Town <dtown@cpan.org>
     
-COPYRIGHT
+LICENSE AND COPYRIGHT
 
-    Copyright (c) 1998-2005 David M. Town. All rights reserved. This
-    program is free software; you may redistribute it and/or modify
-    it under the same terms as Perl itself.
+    Copyright (c) 1998-2009 David M. Town.  All rights reserved.
+
+    This program is free software; you may redistribute it and/or
+    modify it under the same terms as the Perl 5 programming language
+    system itself.
 
 RCS
 
-    $Id: README,v 5.3 2005/10/20 14:17:01 dtown Rel $
+    $Id: README,v 6.0 2009/09/09 15:07:48 dtown Rel $
 
