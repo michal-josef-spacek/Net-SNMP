@@ -1,7 +1,7 @@
 # -*- mode: perl -*- 
 # ============================================================================
 
-# $Id: dsp.t,v 6.0 2009/09/09 15:07:48 dtown Rel $
+# $Id: dsp.t,v 6.1 2010/09/10 00:01:22 dtown Rel $
 
 # Test of the Net::SNMP Dispatcher and Transport Domain objects. 
 
@@ -129,14 +129,14 @@ sub timer_check
 
    my $d = time - $s;
 
-   return (($d >= $c - 1) && ($d <= $c + 1));
+   return (($d >= $c - 1) && ($d <= $c + 1)) ? $c : $d;
 }
 
 sub timer_test
 {
    my ($d, $c, $s) = @_;
 
-   ok(timer_check($c, $s), 1, "timer_test(): Timer test $c failed");
+   ok(timer_check($c, $s), $c, "timer_test(): Timer test $c failed");
 
    return;
 }
@@ -149,7 +149,7 @@ sub trans_send
 {
    my ($d, $c, $s, $t) = @_;
 
-   ok(timer_check($c, $s), 1, "trans_send(): Timer test $c failed");
+   ok(timer_check($c, $s), $c, "trans_send(): Timer test $c failed");
 
    $c = $t->send(' ');
 
@@ -185,7 +185,7 @@ sub trans_dereg
 {
    my ($d, $c, $s, $t) = @_;
 
-   ok(timer_check($c, $s), 1, "trans_dereg(): Timer test $c failed");
+   ok(timer_check($c, $s), $c, "trans_dereg(): Timer test $c failed");
 
    $c = $d->deregister($t);
 

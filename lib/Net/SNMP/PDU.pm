@@ -3,11 +3,11 @@
 
 package Net::SNMP::PDU;
 
-# $Id: PDU.pm,v 3.0 2009/09/09 15:05:33 dtown Rel $
+# $Id: PDU.pm,v 3.1 2010/09/10 00:01:22 dtown Rel $
 
 # Object used to represent a SNMP PDU. 
 
-# Copyright (c) 2001-2009 David M. Town <dtown@cpan.org>
+# Copyright (c) 2001-2010 David M. Town <dtown@cpan.org>
 # All rights reserved.
 
 # This program is free software; you may redistribute it and/or modify it
@@ -25,7 +25,7 @@ use Net::SNMP::Transport qw( DOMAIN_UDPIPV4 DOMAIN_TCPIPV4 );
 
 ## Version of the Net::SNMP::PDU module
 
-our $VERSION = v3.0.0;
+our $VERSION = v3.0.1;
 
 ## Handle importing/exporting of symbols
 
@@ -800,12 +800,6 @@ sub _create_oid_null_pairs
    my $pairs = [];
 
    for (@{$oids}) {
-      if (!m/^\.?\d+(?:\.\d+)* *$/) {
-         return $this->_error(
-            'The OBJECT IDENTIFIER value "%s" is expected in dotted decimal ' .
-            'notation', $_
-         );
-      }
       push @{$pairs}, OBJECT_IDENTIFIER, $_, NULL, q{};
    }
 
@@ -831,11 +825,6 @@ sub _create_oid_value_pairs
    my $pairs = [];
 
    for (my $i = 0; $i < $#{$trios}; $i += 3) {
-      if ($trios->[$i] !~ m/^\.?\d+(?:\.\d+)* *$/) {
-         return $this->_error(
-            'The OBJECT IDENTIFIER value "%s" is expected in dotted decimal ' .             'notation', $trios->[$i]
-         );
-      }
       push @{$pairs},
          OBJECT_IDENTIFIER, $trios->[$i], $trios->[$i+1], $trios->[$i+2];
    }

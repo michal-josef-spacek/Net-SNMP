@@ -3,11 +3,11 @@
 
 package Net::SNMP::Security::USM;
 
-# $Id: USM.pm,v 4.0 2009/09/09 15:05:33 dtown Rel $
+# $Id: USM.pm,v 4.1 2010/09/10 00:01:22 dtown Rel $
 
 # Object that implements the SNMPv3 User-based Security Model.
 
-# Copyright (c) 2001-2009 David M. Town <dtown@cpan.org>
+# Copyright (c) 2001-2010 David M. Town <dtown@cpan.org>
 # All rights reserved.
 
 # This program is free software; you may redistribute it and/or modify it
@@ -30,7 +30,7 @@ use Digest::HMAC();
 
 ## Version of the Net::SNMP::Security::USM module
 
-our $VERSION = v4.0.0;
+our $VERSION = v4.0.1;
 
 ## Handle importing/exporting of symbols
 
@@ -398,7 +398,7 @@ sub process_incoming_msg
    }
    if (($msg_engine_time < 0) || ($msg_engine_time > 2147483647)) {
       return $this->_error(
-         'The msgAuthoritativeEngineTime value is out of range ' .
+         'The msgAuthoritativeEngineTime value %d is out of range ' .
          '(0..2147483647)', $msg_engine_time
       );
    }
@@ -654,7 +654,7 @@ sub _user_name
 
    if (@_ == 2) {
       if ($user_name eq q{}) {
-         return $this->_error('The an empty userName was specified');
+         return $this->_error('An empty userName was specified');
       } elsif (length($user_name) > 32) {
          return $this->_error(
             'The userName length of %d is out of range (1..32)',
@@ -1013,8 +1013,8 @@ sub _synchronize
    return TRUE if ($this->{_authoritative});
    return TRUE if ($this->{_security_level} < SECURITY_LEVEL_AUTHNOPRIV);
 
-   if (($msg_boots > $this->_engine_boots) ||
-       (($msg_boots == $this->_engine_boots) &&
+   if (($msg_boots > $this->_engine_boots()) ||
+       (($msg_boots == $this->_engine_boots()) &&
         ($msg_time > $this->{_latest_engine_time})))
    {
       DEBUG_INFO(
@@ -1038,7 +1038,7 @@ sub _synchronize
    DEBUG_INFO(
       'no update: engineBoots = %d, msgBoots = %d; ' .
       'latestTime = %d, msgTime = %d',
-      $this->_engine_boots, $msg_boots,
+      $this->_engine_boots(), $msg_boots,
       $this->{_latest_engine_time}, $msg_time
    );
 

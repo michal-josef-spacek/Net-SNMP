@@ -3,9 +3,9 @@
 
 package Net::SNMP;
 
-# $Id: SNMP.pm,v 6.0 2009/09/09 15:05:33 dtown Rel $
+# $Id: SNMP.pm,v 6.1 2010/09/10 00:01:22 dtown Rel $
 
-# Copyright (c) 1998-2009 David M. Town <dtown@cpan.org>
+# Copyright (c) 1998-2010 David M. Town <dtown@cpan.org>
 # All rights reserved.
 
 # This program is free software; you may redistribute it and/or modify it
@@ -106,7 +106,7 @@ BEGIN
 
 ## Version of the Net::SNMP module
 
-our $VERSION = 'v6.0.0';
+our $VERSION = 'v6.0.1';
     $VERSION = eval $VERSION;
 
 ## Load our modules
@@ -126,7 +126,7 @@ our @EXPORT = qw(
    NOSUCHINSTANCE ENDOFMIBVIEW snmp_dispatcher 
 );
 
-our @EXPORT_OK = qw( snmp_event_loop oid_context_match );
+our @EXPORT_OK = qw( oid_context_match );
 
 our %EXPORT_TAGS = (
    asn1        => [
@@ -597,7 +597,7 @@ receive SNMP messages.
 
 =cut
 
-sub close : locked : method
+sub close
 {
    my ($this) = @_;
 
@@ -661,7 +661,7 @@ of the failure.
 
 =cut
 
-sub get_request : locked : method
+sub get_request
 {
    my $this = shift;
 
@@ -714,7 +714,7 @@ of the failure.
 
 =cut
 
-sub get_next_request : locked : method
+sub get_next_request
 {
    my $this = shift;
 
@@ -770,7 +770,7 @@ of the failure.
 
 =cut
 
-sub set_request : locked : method
+sub set_request
 {
    my $this = shift;
 
@@ -875,7 +875,7 @@ SNMPv1.
 
 =cut
 
-sub trap : locked : method
+sub trap
 {
    my $this = shift;
 
@@ -958,7 +958,7 @@ SNMPv2c or SNMPv3.
 
 =cut
 
-sub get_bulk_request : locked : method
+sub get_bulk_request
 {
    my $this = shift;
 
@@ -1034,7 +1034,7 @@ SNMPv2c or SNMPv3.
 
 =cut
 
-sub inform_request : locked : method
+sub inform_request
 {
    my $this = shift;
 
@@ -1109,7 +1109,7 @@ by the Net::SNMP module.
 
 =cut
 
-sub snmpv2_trap : locked : method
+sub snmpv2_trap
 {
    my $this = shift;
 
@@ -1174,7 +1174,7 @@ OBJECT IDENTIFIER is close to the root of the SNMP MIB tree.
 
 =cut
 
-sub get_table : locked : method
+sub get_table
 {
    my $this = shift;
 
@@ -1327,7 +1327,7 @@ of the failure.
 
 =cut
 
-sub get_entries : locked : method
+sub get_entries
 {
    my $this = shift;
 
@@ -1366,11 +1366,11 @@ sub get_entries : locked : method
 
    if (defined $argv[0]) {
 
-      # XXX: Argument deprecated after v5.2.0.
+      # XXX: Argument deprecated after v5.2.0, obsolete in 6.0.1.
 
       require Carp;
-      Carp::carp(
-         'The entryoid argument is deprecated, use the columns argument ' .
+      Carp::croak(
+         'The entryoid argument is obsolete, use the columns argument ' .
          'with a list of column OBJECT IDENTIFIERs'
       );
 
@@ -1559,7 +1559,7 @@ be exported by request (see L<"EXPORTS">).
 
 =cut
 
-sub version : locked : method
+sub version
 {
    my ($this) = @_;
 
@@ -1577,7 +1577,7 @@ An empty string is returned if no error has occurred.
 
 =cut
 
-sub error : locked : method
+sub error
 {
    return $_[0]->{_error} || q{};
 }
@@ -1586,12 +1586,14 @@ sub error : locked : method
 
    $hostname = $session->hostname();
 
-This method returns the hostname string that is associated with the object 
-as it was passed to the C<session()> constructor.
+This method returns the parsed hostname string that is associated with the
+object.  Any port information and formatting that can be included with the
+corresponding C<session()> constructor argument will be stripped and not
+included as part of the returned string.
 
 =cut
 
-sub hostname : locked : method
+sub hostname
 {
    return $_[0]->{_hostname};
 }
@@ -1605,7 +1607,7 @@ last SNMP message received by the object.
 
 =cut
 
-sub error_status : locked : method
+sub error_status
 {
    return defined($_[0]->{_pdu}) ? $_[0]->{_pdu}->error_status() : 0;
 }
@@ -1619,7 +1621,7 @@ last SNMP message received by the object.
 
 =cut
 
-sub error_index : locked : method
+sub error_index
 {
    return defined($_[0]->{_pdu}) ? $_[0]->{_pdu}->error_index() : 0;
 }
@@ -1641,7 +1643,7 @@ undefined value is returned if there has been a failure.
 
 =cut
 
-sub var_bind_list : locked : method
+sub var_bind_list
 {
    return defined($_[0]->{_pdu}) ? $_[0]->{_pdu}->var_bind_list() : undef;
 }
@@ -1661,7 +1663,7 @@ a failure.
 
 =cut
 
-sub var_bind_names : locked : method
+sub var_bind_names
 {
    return defined($_[0]->{_pdu}) ? @{$_[0]->{_pdu}->var_bind_names()} : ();
 }
@@ -1681,7 +1683,7 @@ is returned if there has been a failure.
 
 =cut
 
-sub var_bind_types : locked : method
+sub var_bind_types
 {
    return defined($_[0]->{_pdu}) ? $_[0]->{_pdu}->var_bind_types() : undef;
 }
@@ -1702,7 +1704,7 @@ the cause.
 
 =cut
 
-sub timeout : locked : method
+sub timeout
 {
    my $this = shift;
 
@@ -1732,7 +1734,7 @@ the cause.
 
 =cut
 
-sub retries : locked : method
+sub retries
 {
    my $this = shift;
 
@@ -1769,7 +1771,7 @@ lower value.
 
 =cut
 
-sub max_msg_size : locked : method
+sub max_msg_size
 {
    my $this = shift;
 
@@ -1876,7 +1878,7 @@ the cause.
 
 =cut
 
-sub translate : locked : method
+sub translate
 {
    my ($this, $mask) = @_;
 
@@ -2001,22 +2003,22 @@ sub snmp_debug
    return debug(undef, $_[0]);
 }
 
-sub pdu : locked : method
+sub pdu
 {
    return $_[0]->{_pdu};
 }
 
-sub nonblocking : locked : method
+sub nonblocking
 {
    return $_[0]->{_nonblocking};
 }
 
-sub security : locked : method
+sub security
 {
    return $_[0]->{_security};
 }
 
-sub transport : locked : method
+sub transport
 {
    return $_[0]->{_transport};
 }
@@ -2055,8 +2057,8 @@ sub oid_base_match
 sub oid_context_match
 {
    require Carp;
-   Carp::carp(
-       'oid_context_match() is deprecated, use oid_base_match() instead'
+   Carp::croak(
+       'oid_context_match() is obsolete, use oid_base_match() instead'
    );
 
    goto &oid_base_match;
@@ -3018,6 +3020,19 @@ sub _get_table_entries_request_next
    # Override the callback with the saved callback.
    $this->{_pdu}->callback($callback);
 
+   # Use the contextEngineID and contextName from the previous request
+   # because the values stored in the object could change.
+
+   if (defined $pdu->context_engine_id()) {
+      $this->{_pdu}->context_engine_id($pdu->context_engine_id());
+   }
+
+   if (defined $pdu->context_name()) {
+      $this->{_pdu}->context_name($pdu->context_name());
+   }
+
+   # Create the appropriate request.
+
    if ($argv->{use_bulk}) {
       if (!defined $this->{_pdu}->prepare_get_bulk_request(0,
                                                            $argv->{max_reps},
@@ -3566,7 +3581,7 @@ All rights reserved.
 
 =head1 LICENSE AND COPYRIGHT
 
-Copyright (c) 1998-2009 David M. Town.  All rights reserved.
+Copyright (c) 1998-2010 David M. Town.  All rights reserved.
 
 This program is free software; you may redistribute it and/or modify it under
 the same terms as the Perl 5 programming language system itself. 

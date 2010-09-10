@@ -3,11 +3,11 @@
 
 package Net::SNMP::MessageProcessing;
 
-# $Id: MessageProcessing.pm,v 3.0 2009/09/09 15:05:33 dtown Rel $
+# $Id: MessageProcessing.pm,v 3.1 2010/09/10 00:01:22 dtown Rel $
 
 # Object that implements the Message Processing module.
 
-# Copyright (c) 2001-2009 David M. Town <dtown@cpan.org>
+# Copyright (c) 2001-2010 David M. Town <dtown@cpan.org>
 # All rights reserved.
 
 # This program is free software; you may redistribute it and/or modify it
@@ -25,7 +25,7 @@ srand( time() ^ ($$ + ($$ <<15)) );
 
 ## Version of the Net::SNMP::MessageProcessing module
 
-our $VERSION = v3.0.0;
+our $VERSION = v3.0.1;
 
 ## Package variables
 
@@ -209,9 +209,9 @@ sub prepare_data_elements
          $request->msg_security_model(), $msg->msg_security_model()
       );
       return FALSE;
-   } else {
-      $msg->security($request->security());
    }
+  
+   $msg->security($request->security());
 
    # Pass off to the Security Model
    if (!defined $request->security()->process_incoming_msg($msg)) {
@@ -280,7 +280,7 @@ sub prepare_data_elements
          # Check the request-id
          if ($msg->request_id() != $request->request_id()) {
             $this->_error(
-               'A request-id %d was expected, but %d was found',
+               'The request-id %d was expected, but %d was found',
                $request->request_id(), $msg->request_id()
             );
             return FALSE;

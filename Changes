@@ -1,5 +1,16 @@
                            Net::SNMP Changes
 
+RELEASE 6.0.1 SEP-09-2010
+
+- Removed all occurrences of the "locked" attribute that was
+  deprecated in Perl 5.12.0.
+- Changed the test validating the presence of a monotonic time value
+  to check for invalid implementations.
+- The SNMPv3 contextEngineID and contextName are now stored as part
+  of the request allowing for these values to be changed between
+  messages.
+
+
 RELEASE 6.0.0 SEP-09-2009
 
 - Substantial internal code cleanup was performed based upon the
@@ -316,4 +327,4 @@ RELEASE 1.00 SEP-09-1998
 
 RCS
 
-    $Id: Changes,v 6.0 2009/09/09 15:05:32 dtown Rel $
+    $Id: Changes,v 6.1 2010/09/10 00:01:22 dtown Rel $

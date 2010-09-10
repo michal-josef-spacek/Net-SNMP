@@ -3,11 +3,11 @@
 
 package Net::SNMP::Dispatcher;
 
-# $Id: Dispatcher.pm,v 4.0 2009/09/09 15:05:33 dtown Rel $
+# $Id: Dispatcher.pm,v 4.1 2010/09/10 00:01:22 dtown Rel $
 
 # Object that dispatches SNMP messages and handles the scheduling of events.
 
-# Copyright (c) 2001-2009 David M. Town <dtown@cpan.org>
+# Copyright (c) 2001-2010 David M. Town <dtown@cpan.org>
 # All rights reserved.
 
 # This program is free software; you may redistribute it and/or modify it
@@ -23,7 +23,7 @@ use Net::SNMP::Message qw( TRUE FALSE );
 
 ## Version of the Net::SNMP::Dispatcher module
 
-our $VERSION = v4.0.0;
+our $VERSION = v4.0.1;
 
 ## Package variables
 
@@ -49,7 +49,8 @@ BEGIN
    if (eval 'require Time::HiRes') {
       Time::HiRes->import('time');
       no warnings;
-      if (eval 'Time::HiRes::clock_gettime(Time::HiRes::CLOCK_MONOTONIC())') {
+      if (eval 'Time::HiRes::clock_gettime(Time::HiRes::CLOCK_MONOTONIC())' > 0)
+      {
          *time = sub () {
             Time::HiRes::clock_gettime(Time::HiRes::CLOCK_MONOTONIC());
          };

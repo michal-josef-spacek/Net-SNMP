@@ -1,48 +1,33 @@
 ---
-name: Net-SNMP
-version: v6.0.0
+abstract: 'Object oriented interface to SNMP'
 author:
   - 'David M. Town <dtown@cpan.org>'
-abstract: Object oriented interface to SNMP
-license: perl
-resources:
-  CPANForum: http://www.cpanforum.com/dist/Net-SNMP
-  bugtracker: http://rt.cpan.org/Public/Dist/Display.html?Name=Net-SNMP
-  license: http://dev.perl.org/licenses/
 build_requires:
   Test: 0
-requires:
-  Carp: 0
-  Errno: 0
-  Exporter: 0
-  IO::Socket: 0
-  Math::BigInt: 0
-  perl: 5.006
-recommends:
-  Crypt::DES: 2.03
-  Crypt::Rijndael: 1.02
-  Digest::HMAC: 1.00
-  Digest::MD5: 2.11
-  Digest::SHA1: 1.02
-  Socket6: 0.23
 configure_requires:
-  Module::Build: 0.35
+  Module::Build: 0.36
+generated_by: 'Module::Build version 0.3607'
+license: perl
+meta-spec:
+  url: http://module-build.sourceforge.net/META-spec-v1.4.html
+  version: 1.4
+name: Net-SNMP
 provides:
   Net::SNMP:
     file: lib/Net/SNMP.pm
-    version: v6.0.0
+    version: v6.0.1
   Net::SNMP::Dispatcher:
     file: lib/Net/SNMP/Dispatcher.pm
-    version: v4.0.0
+    version: v4.0.1
   Net::SNMP::Message:
     file: lib/Net/SNMP/Message.pm
-    version: v3.0.0
+    version: v3.0.1
   Net::SNMP::MessageProcessing:
     file: lib/Net/SNMP/MessageProcessing.pm
-    version: v3.0.0
+    version: v3.0.1
   Net::SNMP::PDU:
     file: lib/Net/SNMP/PDU.pm
-    version: v3.0.0
+    version: v3.0.1
   Net::SNMP::Security:
     file: lib/Net/SNMP/Security.pm
     version: v2.0.0
@@ -51,7 +36,7 @@ provides:
     version: v2.0.0
   Net::SNMP::Security::USM:
     file: lib/Net/SNMP/Security/USM.pm
-    version: v4.0.0
+    version: v4.0.1
   Net::SNMP::Transport:
     file: lib/Net/SNMP/Transport.pm
     version: v3.0.0
@@ -73,7 +58,22 @@ provides:
   Net::SNMP::Transport::IPv6::UDP:
     file: lib/Net/SNMP/Transport/IPv6/UDP.pm
     version: v3.0.0
-generated_by: Module::Build version 0.35
-meta-spec:
-  url: http://module-build.sourceforge.net/META-spec-v1.4.html
-  version: 1.4
+recommends:
+  Crypt::DES: 2.03
+  Crypt::Rijndael: 1.02
+  Digest::HMAC: 1.00
+  Digest::MD5: 2.11
+  Digest::SHA1: 1.02
+  Socket6: 0.23
+requires:
+  Carp: 0
+  Errno: 0
+  Exporter: 0
+  IO::Socket: 0
+  Math::BigInt: 0
+  perl: 5.006
+resources:
+  CPANForum: http://www.cpanforum.com/dist/Net-SNMP
+  bugtracker: http://rt.cpan.org/Public/Dist/Display.html?Name=Net-SNMP
+  license: http://dev.perl.org/licenses/
+version: v6.0.1

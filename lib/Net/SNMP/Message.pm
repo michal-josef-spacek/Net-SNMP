@@ -4,11 +4,11 @@
 
 package Net::SNMP::Message;
 
-# $Id: Message.pm,v 3.0 2009/09/09 15:05:33 dtown Rel $
+# $Id: Message.pm,v 3.1 2010/09/10 00:01:22 dtown Rel $
 
 # Object used to represent a SNMP message. 
 
-# Copyright (c) 2001-2009 David M. Town <dtown@cpan.org>
+# Copyright (c) 2001-2010 David M. Town <dtown@cpan.org>
 # All rights reserved.
 
 # This program is free software; you may redistribute it and/or modify it
@@ -23,7 +23,7 @@ use Math::BigInt();
 
 ## Version of the Net::SNMP::Message module
 
-our $VERSION = v3.0.0;
+our $VERSION = v3.0.1;
 
 ## Handle importing/exporting of symbols
 
@@ -1046,7 +1046,15 @@ sub _prepare_object_identifier
       return $this->_error('The OBJECT IDENTIFIER value not defined');
    }
 
-   # Input is expected in dotted notation, so break it up into subids.
+   # The OBJECT IDENTIFIER is expected in dotted notation.
+   if ($value !~ m/^\.?\d+(?:\.\d+)* *$/) {
+      return $this->_error(
+         'The OBJECT IDENTIFIER value "%s" is expected in dotted decimal ' .
+         'notation', $value
+      );
+   }
+
+   # Break it up into sub-identifiers.
    my @subids = split /\./, $value;
 
    # If there was a leading dot on _any_ OBJECT IDENTIFIER passed to
