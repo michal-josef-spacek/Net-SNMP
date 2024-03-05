@@ -41,7 +41,8 @@ WriteMakefile(
       Crypt::DES   => '2.03',  # SNMPv3
       Digest::MD5  => '2.11',  # SNMPv3
       Digest::SHA1 => '1.02',  # SNMPv3
-      Digest::HMAC => '1.00',  # SNMPv3
+      Digest::HMAC_MD5 => '1.01', # SNMPv3
+      Digest::HMAC_SHA1 => '1.03', # SNMPv3
    },
    dist          => {
       CI           => 'ci -u -sRel -m\"Changes for $(VERSION)\"',

@@ -38,7 +38,8 @@ Module::Build->new(
       Crypt::DES      => '2.03',  # SNMPv3
       Digest::MD5     => '2.11',  # SNMPv3
       Digest::SHA1    => '1.02',  # SNMPv3
-      Digest::HMAC    => '1.00',  # SNMPv3
+      Digest::HMAC_MD5 => '1.01', # SNMPv3
+      Digest::HMAC_SHA1 => '1.03', # SNMPv3
       Crypt::Rijndael => '1.02',  # SNMPv3 - AES Cipher Algorithm 
       Socket6         => '0.23',  # UDP/IPv6 or TCP/IPv6 Transport Domain 
    },

@@ -26,7 +26,8 @@ use Net::SNMP::Message qw(
 use Crypt::DES();
 use Digest::MD5();
 use Digest::SHA1();
-use Digest::HMAC();
+use Digest::HMAC_MD5();
+use Digest::HMAC_SHA1();
 
 ## Version of the Net::SNMP::Security::USM module
 
@@ -1141,12 +1142,12 @@ sub _auth_data_init
    if ($this->{_auth_protocol} eq AUTH_PROTOCOL_HMACMD5) {
 
       $this->{_auth_data} =
-         Digest::HMAC->new($this->{_auth_key}, 'Digest::MD5');
+         Digest::HMAC_MD5->new($this->{_auth_key});
 
    } elsif ($this->{_auth_protocol} eq AUTH_PROTOCOL_HMACSHA) {
 
       $this->{_auth_data} =
-         Digest::HMAC->new($this->{_auth_key}, 'Digest::SHA1');
+         Digest::HMAC_SHA1->new($this->{_auth_key});
 
    } else {
 
