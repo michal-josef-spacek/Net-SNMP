@@ -36,4 +36,7 @@ t/ber.t
 t/dsp.t
 t/mp.t
 t/usm-md5-des.t
+t/usm-sha1-3des.t
+t/usm-sha1-aes.t
+t/usm-sha1-cfb192aes.t
 t/usm-sha1-des.t
