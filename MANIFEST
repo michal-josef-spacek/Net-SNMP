@@ -21,14 +21,14 @@ lib/Net/SNMP/Security/Community.pm
 lib/Net/SNMP/Security/USM.pm
 lib/Net/SNMP/Transport.pm
 lib/Net/SNMP/Transport/IPv4.pm
-lib/Net/SNMP/Transport/IPv6.pm
 lib/Net/SNMP/Transport/IPv4/TCP.pm
 lib/Net/SNMP/Transport/IPv4/UDP.pm
+lib/Net/SNMP/Transport/IPv6.pm
 lib/Net/SNMP/Transport/IPv6/TCP.pm
 lib/Net/SNMP/Transport/IPv6/UDP.pm
 LICENSE
 Makefile.PL
-MANIFEST
+MANIFEST			This list of files
 META.yml
 README
 snmpkey.PL
