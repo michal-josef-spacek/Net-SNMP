@@ -35,4 +35,5 @@ snmpkey.PL
 t/ber.t
 t/dsp.t
 t/mp.t
-t/usm.t
+t/usm-md5-des.t
+t/usm-sha1-des.t
