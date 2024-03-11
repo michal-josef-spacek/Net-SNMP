@@ -9,3 +9,4 @@ TODO
 MYMETA.json
 MYMETA.yml
 ^snmpkey$
+cover_db/
