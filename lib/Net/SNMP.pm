@@ -3550,8 +3550,8 @@ earlier than v5.6.0.
 
 =item *
 
-The non-core modules F<Crypt::DES>, F<Digest::MD5>, F<Digest::SHA1>, and 
-F<Digest::HMAC> are required to support SNMPv3. 
+The non-core modules F<Crypt::DES>, F<Digest::MD5>, F<Digest::SHA>, and 
+F<Digest::HMAC> are required to support SNMPv3.
 
 =item *
 

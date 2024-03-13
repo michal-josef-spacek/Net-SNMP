@@ -40,7 +40,7 @@ WriteMakefile(
       Math::BigInt => 0,
       Crypt::DES   => '2.03',  # SNMPv3
       Digest::MD5  => '2.11',  # SNMPv3
-      Digest::SHA1 => '1.02',  # SNMPv3
+      Digest::SHA  => 0,       # SNMPv3
       Digest::HMAC_MD5 => '1.01', # SNMPv3
       Digest::HMAC_SHA1 => '1.03', # SNMPv3
    },

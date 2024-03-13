@@ -25,7 +25,7 @@ use Net::SNMP::Message qw(
 
 use Crypt::DES();
 use Digest::MD5();
-use Digest::SHA1();
+use Digest::SHA();
 use Digest::HMAC_MD5();
 use Digest::HMAC_SHA1();
 
@@ -1392,7 +1392,7 @@ sub _priv_data_init_3desede
    if ($this->{_auth_protocol} eq AUTH_PROTOCOL_HMACMD5) {
       $this->{_priv_data}->{hash} = Digest::MD5->new();
    } elsif ($this->{_auth_protocol} eq AUTH_PROTOCOL_HMACSHA) {
-      $this->{_priv_data}->{hash} = Digest::SHA1->new();
+      $this->{_priv_data}->{hash} = Digest::SHA->new();
    }
 
    return TRUE;
@@ -1682,7 +1682,7 @@ sub _priv_key_generate
       if ($this->{_auth_protocol} eq AUTH_PROTOCOL_HMACMD5) {
          $hnnn = Digest::MD5->new();
       } elsif ($this->{_auth_protocol} eq AUTH_PROTOCOL_HMACSHA) {
-         $hnnn = Digest::SHA1->new();
+         $hnnn = Digest::SHA->new();
       } else {
          return $this->_error(
             'The authProtocol "%s" is unknown', $this->{_auth_protocol}
@@ -1784,7 +1784,7 @@ sub _password_localize
    my $digests =
    {
       AUTH_PROTOCOL_HMACMD5,  'Digest::MD5',
-      AUTH_PROTOCOL_HMACSHA,  'Digest::SHA1',
+      AUTH_PROTOCOL_HMACSHA,  'Digest::SHA',
    };
 
    if (!exists $digests->{$this->{_auth_protocol}}) {

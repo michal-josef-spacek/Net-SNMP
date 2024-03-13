@@ -53,7 +53,7 @@ REQUIREMENTS
     Net::SNMP uses syntax that is not supported in versions of Perl 
     earlier than v5.6.0. 
 
-    The non-core modules Crypt::DES, Digest::MD5, Digest::SHA1, and 
+    The non-core modules Crypt::DES, Digest::MD5, Digest::SHA, and 
     Digest::HMAC are needed to support SNMPv3.
 
     In order to support the AES Cipher Algorithm as a SNMPv3 privacy 
