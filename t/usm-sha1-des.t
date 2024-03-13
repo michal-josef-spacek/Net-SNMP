@@ -122,12 +122,16 @@ skip($skip, $@, q{}, 'Calculate the HMAC failed');
 # 6. Encrypt/descrypt the Message
 #
 
+my $henc;
+
 eval
 {
    my $salt;
    my $len = $m->length();
    my $buff = $m->clear();
-   $m->append($u->_encrypt_data($m, $salt, $buff));
+   my $encrypted = $u->_encrypt_data($m, $salt, $buff);
+   $henc = unpack 'H*', $encrypted;
+   $m->append($encrypted);
    $u->_decrypt_data($m, $salt, $m->process(OCTET_STRING));
    $e = $u->error();
    # Remove padding if necessary
@@ -136,7 +140,12 @@ eval
    }
 };
 
-skip($skip, ($@ || $e), q{}, 'Privacy failed');
+skip(
+   $skip,
+   ($@ || $e || $henc),
+   '04286762062441deddaf9bb321da4ba6ea97745c0992e738c95dd1814a90cc7266c2c54f808f28e9ebe3',
+   'Privacy failed',
+);
 
 #
 # 7. Check the HMAC
