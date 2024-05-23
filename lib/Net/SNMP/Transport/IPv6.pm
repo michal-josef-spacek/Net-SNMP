@@ -19,10 +19,8 @@ use strict;
 
 use Net::SNMP::Transport qw( DEBUG_INFO );
 
-use Socket6 0.23 qw(
-   PF_INET6 AF_INET6 in6addr_any in6addr_loopback getaddrinfo
-   pack_sockaddr_in6_all unpack_sockaddr_in6_all inet_pton inet_ntop
-);
+use Socket qw(AF_INET6 IN6ADDR_ANY IN6ADDR_LOOPBACK PF_INET6 getaddrinfo inet_ntop inet_pton
+    pack_sockaddr_in6 unpack_sockaddr_in6);
 
 ## Version of the Net::SNMP::Transport::IPv6 module
 
@@ -89,12 +87,12 @@ sub _protocol_family
 
 sub _addr_any
 {
-   return in6addr_any;
+   return IN6ADDR_ANY;
 }
 
 sub _addr_loopback
 {
-   return in6addr_loopback;
+   return IN6ADDR_LOOPBACK;
 }
 
 sub _hostname_resolve
@@ -117,23 +115,22 @@ sub _hostname_resolve
 
    # Resolve the address.
 
-   my @info = getaddrinfo(($_[1] = $host), q{}, PF_INET6);
+   my ($err, @addrs) = getaddrinfo(($_[1] = $host), q{}, { family => PF_INET6 });
 
-   if (@info >= 5) {
+   if (! $err) {
       if ($host =~ s/(.*)%.*$/$1/) { # <address>%<ifName>
          $_[1] = $1;
       }
-      while (@info >= 5) {
-         if ($info[0] == PF_INET6) {
-            $nh->{flowinfo} = $this->_flowinfo($info[3]);
-            $nh->{scope_id} ||= $this->_scope_id($info[3]);
-            return $nh->{addr} = $this->_addr($info[3]);
+      while (my $addr = shift @addrs) {
+         if ($addr->{'family'} == PF_INET6) {
+            $nh->{flowinfo} = $this->_flowinfo($addr->{'addr'});
+            $nh->{scope_id} ||= $this->_scope_id($addr->{'addr'});
+            return $nh->{addr} = $this->_addr($addr->{'addr'});
          }
-         DEBUG_INFO('family = %d, sin = %s', $info[0], unpack 'H*', $info[3]);
-         splice @info, 0, 5;
+         DEBUG_INFO('family = %d, sin = %s', $addr->{'family'}, unpack 'H*', $addr->{'addr'});
       }
    } else {
-      DEBUG_INFO('getaddrinfo(): %s', $info[0]);
+      DEBUG_INFO('getaddrinfo(): %s', $err);
       if ((my @host = split /:/, $host) == 2) { # <hostname>:<service>
           $_[1] = sprintf '[%s]:%s', @host;
           return $this->_hostname_resolve($_[1], $nh);
@@ -156,9 +153,9 @@ sub _hostname_resolve
 
 sub _name_pack
 {
-   return pack_sockaddr_in6_all(
-      $_[1]->{port}, $_[1]->{flowinfo} || 0,
-      $_[1]->{addr}, $_[1]->{scope_id} || 0
+   return pack_sockaddr_in6(
+      $_[1]->{port},          $_[1]->{addr},
+      $_[1]->{scope_id} || 0, $_[1]->{flowinfo} || 0,
    );
 }
 
@@ -169,12 +166,12 @@ sub _address
 
 sub _addr
 {
-   return (unpack_sockaddr_in6_all($_[1]))[2];
+   return (unpack_sockaddr_in6($_[1]))[1];
 }
 
 sub _port
 {
-   return (unpack_sockaddr_in6_all($_[1]))[0];
+   return (unpack_sockaddr_in6($_[1]))[0];
 }
 
 sub _taddress
@@ -193,12 +190,12 @@ sub _taddr
 
 sub _scope_id
 {
-   return (unpack_sockaddr_in6_all($_[1]))[3];
+   return (unpack_sockaddr_in6($_[1]))[2];
 }
 
 sub _flowinfo
 {
-   return (unpack_sockaddr_in6_all($_[1]))[1];
+   return (unpack_sockaddr_in6($_[1]))[3];
 }
 
 # ============================================================================

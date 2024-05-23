@@ -3561,7 +3561,7 @@ non-core module F<Crypt::Rijndael> is needed.
 =item *
 
 To use UDP/IPv6 or TCP/IPv6 as a Transport Domain, the non-core module 
-F<Socket6> is needed.
+F<Socket> is needed.
 
 =back
 

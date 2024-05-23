@@ -60,7 +60,7 @@ REQUIREMENTS
     protocol, the non-core module Crypt::Rijndael is needed.
 
     To use UDP/IPv6 or TCP/IPv6 as a Transport Domain, the non-core 
-    module Socket6 is needed.
+    module Socket is needed.
 
 DOCUMENTATION
 

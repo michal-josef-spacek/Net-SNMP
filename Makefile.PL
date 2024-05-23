@@ -43,6 +43,7 @@ WriteMakefile(
       Digest::SHA  => 0,       # SNMPv3
       Digest::HMAC_MD5 => '1.01', # SNMPv3
       Digest::HMAC_SHA1 => '1.03', # SNMPv3
+      Socket       => '2.000',
    },
    dist          => {
       CI           => 'ci -u -sRel -m\"Changes for $(VERSION)\"',

@@ -33,6 +33,7 @@ Module::Build->new(
       Exporter        => 0,
       IO::Socket      => 0,
       Math::BigInt    => 0,
+      Socket          => '2.000',
    },
    recommends         => {
       Crypt::DES      => '2.03',  # SNMPv3
@@ -41,7 +42,6 @@ Module::Build->new(
       Digest::HMAC_MD5 => '1.01', # SNMPv3
       Digest::HMAC_SHA1 => '1.03', # SNMPv3
       Crypt::Rijndael => '1.02',  # SNMPv3 - AES Cipher Algorithm 
-      Socket6         => '0.23',  # UDP/IPv6 or TCP/IPv6 Transport Domain 
    },
    meta_merge         => {
       resources       => {
